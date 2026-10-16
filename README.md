@@ -35,10 +35,100 @@ $content->admin->publishArticle($article['id']);                         // writ
 Options go in the last array argument of every method: `timeoutMs`, `clientIp`, `cache` (false skips the cache), `tags`, `ttl`.
 `submitForm` also takes `meta` and `turnstileToken`. `listCategories` takes its params first (the JS SDK has options first).
 
-Available now: `getProject`, `listArticles`, `getArticle`, `listCategories`, `getTranslations`, `listPages`, `getPage`, `getForm`,
-`submitForm`, `restartFormPayment`, `listMedia`, `getMedia`, `mediaUrl`, `assetUrl`, `listRedirects`, `resolveRedirect`, `getSeo`,
-`getSitemap`, `search`, `getConsentConfig`, `recordConsent`, `newsletter->subscribe/confirm/unsubscribe` and everything under `admin`.
-The other modules (products, orders, members, ...) follow in a later release.
+Available on the client itself: `getProject`, `listArticles`, `getArticle`, `listCategories`, `getTranslations`, `listPages`, `getPage`,
+`getForm`, `submitForm`, `restartFormPayment`, `listMedia`, `getMedia`, `mediaUrl`, `assetUrl`, `listRedirects`, `resolveRedirect`,
+`getSeo`, `getSitemap`, `search`, `getConsentConfig`, `recordConsent`. Everything else lives in a module (next section).
+
+## Modules
+
+Every module of the JavaScript SDK has a PHP counterpart with the same name and the same method names. Inputs are plain arrays shaped like the
+API, results are the same arrays the JS SDK returns (single objects unwrapped, lists with `total`). The call options (`timeoutMs`, `clientIp`,
+`cache`, `tags`, `ttl`, plus `memberSession`, `idempotencyKey`, `files`, `orderToken` where a method takes them) are the LAST argument.
+
+| Module | What it does |
+|---|---|
+| `$content->products` | `list`, `get`, `categories` (also with a pub token); manage products, variants, atomic `setStock` |
+| `$content->cart` / `$content->orders` | price a cart with a discount code and shipping, then `orders->place([...], ['memberSession' => ...])`; `get`, `list`, `transition`, `cancel`, `update`, `revisions` |
+| `$content->payments` | `startForOrder` (send the buyer to `payment.checkoutUrl`), `listForOrder`, `get`, `refund` (always pass a `requestId`) |
+| `$content->discounts`, `$content->shipping` | manage discount codes and shipping methods |
+| `$content->members` | register, login (+ two-factor), `me`, password reset, sessions; admin `list`, `block`, `resetTotp`, ... (server token only) |
+| `$content->appointments` | `services`, `availability`, `book` (pub token ok), `cancelWithToken`; agenda management |
+| `$content->tickets` | `create` (with `UploadFile`s and an idempotency key), `getByToken`, `replyByToken`, member `list`/`get`/`reply`, attachments |
+| `$content->customers` | your customers' file: CRUD, notes, linked members, orders, invoices |
+| `$content->invoices` | drafts, `finalize`, credit notes, `pdf`, `send`, and the buyer's pay-token page: `byToken`, `payByToken` |
+| `$content->newsletter` | `subscribe`/`confirm`/`unsubscribe` (pub token ok); `lists`, `subscribers`, `campaigns` |
+| `$content->returns`, `reviews`, `downloads` | returns, product reviews, digital downloads |
+| `$content->events`, `$content->faq` | events with registration and check-in (`ticketTypes`), the FAQ (`categories`, `items`) |
+| `$content->legal` | legal documents: the version in force, PDFs, proof of acceptance; with a server token `documents` (versions and publishing) |
+| `$content->chat` | the chatbot: `config`, `open`, `send`, `get`, `feedback`, `verifyRequest`/`verifyConfirm`, `close`; `list` with a server token |
+| `$content->admin` | write routes of articles, categories, pages, redirects, SEO, media, webhooks |
+
+Reads that the JS SDK tags for its cache (products, product categories, appointment services, FAQ, legal) are cached the same way here; writes,
+orders, members, payments and everything with a personal token are never cached. Binary results (invoice PDF, ticket attachment, legal PDF,
+subscriber export) come back as `['bytes' => ..., 'contentType' => ..., 'fileName' => ...]`.
+
+### Webshop: price, order, pay
+
+```php
+$cart = $content->cart->applyCode([
+    'lines' => [['variantId' => $variantId, 'quantity' => 2]],
+    'code' => 'ZOMER',
+    'country' => 'NL',
+], ['clientIp' => $request->ip()]);                       // the server prices it; show $cart to the buyer
+
+$placed = $content->orders->place([
+    'lines' => [['variantId' => $variantId, 'quantity' => 2]],
+    'email' => 'jan@example.nl',
+    'discountCode' => 'ZOMER',
+    'expectedTotalCents' => $cart['totals']['totalCents'],         // a 409 `price_changed` instead of a surprise
+], ['memberSession' => $session, 'clientIp' => $request->ip()]);
+
+$payment = $content->payments->startForOrder($placed['order']['id']);
+header('Location: ' . $payment['payment']['checkoutUrl']); // keep $placed['accessToken'] for returns and downloads, never in a URL
+```
+
+### Members: login with two-factor authentication
+
+```php
+$login = $content->members->login(['email' => $email, 'password' => $password], ['clientIp' => $ip]);
+
+if (($login['status'] ?? null) === 'totp_required') {                     // no session yet: ask for the code
+    $login = $content->members->loginTotp(['challengeToken' => $login['challengeToken'], 'code' => $code], ['clientIp' => $ip]);
+}
+
+$token = $login['session']['token'];                                       // keep it in an httpOnly cookie, never in a URL
+$me = $content->members->me(['session' => $token]);                         // travels as X-FSC-Member-Session
+$content->members->logout(['session' => $token]);
+```
+
+`setupTotp` / `confirmTotp` take either `['session' => ..., 'password' => ...]` or the `['setupToken' => ...]` from `login`;
+`disableTotp` and `regenerateRecoveryCodes` take a `code` or a `recoveryCode`. Recovery codes are only in the confirm response.
+
+### Chat
+
+```php
+$opened = $content->chat->open(['locale' => 'nl'], ['clientIp' => $ip]);
+$id = $opened['conversationId'];
+$conversationToken = $opened['conversationToken'];        // the only key to this conversation: store it, pass it to every call
+
+$answer = $content->chat->send($id, $conversationToken, 'Wanneer ben ik open?', ['clientIp' => $ip]);
+$content->chat->feedback($id, $conversationToken, $answer['message']['id'], 1);
+```
+
+The token goes in `X-FSC-Conversation`, never in a URL. A conversation that belongs to a member needs `['memberSession' => ...]` on every call.
+
+### Files and uploads
+
+Files are `UploadFile` objects. A ticket with attachments goes as multipart (`data` plus one `files` part per file):
+
+```php
+use FullStackStudio\Content\Http\UploadFile;
+
+$content->tickets->create(
+    ['subject' => 'Het werkt niet', 'message' => '...', 'requester' => ['email' => 'jan@example.nl']],
+    ['files' => [new UploadFile(file_get_contents($path), 'scherm.png', 'image/png')], 'idempotencyKey' => $key, 'clientIp' => $ip],
+);
+```
 
 ## Tokens
 

@@ -6,11 +6,23 @@ namespace FullStackStudio\Content\Modules;
 
 use FullStackStudio\Content\Internal\ModuleContext;
 
-/** The public newsletter routes (`newsletter:subscribe`): work with a pub token and a server token. */
+/**
+ * The public newsletter routes (`newsletter:subscribe`): work with a pub token and a server token. Lists, subscribers and campaigns
+ * (`$newsletter->lists`, `->subscribers`, `->campaigns`) are the admin side and need a server token.
+ */
 final class Newsletter
 {
+    public readonly NewsletterLists $lists;
+
+    public readonly NewsletterSubscribers $subscribers;
+
+    public readonly NewsletterCampaigns $campaigns;
+
     public function __construct(private readonly ModuleContext $ctx)
     {
+        $this->lists = new NewsletterLists($ctx);
+        $this->subscribers = new NewsletterSubscribers($ctx);
+        $this->campaigns = new NewsletterCampaigns($ctx);
     }
 
     /**

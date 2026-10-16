@@ -43,7 +43,11 @@ final class CurlTransport implements Transport
             },
         ];
 
-        if ($request->multipart !== null) {
+        if ($request->multipart !== null && $request->hasRepeatedParts()) {
+            [$contentType, $payload] = $request->multipartBody();
+            $options[CURLOPT_HTTPHEADER][] = 'Content-Type: ' . $contentType;
+            $options[CURLOPT_POSTFIELDS] = $payload;
+        } elseif ($request->multipart !== null) {
             $fields = [];
 
             foreach ($request->multipart as $name => $value) {

@@ -6,7 +6,25 @@ namespace FullStackStudio\Content;
 
 use FullStackStudio\Content\Internal\ModuleContext;
 use FullStackStudio\Content\Modules\Admin;
+use FullStackStudio\Content\Modules\Appointments;
+use FullStackStudio\Content\Modules\Cart;
+use FullStackStudio\Content\Modules\Chat;
+use FullStackStudio\Content\Modules\Customers;
+use FullStackStudio\Content\Modules\Discounts;
+use FullStackStudio\Content\Modules\Downloads;
+use FullStackStudio\Content\Modules\Events;
+use FullStackStudio\Content\Modules\Faq;
+use FullStackStudio\Content\Modules\Invoices;
+use FullStackStudio\Content\Modules\Legal;
+use FullStackStudio\Content\Modules\Members;
 use FullStackStudio\Content\Modules\Newsletter;
+use FullStackStudio\Content\Modules\Orders;
+use FullStackStudio\Content\Modules\Payments;
+use FullStackStudio\Content\Modules\Products;
+use FullStackStudio\Content\Modules\Returns;
+use FullStackStudio\Content\Modules\Reviews;
+use FullStackStudio\Content\Modules\Shipping;
+use FullStackStudio\Content\Modules\Tickets;
 
 /**
  * The client for `/api/v1` of Fullstack Content (mirror of the JS SDK `client.ts`).
@@ -35,6 +53,60 @@ final class ContentClient
     /** Subscribe, confirm and unsubscribe for the newsletter (`newsletter:subscribe`; a pub token has it by default). */
     public readonly Newsletter $newsletter;
 
+    /** Pricing a cart: discount codes and shipping options (`cart->applyCode`, `cart->shippingOptions`). */
+    public readonly Cart $cart;
+
+    /** Products: read with any token, manage with a server token. */
+    public readonly Products $products;
+
+    /** Placing, reading and handling orders (server token). */
+    public readonly Orders $orders;
+
+    /** Payments of orders, appointments, submissions: start, read, refund (server token). */
+    public readonly Payments $payments;
+
+    /** Discount codes and promotions (server token). */
+    public readonly Discounts $discounts;
+
+    /** Shipping methods (server token). */
+    public readonly Shipping $shipping;
+
+    /** Member accounts: login with two-factor authentication, account flows and member admin (server token only). */
+    public readonly Members $members;
+
+    /** The customer file of your customers (server token). */
+    public readonly Customers $customers;
+
+    /** Appointments: book as a visitor, manage the agenda with a server token. */
+    public readonly Appointments $appointments;
+
+    /** Support requests from visitors and members. */
+    public readonly Tickets $tickets;
+
+    /** Invoices (server token), plus the buyer side by pay token. */
+    public readonly Invoices $invoices;
+
+    /** Legal documents: read and accept; manage under `legal->documents`. */
+    public readonly Legal $legal;
+
+    /** The chatbot: conversations with a per-conversation token. */
+    public readonly Chat $chat;
+
+    /** Returns: the buyer requests and follows one; handle them with a server token. */
+    public readonly Returns $returns;
+
+    /** Product reviews. */
+    public readonly Reviews $reviews;
+
+    /** The FAQ; categories and items under `faq->categories` / `faq->items` (server token). */
+    public readonly Faq $faq;
+
+    /** Events: list, register, pay; attendance and check-in with a server token. */
+    public readonly Events $events;
+
+    /** Digital products: files and download links. */
+    public readonly Downloads $downloads;
+
     private readonly ModuleContext $context;
 
     /** @param array<string, mixed>|ClientOptions $options see {@see ClientOptions}; throws {@see ContentException} (`invalid_config`) on misuse */
@@ -43,6 +115,24 @@ final class ContentClient
         $this->context = new ModuleContext(ClientOptions::from($options));
         $this->admin = new Admin($this->context);
         $this->newsletter = new Newsletter($this->context);
+        $this->cart = new Cart($this->context);
+        $this->products = new Products($this->context);
+        $this->orders = new Orders($this->context);
+        $this->payments = new Payments($this->context);
+        $this->discounts = new Discounts($this->context);
+        $this->shipping = new Shipping($this->context);
+        $this->members = new Members($this->context);
+        $this->customers = new Customers($this->context);
+        $this->appointments = new Appointments($this->context);
+        $this->tickets = new Tickets($this->context);
+        $this->invoices = new Invoices($this->context);
+        $this->legal = new Legal($this->context);
+        $this->chat = new Chat($this->context);
+        $this->returns = new Returns($this->context);
+        $this->reviews = new Reviews($this->context);
+        $this->faq = new Faq($this->context);
+        $this->events = new Events($this->context);
+        $this->downloads = new Downloads($this->context);
     }
 
     /** @param array<string, mixed>|ClientOptions $options */

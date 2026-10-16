@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Http;
 
-/** An outgoing request. `$body` is a JSON string; `$multipart` (field => string|UploadFile) replaces it for uploads. */
+/**
+ * An outgoing request. `$body` is a JSON string; `$multipart` (field => string|UploadFile) replaces it for uploads.
+ * A field may also be a LIST of strings/files: the part is then repeated under the same name (`files` with several attachments).
+ */
 final class Request
 {
     /**
      * @param array<string, string> $headers
-     * @param array<string, string|UploadFile>|null $multipart
+     * @param array<string, string|UploadFile|list<string|UploadFile>>|null $multipart
      */
     public function __construct(
         public readonly string $method,
@@ -19,6 +22,18 @@ final class Request
         public readonly ?array $multipart = null,
         public readonly int $timeoutMs = 10_000,
     ) {
+    }
+
+    /** Some field holds a list (a repeated part): cURL's field array cannot express that. */
+    public function hasRepeatedParts(): bool
+    {
+        foreach ($this->multipart ?? [] as $value) {
+            if (is_array($value)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -33,14 +48,17 @@ final class Request
 
         foreach ($this->multipart ?? [] as $name => $value) {
             $name = str_replace(['"', "\r", "\n"], '', (string) $name);
-            $body .= "--{$boundary}\r\n";
 
-            if ($value instanceof UploadFile) {
-                $filename = str_replace(['"', "\r", "\n"], '', $value->filename);
-                $body .= "Content-Disposition: form-data; name=\"{$name}\"; filename=\"{$filename}\"\r\n";
-                $body .= "Content-Type: {$value->contentType}\r\n\r\n{$value->contents}\r\n";
-            } else {
-                $body .= "Content-Disposition: form-data; name=\"{$name}\"\r\n\r\n{$value}\r\n";
+            foreach (is_array($value) ? $value : [$value] as $part) {
+                $body .= "--{$boundary}\r\n";
+
+                if ($part instanceof UploadFile) {
+                    $filename = str_replace(['"', "\r", "\n"], '', $part->filename);
+                    $body .= "Content-Disposition: form-data; name=\"{$name}\"; filename=\"{$filename}\"\r\n";
+                    $body .= "Content-Type: {$part->contentType}\r\n\r\n{$part->contents}\r\n";
+                } else {
+                    $body .= "Content-Disposition: form-data; name=\"{$name}\"\r\n\r\n{$part}\r\n";
+                }
             }
         }
 
