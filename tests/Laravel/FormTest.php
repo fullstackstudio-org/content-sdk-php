@@ -1,0 +1,264 @@
+<?php
+
+declare(strict_types=1);
+
+namespace FullStackStudio\Content\Tests\Laravel;
+
+use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Forms;
+use FullStackStudio\Content\Tests\Support\FakeTransport;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Route;
+
+final class FormTest extends LaravelTestCase
+{
+    private FakeTransport $http;
+
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+        $app['config']->set('app.key', 'base64:' . base64_encode(str_repeat('k', 32)));
+        $app['config']->set('content.forms.enabled', true);
+        $app['config']->set('content.forms.locale', 'en');
+    }
+
+    protected function defineRoutes($router): void
+    {
+        $router->middleware('web')->get('/contact', fn () => Blade::render('<x-content::form form-key="contact" />'));
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->http = new FakeTransport();
+        $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' => 'fsc_srv_laraveltoken', 'baseUrl' => 'https://content.test', 'transport' => $this->http]));
+    }
+
+    /** @return array<string, mixed> */
+    private function definition(array $override = []): array
+    {
+        return [...[
+            'key' => 'contact',
+            'name' => 'Contact',
+            'fields' => [
+                ['name' => 'name', 'type' => 'text', 'label' => 'Your <name>', 'required' => true, 'maxLength' => 20],
+                ['name' => 'email', 'type' => 'email', 'label' => 'Email', 'required' => true, 'maxLength' => 100],
+                ['name' => 'topic', 'type' => 'select', 'label' => 'Topic', 'required' => false, 'maxLength' => 50, 'options' => ['Sales', 'Support']],
+                ['name' => 'message', 'type' => 'textarea', 'label' => 'Message', 'required' => false, 'maxLength' => 500],
+                ['name' => 'agree', 'type' => 'checkbox', 'label' => 'I agree', 'required' => true, 'maxLength' => 0],
+            ],
+            'honeypotField' => 'website',
+            'successMessage' => 'Thanks!',
+            'confirmEnabled' => false,
+            'turnstileSiteKey' => null,
+        ], ...$override];
+    }
+
+    private function queueDefinition(array $override = []): void
+    {
+        $this->http->queue(FakeTransport::json(['form' => $this->definition($override)]));
+    }
+
+    private function submit(array $data = [], array $headers = []): \Illuminate\Testing\TestResponse
+    {
+        $data += ['name' => 'Jan', 'email' => 'jan@example.nl', 'agree' => '1', 'website' => ''];
+
+        return $this->withHeaders($headers + ['Referer' => 'http://localhost/contact?utm_source=news&x=1'])->post('/content/forms/contact', $data);
+    }
+
+    public function testGetRendersAllFieldsWithHoneypotAndNoJavascript(): void
+    {
+        $this->queueDefinition();
+        $html = $this->get('/contact')->assertOk()->getContent();
+
+        self::assertStringContainsString('<form class="fsc-form" method="POST" action="http://localhost/content/forms/contact" novalidate>', $html);
+        self::assertStringContainsString('name="_token"', $html);
+        self::assertStringContainsString('Your &lt;name&gt;', $html, 'labels are escaped');
+        self::assertStringContainsString('<input id="fsc-form-contact-email" name="email" class="fsc-field__control" type="email"', $html);
+        self::assertStringContainsString('<textarea id="fsc-form-contact-message"', $html);
+        self::assertStringContainsString('<option value="Support" >Support</option>', $html);
+        self::assertStringContainsString('type="checkbox" value="1"', $html);
+        self::assertStringContainsString('name="website" type="text" tabindex="-1" autocomplete="off"', $html);
+        self::assertStringContainsString('class="fsc-submit" type="submit">Send</button>', $html);
+        self::assertStringNotContainsString('<script', $html);
+    }
+
+    public function testFormTextsFollowTheLocale(): void
+    {
+        $this->queueDefinition();
+        $html = Blade::render('<x-content::form form-key="contact" locale="nl" :labels="[\'submit\' => \'Verstuur nu\']" />');
+
+        self::assertStringContainsString('>Verstuur nu</button>', $html);
+        self::assertStringContainsString('Kies…', $html);
+    }
+
+    public function testALoadFailureShowsAMessageInsteadOfBreakingThePage(): void
+    {
+        $this->http->always(FakeTransport::json(['error' => ['code' => 'not_found', 'message' => 'x']], 404));
+
+        self::assertStringContainsString('The form could not be loaded.', $this->get('/contact')->assertOk()->getContent());
+    }
+
+    public function testTurnstileWidgetIsRenderedWhenTheFormHasASiteKey(): void
+    {
+        $this->queueDefinition(['turnstileSiteKey' => '0x4AAAA']);
+        $html = $this->get('/contact')->getContent();
+
+        self::assertStringContainsString('class="cf-turnstile" data-sitekey="0x4AAAA"', $html);
+        self::assertStringContainsString('https://challenges.cloudflare.com/turnstile/v0/api.js', $html);
+    }
+
+    public function testPostSubmitsTheValuesWithIpMetaAndRedirectsBackWithAMessage(): void
+    {
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => 'We got it']));
+
+        $response = $this->submit(['topic' => 'Sales', 'message' => 'Hi', 'extra' => 'ignored'], ['CF-Connecting-IP' => '203.0.113.9']);
+
+        $response->assertRedirect('/contact?utm_source=news&x=1#fsc-form-contact');
+        $response->assertSessionHas('content_form.contact', ['status' => 'success', 'message' => 'We got it']);
+
+        $request = $this->http->last();
+        self::assertSame('POST', $request->method);
+        self::assertSame('/forms/contact/submissions', $this->http->lastPath());
+        self::assertSame('203.0.113.9', $request->headers['X-FSC-Client-Ip']);
+        $body = $this->http->lastBody();
+        self::assertSame(['name' => 'Jan', 'email' => 'jan@example.nl', 'topic' => 'Sales', 'message' => 'Hi', 'agree' => true, 'website' => ''], array_diff_key($body, ['_meta' => 1]));
+        self::assertSame('news', $body['_meta']['utm_source']);
+        self::assertSame('http://localhost/contact?utm_source=news&x=1', $body['_meta']['page_url']);
+        self::assertSame('en', $body['_meta']['locale']);
+        self::assertArrayNotHasKey('extra', $body);
+    }
+
+    public function testTheIpHeaderIsConfigurableAndFallsBackToTheRequestIp(): void
+    {
+        config(['content.forms.ip_header' => 'x-real-ip']);
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => '']));
+        $this->submit([], ['X-Real-IP' => '198.51.100.7', 'CF-Connecting-IP' => '203.0.113.9']);
+        self::assertSame('198.51.100.7', $this->http->last()->headers['X-FSC-Client-Ip']);
+
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['id' => 's2', 'successMessage' => '']));
+        $this->submit([], ['X-Real-IP' => 'not-an-ip']);
+        self::assertSame('127.0.0.1', $this->http->last()->headers['X-FSC-Client-Ip']);
+    }
+
+    public function testASuccessWithoutAMessageFallsBackToTheDefinitionMessage(): void
+    {
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => '']));
+
+        $this->submit()->assertSessionHas('content_form.contact.message', 'Thanks!');
+    }
+
+    public function testLocalValidationFailuresNeverReachContentAndKeepTheOldInput(): void
+    {
+        $this->queueDefinition();
+
+        $response = $this->submit(['name' => '', 'agree' => '', 'email' => 'jan@example.nl', 'message' => 'keep me']);
+
+        $response->assertRedirect('/contact?utm_source=news&x=1#fsc-form-contact');
+        $response->assertSessionHasInput('message', 'keep me');
+        $response->assertSessionMissing('_old_input.website');
+        $errors = $response->baseResponse->getSession()->get('errors')->getBag('content_form_contact');
+        self::assertSame('This field is required.', $errors->first('name'));
+        self::assertSame('This field is required.', $errors->first('agree'));
+        self::assertCount(1, $this->http->requests, 'only the definition was fetched, nothing submitted');
+    }
+
+    public function testErrorsAndOldInputComeBackInTheNextRender(): void
+    {
+        $this->queueDefinition();
+        $this->submit(['name' => '', 'message' => 'keep me']);
+
+        $this->queueDefinition();
+        $html = $this->get('/contact')->getContent();
+
+        self::assertStringContainsString('aria-invalid="true" aria-describedby="fsc-form-contact-name-error"', $html);
+        self::assertStringContainsString('<p class="fsc-field__error" id="fsc-form-contact-name-error" role="alert">This field is required.</p>', $html);
+        self::assertStringContainsString('keep me</textarea>', $html);
+        self::assertStringContainsString('fsc-field--invalid', $html);
+    }
+
+    public function testAValidationErrorFromContentBecomesFieldErrors(): void
+    {
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['error' => ['code' => 'invalid_request', 'message' => 'Ongeldige inzending: email is geen geldig e-mailadres; name is verplicht (en 2 meer)']], 400));
+
+        $response = $this->submit();
+
+        $errors = $response->baseResponse->getSession()->get('errors')->getBag('content_form_contact');
+        self::assertSame('Is geen geldig e-mailadres', $errors->first('email'));
+        self::assertSame('Is verplicht', $errors->first('name'));
+        $response->assertSessionMissing('content_form.contact');
+        $response->assertSessionHasInput('name', 'Jan');
+    }
+
+    public function testRateLimitAndServerErrorsGiveAGeneralMessage(): void
+    {
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['error' => ['code' => 'rate_limited', 'message' => 'x']], 429));
+        $this->submit()->assertSessionHas('content_form.contact', ['status' => 'error', 'message' => 'You have submitted too often. Please try again in a minute.']);
+
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['error' => ['code' => 'server_error', 'message' => 'x']], 500));
+        $this->submit()->assertSessionHas('content_form.contact.message', 'Sending failed. Please try again later.');
+    }
+
+    public function testTheHoneypotValueIsPassedThroughSoContentCanStoreItAsSpam(): void
+    {
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => '']));
+        $this->submit(['website' => 'http://spam.test']);
+
+        self::assertSame('http://spam.test', $this->http->lastBody()['website']);
+    }
+
+    public function testTurnstileTokenIsRequiredAndForwarded(): void
+    {
+        $this->queueDefinition(['turnstileSiteKey' => '0x4AAAA']);
+        $this->submit()->assertSessionHas('content_form.contact', ['status' => 'error', 'message' => 'Please confirm that you are not a robot first.']);
+        self::assertCount(1, $this->http->requests);
+
+        $this->queueDefinition(['turnstileSiteKey' => '0x4AAAA']);
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => '']));
+        $this->submit(['cf-turnstile-response' => 'tok']);
+        self::assertSame('tok', $this->http->lastBody()['_turnstile']);
+    }
+
+    public function testAPaymentFormRedirectsToTheCheckoutAndConvertsAChoiceToCents(): void
+    {
+        $definition = ['fields' => [
+            ['name' => 'name', 'type' => 'text', 'label' => 'Name', 'required' => true, 'maxLength' => 50],
+            ['name' => 'amount', 'type' => 'payment', 'label' => 'Amount', 'required' => true, 'maxLength' => 0, 'payment' => ['mode' => 'choice', 'amountCents' => null, 'minCents' => 500, 'maxCents' => 10000, 'currency' => 'EUR', 'description' => 'Gift']],
+        ]];
+        $this->queueDefinition($definition);
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => '', 'payment' => ['checkoutUrl' => 'https://pay.test/c/1']]));
+
+        $this->submit(['amount' => '12,50'])->assertRedirect('https://pay.test/c/1');
+        self::assertSame(1250, $this->http->lastBody()['amount']);
+    }
+
+    public function testAnUnknownFormIs404(): void
+    {
+        $this->http->always(FakeTransport::json(['error' => ['code' => 'not_found', 'message' => 'x']], 404));
+
+        $this->submit()->assertNotFound();
+    }
+
+    public function testFormRouteIsOptIn(): void
+    {
+        self::assertTrue(Route::has('content.form'));
+    }
+
+    public function testFormsHelpers(): void
+    {
+        self::assertSame(1250, Forms::cents('12.5'));
+        self::assertNull(Forms::cents('12,505'));
+        self::assertSame('Versturen', Forms::labels('nl-NL')['submit']);
+        self::assertSame('Send', Forms::labels('xx')['submit']);
+        self::assertSame(['fieldErrors' => [], 'rest' => ['boom']], Forms::parseFieldErrors('boom', []));
+    }
+}

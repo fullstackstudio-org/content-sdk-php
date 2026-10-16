@@ -20,6 +20,12 @@ final class Content extends Facade
         return ContentClient::class;
     }
 
+    /** Registers the form route (`POST content/forms/{key}`) behind `<x-content::form>`. */
+    public static function formRoutes(): void
+    {
+        ContentServiceProvider::registerFormRoute();
+    }
+
     /** Registers the webhook route (`POST content/webhook`). Put it in `routes/api.php` or any routes file. */
     public static function routes(): void
     {
