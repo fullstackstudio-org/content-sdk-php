@@ -113,6 +113,39 @@ final class Forms
     }
 
     /**
+     * Uploads of `file` fields that failed on the PHP side (size limits, partial upload, no tmp dir, ...): the `UPLOAD_ERR_*` codes, without
+     * `UPLOAD_ERR_NO_FILE` (an empty file input is not a problem). `values()` drops such uploads, so a caller must check this and refuse the submit.
+     *
+     * @param array<string, mixed> $definition
+     * @param array<string, mixed> $files e.g. `$request->allFiles()`
+     * @return list<int>
+     */
+    public static function uploadErrors(array $definition, array $files): array
+    {
+        $codes = [];
+
+        foreach ($definition['fields'] ?? [] as $field) {
+            if (($field['type'] ?? '') !== 'file') {
+                continue;
+            }
+
+            $entry = $files[(string) $field['name']] ?? null;
+
+            foreach (is_array($entry) ? $entry : [$entry] as $file) {
+                if (is_object($file) && method_exists($file, 'getError')) {
+                    $code = (int) $file->getError();
+
+                    if ($code !== UPLOAD_ERR_OK && $code !== UPLOAD_ERR_NO_FILE) {
+                        $codes[] = $code;
+                    }
+                }
+            }
+        }
+
+        return $codes;
+    }
+
+    /**
      * The usable uploads out of one `allFiles()` entry (a file or a list of files): real files with content.
      *
      * @return list<\SplFileInfo>

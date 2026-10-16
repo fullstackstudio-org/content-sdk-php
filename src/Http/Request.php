@@ -53,9 +53,10 @@ final class Request
                 $body .= "--{$boundary}\r\n";
 
                 if ($part instanceof UploadFile) {
-                    $filename = str_replace(['"', "\r", "\n"], '', $part->filename);
+                    $filename = str_replace(['"', '\\', "\r", "\n"], '', $part->filename);
+                    $type = preg_match('#^[A-Za-z0-9][A-Za-z0-9!\#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!\#$&^_.+-]*$#', $part->contentType) === 1 ? $part->contentType : 'application/octet-stream';
                     $body .= "Content-Disposition: form-data; name=\"{$name}\"; filename=\"{$filename}\"\r\n";
-                    $body .= "Content-Type: {$part->contentType}\r\n\r\n{$part->contents}\r\n";
+                    $body .= "Content-Type: {$type}\r\n\r\n{$part->contents}\r\n";
                 } else {
                     $body .= "Content-Disposition: form-data; name=\"{$name}\"\r\n\r\n{$part}\r\n";
                 }

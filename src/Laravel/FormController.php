@@ -35,6 +35,19 @@ final class FormController
         }
 
         $labels = Forms::labels($this->locale($config), (array) $config->get('content.forms.labels', []));
+        // A POST over `post_max_size` arrives completely empty (PHP drops body and files): never submit that.
+        if ((int) $request->server('CONTENT_LENGTH', 0) > 0 && $request->all() === [] && $request->allFiles() === []) {
+            return $this->failed($request, $key, $definition, [], $labels['fileTooLarge']);
+        }
+
+        $uploadErrors = Forms::uploadErrors($definition, $request->allFiles());
+
+        if ($uploadErrors !== []) {
+            $tooLarge = array_intersect($uploadErrors, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE]) !== [];
+
+            return $this->failed($request, $key, $definition, [], $tooLarge ? $labels['fileTooLarge'] : $labels['genericError']);
+        }
+
         $values = Forms::values($definition, $request->all(), $request->allFiles());
         $errors = Forms::validate($definition, $values, $labels);
         $turnstile = $this->turnstileToken($request);

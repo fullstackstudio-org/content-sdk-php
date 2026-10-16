@@ -348,4 +348,48 @@ final class FormTest extends LaravelTestCase
             ->post('/content/forms/contact', ['name' => 'Jan', 'website' => '', 'cv' => $cv])
             ->assertSessionHas('content_form.contact.message', 'One of the files is not an allowed type.');
     }
+
+    private function failedUpload(int $error): \Illuminate\Http\UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'fsc');
+
+        return new \Illuminate\Http\UploadedFile($path, 'cv.pdf', 'application/pdf', $error, true);
+    }
+
+    public function testPhpUploadErrorsAreNotDroppedSilently(): void
+    {
+        $post = fn (int $error) => $this->withHeaders(['Referer' => 'http://localhost/contact'])
+            ->post('/content/forms/contact', ['name' => 'Jan', 'website' => '', 'cv' => $this->failedUpload($error)]);
+
+        $this->queueDefinition($this->fileDefinition());
+        $post(UPLOAD_ERR_INI_SIZE)->assertSessionHas('content_form.contact', ['status' => 'error', 'message' => 'A file is too large.']);
+
+        $this->queueDefinition($this->fileDefinition());
+        $post(UPLOAD_ERR_FORM_SIZE)->assertSessionHas('content_form.contact.message', 'A file is too large.');
+
+        $this->queueDefinition($this->fileDefinition());
+        $post(UPLOAD_ERR_PARTIAL)->assertSessionHas('content_form.contact', ['status' => 'error', 'message' => 'Sending failed. Please try again later.']);
+
+        // Only the three definition fetches: nothing was submitted.
+        self::assertCount(3, $this->http->requests);
+    }
+
+    public function testAnEmptyFileInputIsNotAnError(): void
+    {
+        self::assertSame([], Forms::uploadErrors($this->fileDefinition(), ['cv' => $this->failedUpload(UPLOAD_ERR_NO_FILE)]));
+        self::assertSame([UPLOAD_ERR_PARTIAL], Forms::uploadErrors($this->fileDefinition(), ['extra' => [$this->failedUpload(UPLOAD_ERR_PARTIAL)], 'name' => $this->failedUpload(UPLOAD_ERR_PARTIAL)]));
+    }
+
+    public function testARequestEmptiedByPostMaxSizeIsNeverSubmitted(): void
+    {
+        $this->queueDefinition($this->fileDefinition());
+
+        // Laravel's own ValidatePostSize would answer 413 first; this is the safety net for apps that removed it.
+        $response = $this->withoutMiddleware(\Illuminate\Http\Middleware\ValidatePostSize::class)
+            ->withHeaders(['Referer' => 'http://localhost/contact'])
+            ->call('POST', '/content/forms/contact', [], [], [], ['CONTENT_LENGTH' => 20_000_000, 'CONTENT_TYPE' => 'multipart/form-data; boundary=x']);
+        $response->assertStatus(302)->assertSessionHas('content_form.contact', ['status' => 'error', 'message' => 'A file is too large.']);
+
+        self::assertCount(1, $this->http->requests);
+    }
 }

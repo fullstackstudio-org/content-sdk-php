@@ -249,4 +249,69 @@ final class FormFilesTest extends ModuleTestCase
         self::assertSame(['cv' => 'This field is required.'], Forms::validate($definition, ['name' => 'Jan'], $labels));
         self::assertSame([], Forms::validate($definition, ['name' => 'Jan', 'cv' => [$file]], $labels));
     }
+
+    public function testMultipartPartHeadersAreSanitised(): void
+    {
+        $request = new \FullStackStudio\Content\Http\Request('POST', 'http://x.test', [], null, [
+            'file' => new UploadFile('DATA', "ev\\il\"\r\nX: y.pdf", "text/html\r\nX-Evil: 1"),
+            'ok' => new UploadFile('DATA', 'a.pdf', 'application/vnd.ms-excel; charset=x'),
+            'fine' => new UploadFile('DATA', 'b.pdf', 'image/svg+xml'),
+        ]);
+        [, $body] = $request->multipartBody();
+
+        self::assertStringContainsString("name=\"file\"; filename=\"evilX: y.pdf\"\r\nContent-Type: application/octet-stream\r\n\r\nDATA", $body);
+        self::assertStringNotContainsString('X-Evil', $body);
+        self::assertStringContainsString("filename=\"a.pdf\"\r\nContent-Type: application/octet-stream\r\n", $body);
+        self::assertStringContainsString("filename=\"b.pdf\"\r\nContent-Type: image/svg+xml\r\n", $body);
+    }
+
+    public function testCurlSingleFileMediaUploadKeepsItsShape(): void
+    {
+        if (!function_exists('proc_open') || !extension_loaded('curl')) {
+            self::markTestSkipped('needs proc_open and ext-curl');
+        }
+
+        $port = random_int(20000, 40000);
+        $process = proc_open([PHP_BINARY, '-d', 'enable_post_data_reading=0', '-S', "127.0.0.1:{$port}", __DIR__ . '/../Support/echo-server.php'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+
+        if (!is_resource($process)) {
+            self::markTestSkipped('could not start the PHP built-in server');
+        }
+
+        try {
+            $socket = false;
+
+            for ($i = 0; $i < 50 && $socket === false; $i++) {
+                $socket = @fsockopen('127.0.0.1', $port, $errno, $error, 0.2);
+                usleep(100_000);
+            }
+
+            if ($socket === false) {
+                self::markTestSkipped('the PHP built-in server did not start');
+            }
+
+            fclose($socket);
+
+            $client = new ContentClient(['token' => self::SERVER, 'baseUrl' => "http://127.0.0.1:{$port}", 'transport' => new CurlTransport()]);
+            // The echo server answers with its own JSON; uploadMedia only reads `media` out of it, the raw request is checked through a second call below.
+            $request = new \FullStackStudio\Content\Http\Request('POST', "http://127.0.0.1:{$port}/media", ['Authorization' => 'Bearer x'], null, [
+                'file' => new UploadFile('PNGDATA', 'a.png', 'image/png'),
+                'alt' => 'Logo',
+            ]);
+            $response = (new CurlTransport())->send($request);
+            $echo = json_decode($response->body, true);
+
+            self::assertMatchesRegularExpression('/^multipart\/form-data; boundary=\S+$/', $echo['contentType']);
+            $body = base64_decode($echo['body']);
+            self::assertSame(1, substr_count($body, 'name="file"; filename="a.png"'));
+            self::assertStringContainsString("name=\"file\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\nPNGDATA\r\n", $body);
+            self::assertStringContainsString("name=\"alt\"\r\n\r\nLogo\r\n", $body);
+            self::assertStringEndsWith("--\r\n", $body);
+            self::assertSame(200, $response->status);
+            unset($client);
+        } finally {
+            proc_terminate($process);
+            proc_close($process);
+        }
+    }
 }
