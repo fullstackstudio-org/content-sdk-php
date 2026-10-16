@@ -145,6 +145,16 @@ final class FormTest extends LaravelTestCase
         self::assertSame('127.0.0.1', $this->http->last()->headers['X-FSC-Client-Ip']);
     }
 
+    public function testARefererThatPointsToAnotherHostNeverBecomesTheRedirect(): void
+    {
+        foreach (['http://localhost//evil.example/x', 'http://localhost/\\evil.example', 'http://evil.example/contact'] as $referer) {
+            $this->queueDefinition();
+            $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => 'ok']));
+
+            $this->submit([], ['Referer' => $referer])->assertRedirect('/#fsc-form-contact');
+        }
+    }
+
     public function testASuccessWithoutAMessageFallsBackToTheDefinitionMessage(): void
     {
         $this->queueDefinition();

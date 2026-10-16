@@ -113,7 +113,14 @@ final class FormController
             return null;
         }
 
-        return ($parts['path'] ?? '/') . (isset($parts['query']) ? '?' . $parts['query'] : '');
+        $path = $parts['path'] ?? '/';
+
+        // "//evil.example" or "/\\evil.example" would be read by the browser as another host (open redirect).
+        if (!str_starts_with($path, '/') || str_starts_with($path, '//') || str_contains($path, '\\')) {
+            return null;
+        }
+
+        return $path . (isset($parts['query']) ? '?' . $parts['query'] : '');
     }
 
     private function locale(Repository $config): string
