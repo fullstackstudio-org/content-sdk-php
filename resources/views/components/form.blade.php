@@ -7,7 +7,7 @@
 @php
     $turnstileKey = $definition['turnstileSiteKey'] ?? null;
 @endphp
-<form {{ $attributes->class(['fsc-form']) }} method="POST" action="{{ $action }}" novalidate>
+<form {{ $attributes->class(['fsc-form']) }} method="POST" action="{{ $action }}"@if (\FullStackStudio\Content\Forms::hasFileField($definition)) enctype="multipart/form-data"@endif novalidate>
     @csrf
 @foreach ($definition['fields'] ?? [] as $field)
     @php
@@ -31,6 +31,12 @@
         <label class="fsc-field__label" for="{{ $id }}">{{ $field['label'] ?? $name }}@if ($field['required'] ?? false)<span class="fsc-field__required"><span aria-hidden="true"> *</span><span class="fsc-sr-only"> ({{ $labels['required'] }})</span></span>@endif</label>
         @if ($type === 'textarea')
         <textarea id="{{ $id }}" name="{{ $name }}" class="fsc-field__control" rows="5" maxlength="{{ (int) ($field['maxLength'] ?? 5000) }}" @required($field['required'] ?? false) {!! $aria !!}>{{ $value }}</textarea>
+        @elseif ($type === 'file')
+        @php
+            $maxFiles = max(1, (int) ($field['file']['maxFiles'] ?? 1));
+            $accept = \FullStackStudio\Content\Forms::acceptAttribute($field);
+        @endphp
+        <input id="{{ $id }}" name="{{ $name }}{{ $maxFiles > 1 ? '[]' : '' }}" class="fsc-field__control" type="file"@if ($maxFiles > 1) multiple @endif @if ($accept !== '') accept="{{ $accept }}" @endif @required($field['required'] ?? false) {!! $aria !!}>
         @elseif ($type === 'select')
         <select id="{{ $id }}" name="{{ $name }}" class="fsc-field__control" @required($field['required'] ?? false) {!! $aria !!}>
             <option value="">{{ $labels['selectPlaceholder'] }}</option>

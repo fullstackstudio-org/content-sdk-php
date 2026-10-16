@@ -21,6 +21,8 @@ final class Forms
             'loadError' => 'The form could not be loaded.',
             'honeypot' => 'Leave this field empty',
             'invalidAmount' => 'Enter a valid amount.',
+            'fileTooLarge' => 'A file is too large.',
+            'fileType' => 'One of the files is not an allowed type.',
         ],
         'nl' => [
             'submit' => 'Versturen',
@@ -34,7 +36,15 @@ final class Forms
             'loadError' => 'Het formulier kon niet worden geladen.',
             'honeypot' => 'Laat dit veld leeg',
             'invalidAmount' => 'Vul een geldig bedrag in.',
+            'fileTooLarge' => 'Een bestand is te groot.',
+            'fileType' => 'Een van de bestanden heeft geen toegestaan type.',
         ],
+    ];
+
+    /** Extensions per `accept` token of a `file` field (the API's fixed set), for the HTML `accept` attribute. */
+    public const FILE_EXTENSIONS = [
+        'pdf' => ['.pdf'], 'jpg' => ['.jpg', '.jpeg'], 'png' => ['.png'], 'webp' => ['.webp'], 'heic' => ['.heic', '.heif'], 'gif' => ['.gif'],
+        'doc' => ['.doc'], 'docx' => ['.docx'], 'xls' => ['.xls'], 'xlsx' => ['.xlsx'], 'odt' => ['.odt'], 'ods' => ['.ods'], 'txt' => ['.txt'], 'csv' => ['.csv'], 'zip' => ['.zip'],
     ];
 
     private const TEXT_LENGTH_TYPES = ['text', 'textarea', 'email', 'tel', 'url'];
@@ -56,12 +66,15 @@ final class Forms
     /**
      * The values of the request that belong to the form: its fields as entered (a checkbox as bool, a `choice` payment as cents)
      * plus the honeypot field. Anything else in the request is ignored.
+     * File fields come from `$files` (`name => SplFileInfo|list<SplFileInfo>`, e.g. `$request->allFiles()`) and are only taken when the definition has
+     * a `file` field of that name; empty or invalid uploads are dropped. A form without file fields gets exactly the old result.
      *
      * @param array<string, mixed> $definition
      * @param array<string, mixed> $input
-     * @return array<string, string|bool|int>
+     * @param array<string, mixed> $files
+     * @return array<string, string|bool|int|\SplFileInfo|list<\SplFileInfo>>
      */
-    public static function values(array $definition, array $input): array
+    public static function values(array $definition, array $input, array $files = []): array
     {
         $values = [];
 
@@ -70,7 +83,13 @@ final class Forms
             $type = (string) ($field['type'] ?? 'text');
             $raw = $input[$name] ?? null;
 
-            if ($type === 'checkbox') {
+            if ($type === 'file') {
+                $list = self::uploads($files[$name] ?? null);
+
+                if ($list !== []) {
+                    $values[$name] = $list;
+                }
+            } elseif ($type === 'checkbox') {
                 $values[$name] = $raw !== null && $raw !== '' && $raw !== '0' && $raw !== false;
             } elseif ($type === 'payment') {
                 // `fixed`: the server decides the amount, send nothing. `choice`: the visitor enters major units, Content wants cents.
@@ -91,6 +110,56 @@ final class Forms
         }
 
         return $values;
+    }
+
+    /**
+     * The usable uploads out of one `allFiles()` entry (a file or a list of files): real files with content.
+     *
+     * @return list<\SplFileInfo>
+     */
+    private static function uploads(mixed $entry): array
+    {
+        $list = [];
+
+        foreach (is_array($entry) ? $entry : [$entry] as $file) {
+            if (!$file instanceof \SplFileInfo || !$file->isFile() || $file->getSize() === 0) {
+                continue;
+            }
+
+            if (method_exists($file, 'isValid') && !$file->isValid()) {
+                continue;
+            }
+
+            $list[] = $file;
+        }
+
+        return $list;
+    }
+
+    /** The value of the HTML `accept` attribute for a `file` field, e.g. `.pdf,.jpg,.jpeg` (empty when the field has no `file.accept`). @param array<string, mixed> $field */
+    public static function acceptAttribute(array $field): string
+    {
+        $extensions = [];
+
+        foreach ((array) ($field['file']['accept'] ?? []) as $token) {
+            foreach (self::FILE_EXTENSIONS[(string) $token] ?? [] as $extension) {
+                $extensions[] = $extension;
+            }
+        }
+
+        return implode(',', $extensions);
+    }
+
+    /** The form has a `file` field: its `<form>` needs `enctype="multipart/form-data"`. @param array<string, mixed> $definition */
+    public static function hasFileField(array $definition): bool
+    {
+        foreach ($definition['fields'] ?? [] as $field) {
+            if (($field['type'] ?? '') === 'file') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** "12", "12,50" or "12.5" => cents; null if it is not an amount. */
@@ -131,6 +200,14 @@ final class Forms
             }
 
             $value = $values[$name] ?? null;
+
+            if ($type === 'file') {
+                if ($required && !is_array($value)) {
+                    $errors[$name] = $labels['fieldRequired'];
+                }
+
+                continue;
+            }
 
             if ($required && ($type === 'checkbox' ? $value !== true : !is_string($value) || trim($value) === '')) {
                 $errors[$name] = $labels['fieldRequired'];

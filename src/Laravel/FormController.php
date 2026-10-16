@@ -35,7 +35,7 @@ final class FormController
         }
 
         $labels = Forms::labels($this->locale($config), (array) $config->get('content.forms.labels', []));
-        $values = Forms::values($definition, $request->all());
+        $values = Forms::values($definition, $request->all(), $request->allFiles());
         $errors = Forms::validate($definition, $values, $labels);
         $turnstile = $this->turnstileToken($request);
         $needsTurnstile = !empty($definition['turnstileSiteKey']);
@@ -63,6 +63,14 @@ final class FormController
         try {
             $result = $client->submitForm($key, $values, $options);
         } catch (ContentException $e) {
+            if ($e->status() === 413) {
+                return $this->failed($request, $key, $definition, [], $labels['fileTooLarge']);
+            }
+
+            if ($e->status() === 415) {
+                return $this->failed($request, $key, $definition, [], $labels['fileType']);
+            }
+
             if ($e->status() === 400) {
                 $parsed = Forms::parseFieldErrors($e->getMessage(), $definition['fields'] ?? []);
 
@@ -84,7 +92,8 @@ final class FormController
     /** @param array<string, mixed> $definition @param array<string, string> $errors */
     private function failed(Request $request, string $key, array $definition, array $errors, ?string $general): RedirectResponse
     {
-        $hidden = ['_token', 'cf-turnstile-response', (string) ($definition['honeypotField'] ?? '')];
+        // Uploaded files cannot go into the session: drop them from the old input (the visitor picks them again).
+        $hidden = ['_token', 'cf-turnstile-response', (string) ($definition['honeypotField'] ?? ''), ...array_keys($request->allFiles())];
         $redirect = $this->back($request, $key)->withInput($request->except($hidden));
 
         if ($errors !== []) {

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Http;
 
-use CURLStringFile;
-
 /** The default transport: ext-curl, no redirects, timeout from the request. */
 final class CurlTransport implements Transport
 {
@@ -43,18 +41,11 @@ final class CurlTransport implements Transport
             },
         ];
 
-        if ($request->multipart !== null && $request->hasRepeatedParts()) {
+        if ($request->multipart !== null) {
+            // One encoder for both transports ({@see Request::multipartBody()}): repeated parts and identical bytes on the wire.
             [$contentType, $payload] = $request->multipartBody();
             $options[CURLOPT_HTTPHEADER][] = 'Content-Type: ' . $contentType;
             $options[CURLOPT_POSTFIELDS] = $payload;
-        } elseif ($request->multipart !== null) {
-            $fields = [];
-
-            foreach ($request->multipart as $name => $value) {
-                $fields[$name] = $value instanceof UploadFile ? new CURLStringFile($value->contents, $value->filename, $value->contentType) : $value;
-            }
-
-            $options[CURLOPT_POSTFIELDS] = $fields;
         } elseif ($request->body !== null) {
             $options[CURLOPT_POSTFIELDS] = $request->body;
         }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content;
 
+use FullStackStudio\Content\Http\UploadFile;
+use FullStackStudio\Content\Internal\Arr;
 use FullStackStudio\Content\Internal\ModuleContext;
 use FullStackStudio\Content\Modules\Admin;
 use FullStackStudio\Content\Modules\Appointments;
@@ -43,7 +45,10 @@ use FullStackStudio\Content\Modules\Tickets;
  */
 final class ContentClient
 {
-    public const VERSION = '0.4.0';
+    public const VERSION = '0.5.0';
+
+    /** Total size of the files of one submission (the API's limit). */
+    private const MAX_FORM_FILES_BYTES = 50 * 1024 * 1024;
 
     private const UUID = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD';
 
@@ -287,6 +292,11 @@ final class ContentClient
      * unchanged when you build the form yourself: a human leaves it empty. Never cached. Call options besides the common ones:
      * `meta` (array, sent as `_meta`) and `turnstileToken` (sent as `_turnstile`).
      *
+     * A value for a `file` field is an `\SplFileInfo` (Laravel/Symfony `UploadedFile` included), an {@see UploadFile}, or a list of them
+     * (up to the field's `maxFiles`). With files the request goes as `multipart/form-data` (booleans as "true"/"false", numbers as text,
+     * `_meta` as JSON text); without files it is the usual JSON request. Content checks size, type and count (400/413/415) and the whole
+     * submission may not exceed 50 MB; files are read into memory, so this SDK refuses more than 50 MB up front.
+     *
      * @param array<string, mixed> $values
      * @param array{meta?: array<string, mixed>, turnstileToken?: string, clientIp?: string, timeoutMs?: int} $options
      * @return array<string, mixed>
@@ -309,10 +319,122 @@ final class ContentClient
         return $this->context->execute([
             'method' => 'POST',
             'path' => '/forms/' . ModuleContext::seg($key) . '/submissions',
-            'body' => $body,
+            ...self::formPayload($body),
             'headers' => $ip !== null ? ['X-FSC-Client-Ip' => $ip] : null,
             'options' => $options,
         ])->data;
+    }
+
+    /**
+     * Downloads a file that a visitor attached to a submission (server token with `forms:read`; the `files[].id` of a submission).
+     * Content serves it as an attachment; treat the bytes as untrusted (never echo them inline).
+     *
+     * @param array<string, mixed> $options
+     * @return array{bytes: string, contentType: string, fileName: string|null}
+     */
+    public function downloadSubmissionFile(string $formKey, string $submissionId, string $fileId, array $options = []): array
+    {
+        return $this->context->download([
+            'path' => '/forms/' . ModuleContext::seg($formKey) . '/submissions/' . ModuleContext::seg($submissionId) . '/files/' . ModuleContext::seg($fileId),
+            'options' => $options,
+        ]);
+    }
+
+    /**
+     * The `body` (JSON) or `form` (multipart) part of a submission request.
+     *
+     * @param array<string, mixed> $body
+     * @return array<string, mixed>
+     */
+    private static function formPayload(array $body): array
+    {
+        $parts = [];
+        $total = 0;
+        $hasFiles = false;
+
+        foreach ($body as $name => $value) {
+            $files = null;
+
+            if ($value instanceof \SplFileInfo || $value instanceof UploadFile) {
+                $files = [$value];
+            } elseif (is_array($value) && $value !== [] && array_is_list($value) && array_filter($value, static fn (mixed $v): bool => $v instanceof \SplFileInfo || $v instanceof UploadFile) !== []) {
+                $files = $value;
+            }
+
+            if ($files === null) {
+                continue;
+            }
+
+            $hasFiles = true;
+            $list = [];
+
+            foreach ($files as $file) {
+                $upload = self::toUpload($file);
+                $total += strlen($upload->contents);
+
+                if ($total > self::MAX_FORM_FILES_BYTES) {
+                    throw new ContentException(0, 'invalid_input', 'The files of a submission may not exceed 50 MB together.');
+                }
+
+                $list[] = $upload;
+            }
+
+            $parts[$name] = count($list) === 1 ? $list[0] : $list;
+        }
+
+        if (!$hasFiles) {
+            return ['body' => $body];
+        }
+
+        foreach ($body as $name => $value) {
+            if (isset($parts[$name])) {
+                continue;
+            }
+
+            if ($name === '_meta') {
+                $parts[$name] = Arr::json((array) $value);
+            } elseif (is_bool($value)) {
+                $parts[$name] = $value ? 'true' : 'false';
+            } elseif (is_scalar($value)) {
+                $parts[$name] = (string) $value;
+            } else {
+                throw new ContentException(0, 'invalid_input', "The value of `{$name}` cannot be sent as a multipart text part.");
+            }
+        }
+
+        return ['form' => $parts];
+    }
+
+    private static function toUpload(mixed $file): UploadFile
+    {
+        if ($file instanceof UploadFile) {
+            return $file;
+        }
+
+        if (!$file instanceof \SplFileInfo || !$file->isFile() || !$file->isReadable()) {
+            throw new ContentException(0, 'invalid_input', 'A file for the form is missing or unreadable.');
+        }
+
+        if ($file->getSize() > self::MAX_FORM_FILES_BYTES) {
+            throw new ContentException(0, 'invalid_input', 'The files of a submission may not exceed 50 MB together.');
+        }
+
+        $contents = file_get_contents($file->getPathname());
+
+        if ($contents === false) {
+            throw new ContentException(0, 'invalid_input', 'A file for the form could not be read.');
+        }
+
+        // Symfony/Laravel UploadedFile: the name and type the visitor's browser sent; a plain file: its basename and what the bytes look like.
+        $name = method_exists($file, 'getClientOriginalName') ? (string) $file->getClientOriginalName() : '';
+        $type = method_exists($file, 'getClientMimeType') ? (string) $file->getClientMimeType() : '';
+
+        if ($type === '') {
+            $detected = function_exists('mime_content_type') ? @mime_content_type($file->getPathname()) : false;
+            $type = is_string($detected) && $detected !== '' ? $detected : 'application/octet-stream';
+        }
+
+        return new UploadFile($contents, $name !== '' ? $name : $file->getBasename(), $type);
     }
 
     /**

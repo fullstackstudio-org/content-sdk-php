@@ -271,4 +271,81 @@ final class FormTest extends LaravelTestCase
         self::assertSame('Send', Forms::labels('xx')['submit']);
         self::assertSame(['fieldErrors' => [], 'rest' => ['boom']], Forms::parseFieldErrors('boom', []));
     }
+
+    private function fileDefinition(): array
+    {
+        return ['fields' => [
+            ['name' => 'name', 'type' => 'text', 'label' => 'Name', 'required' => true, 'maxLength' => 50],
+            ['name' => 'cv', 'type' => 'file', 'label' => 'Your CV', 'required' => true, 'maxLength' => 255, 'file' => ['maxFiles' => 1, 'maxSizeMb' => 10, 'accept' => ['pdf', 'jpg']]],
+            ['name' => 'extra', 'type' => 'file', 'label' => 'Extras', 'required' => false, 'maxLength' => 255, 'file' => ['maxFiles' => 3, 'maxSizeMb' => 5, 'accept' => ['png']]],
+        ]];
+    }
+
+    public function testFileFieldsRenderWithAcceptMultipleAndEnctype(): void
+    {
+        $this->queueDefinition($this->fileDefinition());
+        $html = $this->get('/contact')->assertOk()->getContent();
+
+        self::assertStringContainsString('method="POST" action="http://localhost/content/forms/contact" enctype="multipart/form-data" novalidate>', $html);
+        self::assertMatchesRegularExpression('/<input id="fsc-form-contact-cv" name="cv" class="fsc-field__control" type="file"\s+accept="\.pdf,\.jpg,\.jpeg"\s+required/', $html);
+        self::assertMatchesRegularExpression('/name="extra\[\]" class="fsc-field__control" type="file" multiple\s+accept="\.png"/', $html);
+
+        $this->queueDefinition();
+        self::assertStringNotContainsString('enctype=', $this->get('/contact')->getContent());
+    }
+
+    public function testUploadedFilesAreForwardedAsMultipart(): void
+    {
+        $this->queueDefinition($this->fileDefinition());
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => 'ok']));
+
+        $cv = \Illuminate\Http\UploadedFile::fake()->createWithContent('cv jan.pdf', '%PDF-1.4 jan');
+        $one = \Illuminate\Http\UploadedFile::fake()->createWithContent('a.png', 'PNG1');
+        $two = \Illuminate\Http\UploadedFile::fake()->createWithContent('b.png', 'PNG2');
+        $stray = \Illuminate\Http\UploadedFile::fake()->createWithContent('evil.php', '<?php');
+
+        $this->withHeaders(['Referer' => 'http://localhost/contact'])
+            ->post('/content/forms/contact', ['name' => 'Jan', 'website' => '', 'cv' => $cv, 'extra' => [$one, $two], 'unknown' => $stray])
+            ->assertRedirect('/contact#fsc-form-contact')
+            ->assertSessionHas('content_form.contact.status', 'success');
+
+        $request = $this->http->last();
+        self::assertNull($request->body);
+        self::assertSame('Jan', $request->multipart['name']);
+        self::assertSame('cv jan.pdf', $request->multipart['cv']->filename);
+        self::assertSame('%PDF-1.4 jan', $request->multipart['cv']->contents);
+        self::assertCount(2, $request->multipart['extra']);
+        self::assertSame('b.png', $request->multipart['extra'][1]->filename);
+        self::assertArrayNotHasKey('unknown', $request->multipart);
+        self::assertSame('en', json_decode($request->multipart['_meta'], true)['locale']);
+    }
+
+    public function testARequiredFileThatIsMissingIsALocalError(): void
+    {
+        $this->queueDefinition($this->fileDefinition());
+        $response = $this->submit(['name' => 'Jan']);
+
+        $errors = $response->baseResponse->getSession()->get('errors')->getBag('content_form_contact');
+        self::assertSame('This field is required.', $errors->first('cv'));
+        self::assertCount(1, $this->http->requests);
+    }
+
+    public function testFileErrorsFromContentGiveAGeneralMessageAndNeverPutFilesInTheSession(): void
+    {
+        $this->queueDefinition($this->fileDefinition());
+        $this->http->queue(FakeTransport::json(['error' => ['code' => 'payload_too_large', 'message' => 'x']], 413));
+        $cv = \Illuminate\Http\UploadedFile::fake()->createWithContent('cv.pdf', '%PDF');
+
+        $this->withHeaders(['Referer' => 'http://localhost/contact'])
+            ->post('/content/forms/contact', ['name' => 'Jan', 'website' => '', 'cv' => $cv])
+            ->assertSessionHas('content_form.contact', ['status' => 'error', 'message' => 'A file is too large.'])
+            ->assertSessionHasInput('name', 'Jan')
+            ->assertSessionMissing('_old_input.cv');
+
+        $this->queueDefinition($this->fileDefinition());
+        $this->http->queue(FakeTransport::json(['error' => ['code' => 'unsupported_media_type', 'message' => 'x']], 415));
+        $this->withHeaders(['Referer' => 'http://localhost/contact'])
+            ->post('/content/forms/contact', ['name' => 'Jan', 'website' => '', 'cv' => $cv])
+            ->assertSessionHas('content_form.contact.message', 'One of the files is not an allowed type.');
+    }
 }

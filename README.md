@@ -15,7 +15,7 @@ token or SSH key is needed, so a Docker build can install it as-is. Until it is 
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.4" }
+    "require": { "fullstackstudio/content": "^0.5" }
 }
 ```
 
@@ -40,10 +40,21 @@ $content->admin->publishArticle($article['id']);                         // writ
 ```
 
 Options go in the last array argument of every method: `timeoutMs`, `clientIp`, `cache` (false skips the cache), `tags`, `ttl`.
-`submitForm` also takes `meta` and `turnstileToken`. `listCategories` takes its params first (the JS SDK has options first).
+`submitForm` also takes `meta` and `turnstileToken`, and accepts files (below). `listCategories` takes its params first (the JS SDK has options first).
+
+**File uploads in forms.** A value for a `file` field of the form is an `SplFileInfo` (a Laravel/Symfony `UploadedFile` is one), an `Http\UploadFile`, or a list of them:
+
+```php
+$content->submitForm('job', ['name' => 'Jan', 'cv' => new SplFileInfo('/tmp/cv.pdf'), 'photos' => [$a, $b]], ['clientIp' => $ip]);
+```
+
+With files the request is `multipart/form-data` (booleans as `"true"`/`"false"`, `_meta` as a JSON text part; works through the cURL and the PSR-18
+transport alike), without files it is the usual JSON request. Content validates count, size, type (400/413/415); at most 50 MB per submission. A server token
+reads the files of a submission (`files` array on the submission) and downloads one with
+`$content->downloadSubmissionFile($formKey, $submissionId, $fileId)`, which returns `['bytes', 'contentType', 'fileName']`.
 
 Available on the client itself: `getProject`, `listArticles`, `getArticle`, `listCategories`, `getTranslations`, `listPages`, `getPage`,
-`getForm`, `submitForm`, `restartFormPayment`, `listMedia`, `getMedia`, `mediaUrl`, `assetUrl`, `listRedirects`, `resolveRedirect`,
+`getForm`, `submitForm`, `downloadSubmissionFile`, `restartFormPayment`, `listMedia`, `getMedia`, `mediaUrl`, `assetUrl`, `listRedirects`, `resolveRedirect`,
 `getSeo`, `getSitemap`, `search`, `getConsentConfig`, `recordConsent`. Everything else lives in a module (next section).
 
 ## Modules
@@ -250,7 +261,8 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
   validates required fields and lengths, submits to Content with the visitor's IP and redirects back to the form with a message, the old input and the
   error per field (error bag `content_form_{key}`, flash key `content_form.{key}`). The honeypot is rendered off-screen. A form with a payment field
   redirects to the checkout (a `choice` amount is entered in euros and sent as cents). With a Turnstile site key the widget is rendered (that needs
-  JavaScript; without a token the submit is refused with a message).
+  JavaScript; without a token the submit is refused with a message). A `file` field renders as `<input type="file">` (`accept` from the field's allowed
+  types, `name[]` + `multiple` when it takes several files) and the `<form>` gets `enctype="multipart/form-data"`; the route forwards the uploads.
   The route is opt-in and needs the `web` middleware group (session and CSRF): set `FSC_FORMS_ENABLED=true` or call `Content::formRoutes()`
   (`POST content/forms/{key}`, name `content.form`). `locale` (`en`/`nl`, default `content.forms.locale` or the app locale) and `:labels="[...]"` change the
   texts. The visitor's IP is read from `content.forms.ip_header` (default `cf-connecting-ip`; set it to the header your proxy overwrites, or `null` to use
