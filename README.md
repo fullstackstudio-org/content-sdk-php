@@ -9,14 +9,17 @@ webhook verification and a Laravel integration. It follows the same contract as 
 
 ## Install
 
-The package is not on Packagist. Add the repository and require it:
+The package is public on GitHub ([`fullstackstudio-org/content-sdk-php`](https://github.com/fullstackstudio-org/content-sdk-php), MIT); no
+token or SSH key is needed, so a Docker build can install it as-is. Until it is listed on Packagist, add the repository:
 
 ```json
 {
-    "repositories": [{ "type": "vcs", "url": "git@github.com:fullstackstudio-org/content-sdk-php.git" }],
+    "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
     "require": { "fullstackstudio/content": "^0.4" }
 }
 ```
+
+Once it is on Packagist, `composer require fullstackstudio/content` is enough and the `repositories` entry can go.
 
 ## Quick start (any PHP)
 
