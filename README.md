@@ -206,6 +206,90 @@ canonical, robots, Open Graph, Twitter). Without Blade: `Seo::meta($seo, $page, 
 
 **Sitemap**: `Route::get('sitemap.xml', fn () => FullStackStudio\Content\Laravel\Sitemap::response(['localePrefix' => fn ($l) => $l === 'nl' ? '' : "/$l"]));`
 
+## Blade components
+
+The same building blocks as the React subpath of the JS SDK, as Blade components under the `content::` namespace (Laravel only). The markup uses the
+`fsc-*` class names of the optional stylesheet:
+
+```bash
+php artisan vendor:publish --tag=content-assets   # public/vendor/content/content.css (identical to the JS SDK's styles.css)
+php artisan vendor:publish --tag=content-views    # optional: copy every view to resources/views/vendor/content to edit them
+```
+
+```blade
+<x-content::article-body :html="$article['bodyHtml']" class="prose" />
+
+<x-content::page-blocks :blocks="$page['blocks']" :media="$page['media']" />
+
+<x-content::image :media="$article['cover']" sizes="(min-width: 768px) 50vw, 100vw" />
+
+<x-content::form form-key="contact" />
+```
+
+- **`article-body`** prints `bodyHtml` unescaped. That is safe only because Content sanitizes it on save (allowlisted tags, no scripts, no event handlers, no
+  `javascript:` links); never pass it HTML from anywhere else. `tag="article"` changes the wrapping element.
+- **`page-blocks`** renders all block types (`richText`, `image`, `gallery`, `cta`, `hero`, `columns`, `articleList`, `form`, `embed`; `legalDocument`
+  renders nothing until you give it a view). Only the HTML of `richText` and `columns` is printed unescaped; everything else is escaped and links are checked
+  against `javascript:`/`data:`. Pass `:media="$page['media']"` so blocks whose file was deleted are left out; without it the media URL is derived from the id.
+  An unknown block type is skipped.
+  **Override a block type** with a view of your own, per call (`:views="['articleList' => 'blocks.articles']"`) or globally in `config/content.php`
+  (`'blocks' => ['articleList' => 'blocks.articles']`; `'unknown'` handles types this version does not know). Your view receives `$block`, `$index`,
+  `$baseUrl` and `$resolve($mediaId)` (media info or null). Because the `articleList` block only says *what* to show, you fetch the articles in that view
+  (`@php($articles = \Content::listArticles([...]))`). To restyle a default view instead, publish the views.
+- **`image`** renders `<img>` with a `srcset` of Content's on-demand variants (png, jpeg, still webp; widths 320-1920, never upscaled) and `sizes`
+  (default `100vw`). `formats="avif,webp"` renders a `<picture>`. `alt` defaults to the media record's alt; `alt=""` marks a decorative image;
+  `:eager="true"` for the image above the fold. Gif, svg and other types render the original without `srcset`.
+- **`form`** fetches the definition (cached) and renders the form on the server: it works without JavaScript. It posts to a route of the package, which
+  validates required fields and lengths, submits to Content with the visitor's IP and redirects back to the form with a message, the old input and the
+  error per field (error bag `content_form_{key}`, flash key `content_form.{key}`). The honeypot is rendered off-screen. A form with a payment field
+  redirects to the checkout (a `choice` amount is entered in euros and sent as cents). With a Turnstile site key the widget is rendered (that needs
+  JavaScript; without a token the submit is refused with a message).
+  The route is opt-in and needs the `web` middleware group (session and CSRF): set `FSC_FORMS_ENABLED=true` or call `Content::formRoutes()`
+  (`POST content/forms/{key}`, name `content.form`). `locale` (`en`/`nl`, default `content.forms.locale` or the app locale) and `:labels="[...]"` change the
+  texts. The visitor's IP is read from `content.forms.ip_header` (default `cf-connecting-ip`; set it to the header your proxy overwrites, or `null` to use
+  the IP Laravel sees) and sent as `X-FSC-Client-Ip`, so Content's per-visitor limits work behind your server.
+
+There is no cookie banner component: the banner needs JavaScript and `localStorage`, so use the JS one (`@fullstackstudio/content`) or build it on
+`getConsentConfig()` / `recordConsent()`.
+
+## Example site
+
+`examples/laravel` is a small but real Laravel 12 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for
+the rest), every other path as a page of blocks, a contact form (`<x-content::form>`), `sitemap.xml`, the webhook route, the redirect middleware,
+`<x-content::meta>` and `GET /api/health`. When Content is down the site answers 503 instead of a stack trace, and `/api/health` stays up.
+
+```bash
+cd examples/laravel
+composer install && npm install && npm run build
+cp .env.example .env && php artisan key:generate   # then set FSC_SERVER_TOKEN and FSC_WEBHOOK_SECRET
+php artisan serve
+```
+
+## Deploying on the FSS platform
+
+`examples/laravel/Dockerfile` is the template for customer sites: multi-stage (composer `--no-dev`, vite build), then `php:8.4-fpm-alpine` with nginx in
+one container, listening on port 3000, running as `www-data`, `HEALTHCHECK` on `/api/health`. Tuned for a small idle footprint: OPcache without timestamp
+validation, PHP-FPM `pm = ondemand` (`pm.max_children = 4`, `pm.process_idle_timeout = 30s`), one nginx worker, `memory_limit = 64M`, and a tiny shell
+entrypoint instead of supervisord. Measured with `docker stats`: about 32-35 MiB for the whole container at idle.
+
+```bash
+docker build -f examples/laravel/Dockerfile -t my-site .      # from the repository root, the example uses a path repository
+```
+
+The image contains no secrets and no `.env`. At start the entrypoint runs `php artisan config:cache route:cache view:cache` (the environment only exists
+then) and refuses to start without `APP_KEY`. Environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_KEY` | required (`php artisan key:generate --show`) |
+| `FSC_SERVER_TOKEN` | server token (`fsc_srv_...`) |
+| `FSC_WEBHOOK_SECRET` | secret of the webhook you created in the admin; the webhook URL is `https://<site>/content/webhook` |
+| `FSC_API_URL` | defaults to `https://content.fullstackstudio.nl` |
+
+Optional: `FSC_IP_HEADER`, `FSC_CACHE_TTL`, `CACHE_STORE=redis` (the default file cache is per container, so with several replicas the webhook only
+clears the cache of the replica it reaches; the TTL is the safety net). A real customer site has no path repository: require the package from its VCS
+repository (see Install) and build with the site as context. On the platform: `create_runtime` with `internalPort` 3000 and the variables above in `envText`.
+
 ## Errors
 
 ```php

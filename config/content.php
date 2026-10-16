@@ -42,4 +42,26 @@ return [
         'timeout_ms' => 1500,
         'failure_cooldown_seconds' => 15,
     ],
+
+    /*
+     * Replace the default view of a block type of `<x-content::page-blocks>`, e.g. 'articleList' => 'blocks.articles' (a view of your own that
+     * receives `$block`, `$index`, `$baseUrl` and `$resolve`). `unknown` renders block types this version does not know (default: skipped).
+     */
+    'blocks' => [
+        // 'articleList' => 'blocks.articles',
+    ],
+
+    /*
+     * The form route behind `<x-content::form>`. Opt-in: set `enabled` to true, or call `Content::formRoutes()` yourself. The `web` group is
+     * needed for session and CSRF. `ip_header`: the header with the visitor's IP behind your proxy (Cloudflare sets `cf-connecting-ip`); only set
+     * a header your proxy overwrites, otherwise a visitor can spoof it. null = use the IP Laravel sees. `locale` null = the app locale.
+     */
+    'forms' => [
+        'enabled' => (bool) env('FSC_FORMS_ENABLED', false),
+        'path' => env('FSC_FORMS_PATH', 'content/forms'),
+        'middleware' => ['web', 'throttle:20,1'],
+        'ip_header' => env('FSC_IP_HEADER', 'cf-connecting-ip'),
+        'locale' => env('FSC_FORMS_LOCALE'),
+        'labels' => [],
+    ],
 ];

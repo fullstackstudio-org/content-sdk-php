@@ -50,9 +50,27 @@ final class ContentServiceProvider extends ServiceProvider
 
         $this->publishes([__DIR__ . '/../../config/content.php' => $this->app->configPath('content.php')], 'content-config');
 
+        $this->publishes([__DIR__ . '/../../resources/assets/content.css' => $this->app->publicPath('vendor/content/content.css')], 'content-assets');
+        $this->publishes([__DIR__ . '/../../resources/views' => $this->app->resourcePath('views/vendor/content')], 'content-views');
+
         if ($this->app['config']->get('content.webhook.enabled')) {
             self::registerWebhookRoute();
         }
+
+        if ($this->app['config']->get('content.forms.enabled')) {
+            self::registerFormRoute();
+        }
+    }
+
+    /** Registers `POST {content.forms.path}/{key}` (route name `content.form`), the target of `<x-content::form>`. Called for you when `content.forms.enabled` is on, or via `Content::formRoutes()`. */
+    public static function registerFormRoute(): void
+    {
+        $config = app('config');
+
+        Route::middleware($config->get('content.forms.middleware', ['web']))
+            ->post(trim((string) $config->get('content.forms.path', 'content/forms'), '/') . '/{key}', FormController::class)
+            ->where('key', '[A-Za-z0-9_-]+')
+            ->name('content.form');
     }
 
     /** Registers `POST {content.webhook.path}` (route name `content.webhook`). Called for you when `content.webhook.enabled` is on, or via `Content::routes()`. */

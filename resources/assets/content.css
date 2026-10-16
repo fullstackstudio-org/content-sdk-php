@@ -1,0 +1,254 @@
+/* Optional base styling for the components of @fullstackstudio/content/react. Everything lives under `fsc-*` and is deliberately
+   minimal: colors and fonts inherit from the site, and everything can be overridden via the CSS variables or your own rules.
+   Import: `import "@fullstackstudio/content/styles.css";` */
+
+:root {
+    --fsc-gap: 1rem;
+    --fsc-radius: 0.5rem;
+    --fsc-border: color-mix(in srgb, currentColor 25%, transparent);
+    --fsc-accent: #1d4ed8;
+    --fsc-accent-contrast: #fff;
+    --fsc-danger: #b91c1c;
+    --fsc-columns: 3;
+}
+
+/* Form */
+.fsc-form {
+    display: grid;
+    gap: var(--fsc-gap);
+    position: relative;
+}
+
+.fsc-field {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.fsc-field__label {
+    font-weight: 600;
+}
+
+.fsc-field__required {
+    color: var(--fsc-danger);
+}
+
+.fsc-field__control {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.6rem 0.75rem;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-field__control:focus-visible {
+    outline: 2px solid var(--fsc-accent);
+    outline-offset: 1px;
+}
+
+.fsc-field__checkbox {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+
+.fsc-field--invalid .fsc-field__control {
+    border-color: var(--fsc-danger);
+}
+
+.fsc-field__error,
+.fsc-form__error {
+    margin: 0;
+    color: var(--fsc-danger);
+    font-size: 0.9em;
+}
+
+.fsc-submit,
+.fsc-button {
+    display: inline-block;
+    padding: 0.65rem 1.25rem;
+    font: inherit;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    color: var(--fsc-accent-contrast);
+    background: var(--fsc-accent);
+    border: 1px solid var(--fsc-accent);
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-submit:disabled {
+    opacity: 0.6;
+    cursor: progress;
+}
+
+.fsc-button--secondary {
+    color: var(--fsc-accent);
+    background: transparent;
+}
+
+.fsc-form__success {
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Article and blocks */
+.fsc-article-body img,
+.fsc-block img {
+    max-width: 100%;
+    height: auto;
+}
+
+.fsc-blocks {
+    display: grid;
+    gap: calc(var(--fsc-gap) * 2);
+}
+
+.fsc-block--image,
+.fsc-gallery__item {
+    margin: 0;
+}
+
+.fsc-block figcaption {
+    margin-top: 0.35rem;
+    font-size: 0.9em;
+    opacity: 0.75;
+}
+
+.fsc-block--gallery,
+.fsc-block--columns {
+    display: grid;
+    gap: var(--fsc-gap);
+    grid-template-columns: repeat(var(--fsc-columns), minmax(0, 1fr));
+}
+
+@media (max-width: 40rem) {
+    .fsc-block--gallery,
+    .fsc-block--columns {
+        grid-template-columns: 1fr;
+    }
+}
+
+.fsc-block--hero {
+    position: relative;
+    display: grid;
+    min-height: 16rem;
+    align-items: center;
+    overflow: hidden;
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-hero__media {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.fsc-hero__content {
+    position: relative;
+    display: grid;
+    gap: var(--fsc-gap);
+    justify-items: start;
+    padding: 2rem;
+}
+
+.fsc-hero--has-media .fsc-hero__content {
+    color: #fff;
+    text-shadow: 0 1px 8px rgb(0 0 0 / 0.6);
+}
+
+.fsc-block--cta {
+    display: grid;
+    gap: 0.5rem;
+    justify-items: start;
+    padding: 1.5rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-block--embed {
+    position: relative;
+    aspect-ratio: 16 / 9;
+}
+
+.fsc-embed__frame {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: var(--fsc-radius);
+}
+
+/* Cookie banner */
+.fsc-consent {
+    position: fixed;
+    inset: auto 1rem 1rem 1rem;
+    max-width: 36rem;
+    margin-inline: auto;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: 0 8px 30px rgb(0 0 0 / 0.18);
+    z-index: 2147483000;
+}
+
+.fsc-consent__title {
+    margin: 0 0 0.25rem;
+    font-size: 1.05rem;
+}
+
+.fsc-consent__text {
+    margin: 0 0 0.75rem;
+}
+
+.fsc-consent__categories {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    border: 0;
+}
+
+.fsc-consent__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.fsc-consent__button {
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.fsc-consent__button--primary {
+    background: var(--fsc-accent);
+    border-color: var(--fsc-accent);
+    color: var(--fsc-accent-contrast);
+}
