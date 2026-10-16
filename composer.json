@@ -1,0 +1,52 @@
+{
+    "name": "fullstackstudio/content",
+    "description": "PHP SDK for Fullstack Content: client, tag-based cache, webhook verification and Laravel integration.",
+    "version": "0.4.0",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["fullstack-content", "cms", "headless", "laravel"],
+    "homepage": "https://content.fullstackstudio.nl",
+    "require": {
+        "php": ">=8.2",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "orchestra/testbench": "^9.0|^10.0",
+        "illuminate/support": "^11.0|^12.0",
+        "illuminate/http": "^11.0|^12.0",
+        "illuminate/cache": "^11.0|^12.0"
+    },
+    "suggest": {
+        "illuminate/support": "Laravel integration (service provider, facade, webhook route, Blade component).",
+        "illuminate/http": "Laravel integration (webhook controller, redirect middleware).",
+        "illuminate/cache": "Laravel cache store for the tag cache.",
+        "psr/http-client": "Use Psr18Transport with Guzzle or any PSR-18 client instead of the built-in cURL transport.",
+        "psr/simple-cache": "Wrap any PSR-16 cache with Psr16Store for the tag cache."
+    },
+    "autoload": {
+        "psr-4": {
+            "FullStackStudio\\Content\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "FullStackStudio\\Content\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "FullStackStudio\\Content\\Laravel\\ContentServiceProvider"
+            ],
+            "aliases": {
+                "Content": "FullStackStudio\\Content\\Laravel\\Facades\\Content"
+            }
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}
