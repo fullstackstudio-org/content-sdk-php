@@ -186,7 +186,7 @@ $cache->invalidateTags(Tags::forEvent($result->event));
 Verification is constant-time, accepts a timestamp within 5 minutes (`$tolerance`), and tries every `v1=` (secret rotation).
 `WebhookVerifier::sign()` computes the header for tests. `Events::ALL` lists the event types.
 
-## Laravel (11 and 12)
+## Laravel (11, 12 and 13)
 
 The service provider and the `Content` facade are auto-discovered.
 
@@ -273,7 +273,7 @@ There is no cookie banner component: the banner needs JavaScript and `localStora
 
 ## Example site
 
-`examples/laravel` is a small but real Laravel 12 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for
+`examples/laravel` is a small but real Laravel 13 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for
 the rest), every other path as a page of blocks, a contact form (`<x-content::form>`), `sitemap.xml`, the webhook route, the redirect middleware,
 `<x-content::meta>` and `GET /api/health`. When Content is down the site answers 503 instead of a stack trace, and `/api/health` stays up.
 

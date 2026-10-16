@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Laravel 13 support: `illuminate/support|http|cache` constraints widened to `^11.0|^12.0|^13.0` (and `orchestra/testbench` to `^11.0`). Tests pass on Laravel 12 and 13; no code changes were needed. Laravel 11 stays supported.
+- Example site (`examples/laravel`) now runs on Laravel 13 (PHP 8.3+).
+
 ## 0.5.1
 
 - `submitForm` leaves out an empty list, like the JS SDK (an optional file field without files no longer breaks a multipart request; in JSON

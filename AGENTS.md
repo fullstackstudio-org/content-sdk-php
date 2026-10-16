@@ -10,7 +10,7 @@ disagree, the code wins. Full reference: `README.md` next to this file.
 The site renders; Content stores pages (blocks), articles, categories, forms and their submissions, media, SEO settings and redirects.
 It also has webshop, members, appointments, tickets, invoices, newsletter, chat, FAQ, events and legal modules (see the end).
 
-- PHP >= 8.2 (`ext-curl`, `ext-json`). Laravel 11 or 12 for the integration (service provider, facade, Blade components, routes); the client itself works in any PHP.
+- PHP >= 8.2 (`ext-curl`, `ext-json`). Laravel 11, 12 or 13 for the integration (service provider, facade, Blade components, routes); the client itself works in any PHP.
 - Responses are plain associative arrays (JSON as the API sends it, single objects unwrapped: `$article['title']`, not `->title`).
 - Every failure is a `FullStackStudio\Content\ContentException`. The token never appears in a message.
 
@@ -19,7 +19,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.5.1" }
+    "require": { "fullstackstudio/content": "^0.5.2" }
 }
 ```
 
@@ -254,5 +254,5 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.5.1 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+This guide: version 0.5.2 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
 Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.
