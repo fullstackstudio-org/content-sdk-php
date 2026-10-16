@@ -47,13 +47,13 @@ final class Request
         $body = '';
 
         foreach ($this->multipart ?? [] as $name => $value) {
-            $name = str_replace(['"', "\r", "\n"], '', (string) $name);
+            $name = self::headerParam((string) $name);
 
             foreach (is_array($value) ? $value : [$value] as $part) {
                 $body .= "--{$boundary}\r\n";
 
                 if ($part instanceof UploadFile) {
-                    $filename = str_replace(['"', '\\', "\r", "\n"], '', $part->filename);
+                    $filename = self::headerParam($part->filename);
                     $type = preg_match('#^[A-Za-z0-9][A-Za-z0-9!\#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!\#$&^_.+-]*$#', $part->contentType) === 1 ? $part->contentType : 'application/octet-stream';
                     $body .= "Content-Disposition: form-data; name=\"{$name}\"; filename=\"{$filename}\"\r\n";
                     $body .= "Content-Type: {$type}\r\n\r\n{$part->contents}\r\n";
@@ -64,5 +64,11 @@ final class Request
         }
 
         return ["multipart/form-data; boundary={$boundary}", $body . "--{$boundary}--\r\n"];
+    }
+
+    /** A value for `name="..."` / `filename="..."`: no quote, backslash or control character can end the parameter or the header line. */
+    private static function headerParam(string $value): string
+    {
+        return (string) preg_replace('/["\\\\\x00-\x1F\x7F]/', '', $value);
     }
 }

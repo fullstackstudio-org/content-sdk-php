@@ -288,7 +288,7 @@ php artisan serve
 
 `examples/laravel/Dockerfile` is the template for customer sites: multi-stage (composer `--no-dev`, vite build), then `php:8.4-fpm-alpine` with nginx in
 one container, listening on port 3000, running as `www-data`, `HEALTHCHECK` on `/api/health`. Tuned for a small idle footprint: OPcache without timestamp
-validation, PHP-FPM `pm = ondemand` (`pm.max_children = 4`, `pm.process_idle_timeout = 30s`), one nginx worker, `memory_limit = 64M`, and a tiny shell
+validation, PHP-FPM `pm = ondemand` (`pm.max_children = 4`, `pm.process_idle_timeout = 30s`), one nginx worker, `memory_limit = 64M` (raised for uploads, see `FSC_UPLOAD_MAX_MB`), and a tiny shell
 entrypoint instead of supervisord. Measured with `docker stats`: about 32-35 MiB for the whole container at idle.
 
 ```bash
@@ -304,6 +304,7 @@ then) and refuses to start without `APP_KEY`. Environment variables:
 | `FSC_SERVER_TOKEN` | server token (`fsc_srv_...`) |
 | `FSC_WEBHOOK_SECRET` | secret of the webhook you created in the admin; the webhook URL is `https://<site>/content/webhook` |
 | `FSC_API_URL` | defaults to `https://content.fullstackstudio.nl` |
+| `FSC_UPLOAD_MAX_MB` | largest request body in MB for form uploads, default `20` (1-55). Sets nginx `client_max_body_size`, PHP `upload_max_filesize` and `post_max_size`, and `memory_limit` to 64 + 3× this value (the SDK holds the files in memory). Content allows 25 MB per file and 50 MB per submission; above 20, also raise the pod's memory limit. |
 
 Optional: `FSC_IP_HEADER`, `FSC_CACHE_TTL`, `CACHE_STORE=redis` (the default file cache is per container, so with several replicas the webhook only
 clears the cache of the replica it reaches; the TTL is the safety net). A real customer site has no path repository: require the package from its VCS

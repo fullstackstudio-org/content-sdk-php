@@ -51,6 +51,36 @@ final class FormFilesTest extends ModuleTestCase
         self::assertSame(['name' => 'Jan', 'agree' => true, '_meta' => ['utm_source' => 'x'], '_turnstile' => 'tok'], $this->http->lastBody());
     }
 
+    public function testAnEmptyListIsLeftOutLikeTheJsSdk(): void
+    {
+        $this->http->always(\FullStackStudio\Content\Tests\Support\FakeTransport::json(['id' => 's1'], 201));
+
+        // Multipart: an optional file field without files next to one with a file.
+        $this->client()->submitForm('job', ['cv' => new UploadFile('%PDF-1.4', 'cv.pdf', 'application/pdf'), 'photos' => []]);
+        $request = $this->http->last();
+        self::assertNotNull($request->multipart);
+        self::assertArrayHasKey('cv', $request->multipart);
+        self::assertArrayNotHasKey('photos', $request->multipart);
+
+        // JSON: an empty list is not sent either.
+        $this->client()->submitForm('job', ['name' => 'Jan', 'photos' => []]);
+        self::assertSame(['name' => 'Jan'], $this->http->lastBody());
+    }
+
+    public function testMultipartNamesAndFileNamesCannotBreakOutOfTheirHeader(): void
+    {
+        $request = new \FullStackStudio\Content\Http\Request('POST', 'https://content.test/x', [], null, [
+            "bad\"\\\r\nX-Evil: 1\x00name" => new UploadFile('abc', "f\"\\\r\nX-Evil: 1.pdf", 'application/pdf'),
+            "text\r\nX-Evil: 2" => 'value',
+        ]);
+
+        [, $body] = $request->multipartBody();
+
+        self::assertStringNotContainsString("\r\nX-Evil", $body);
+        self::assertStringContainsString('name="badX-Evil: 1name"; filename="fX-Evil: 1.pdf"', $body);
+        self::assertStringContainsString('name="textX-Evil: 2"', $body);
+    }
+
     public function testFilesGoAsMultipartWithTextPartsAndNoJsonContentType(): void
     {
         $this->http->always(\FullStackStudio\Content\Tests\Support\FakeTransport::json(['id' => 's1'], 201));

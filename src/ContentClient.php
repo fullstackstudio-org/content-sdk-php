@@ -45,7 +45,7 @@ use FullStackStudio\Content\Modules\Tickets;
  */
 final class ContentClient
 {
-    public const VERSION = '0.5.0';
+    public const VERSION = '0.5.1';
 
     /** Total size of the files of one submission (the API's limit). */
     private const MAX_FORM_FILES_BYTES = 50 * 1024 * 1024;
@@ -303,7 +303,8 @@ final class ContentClient
      */
     public function submitForm(string $key, array $values, array $options = []): array
     {
-        $body = array_filter($values, static fn (mixed $value): bool => $value !== null);
+        // Like the JS SDK: no value, no part (null and an empty list, e.g. an optional file field without files).
+        $body = array_filter($values, static fn (mixed $value): bool => $value !== null && $value !== []);
 
         if (!empty($options['meta'])) {
             $body['_meta'] = $options['meta'];

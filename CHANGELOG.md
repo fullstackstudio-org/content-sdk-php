@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+- `submitForm` leaves out an empty list, like the JS SDK (an optional file field without files no longer breaks a multipart request; in JSON
+  the field is no longer sent as `[]`).
+- Multipart: field and file names lose quotes, backslashes and every control character, so a name can never end its header parameter or line.
+- Example image (`examples/laravel`): uploads were capped at 2 MB. The limit is now `FSC_UPLOAD_MAX_MB` (default 20, 1-55) and sets nginx
+  `client_max_body_size`, PHP `upload_max_filesize`/`post_max_size` and `memory_limit` together.
+
 ## 0.5.0
 
 - Hardening: the Laravel `FormController` no longer drops uploads that PHP rejected (`UPLOAD_ERR_*`, new `Forms::uploadErrors()`): size errors give the `fileTooLarge` label, other errors
