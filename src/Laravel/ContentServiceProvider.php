@@ -9,6 +9,7 @@ use FullStackStudio\Content\Cache\LaravelStore;
 use FullStackStudio\Content\Cache\VersionedTagCache;
 use FullStackStudio\Content\ClientOptions;
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\Console\AgentsCommand;
 use FullStackStudio\Content\Laravel\View\Components\Meta;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
@@ -52,6 +53,10 @@ final class ContentServiceProvider extends ServiceProvider
 
         $this->publishes([__DIR__ . '/../../resources/assets/content.css' => $this->app->publicPath('vendor/content/content.css')], 'content-assets');
         $this->publishes([__DIR__ . '/../../resources/views' => $this->app->resourcePath('views/vendor/content')], 'content-views');
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([AgentsCommand::class]);
+        }
 
         if ($this->app['config']->get('content.webhook.enabled')) {
             self::registerWebhookRoute();

@@ -21,6 +21,10 @@ token or SSH key is needed, so a Docker build can install it as-is. Until it is 
 
 Once it is on Packagist, `composer require fullstackstudio/content` is enough and the `repositories` entry can go.
 
+**After installing, run `php artisan fsc:agents`** (Laravel). It adds a short marked block to your project's `AGENTS.md` (created if missing; and `@AGENTS.md` to an
+existing `CLAUDE.md`) that points AI coding agents at [`AGENTS.md`](AGENTS.md) of this package, the integration guide with recipes and rules. It is idempotent and only
+touches the text between `<!-- fullstack-content:start -->` and `<!-- fullstack-content:end -->`.
+
 ## Quick start (any PHP)
 
 ```php
