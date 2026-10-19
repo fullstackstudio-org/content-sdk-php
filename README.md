@@ -271,6 +271,13 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
 There is no cookie banner component: the banner needs JavaScript and `localStorage`, so use the JS one (`@fullstackstudio/content`) or build it on
 `getConsentConfig()` / `recordConsent()`.
 
+## Error monitoring
+
+With the Content module `errors` switched on, the SDK reports backend exceptions (through Laravel's exception handler) and, with
+`<x-content::errors />` in the `<head>`, browser errors via the first-party tunnel `POST /_fsc/e/envelope` on your own domain. The DSNs come from
+Content; events are rebuilt from an allowlist and messages are scrubbed. Never in `local`/`testing`. Options and what is (not) sent: `AGENTS.md`,
+section "Error monitoring", and `config/content.php` (`errors`).
+
 ## Example site
 
 `examples/laravel` is a small but real Laravel 13 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for

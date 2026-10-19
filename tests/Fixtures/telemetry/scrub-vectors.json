@@ -1,0 +1,309 @@
+{
+    "_comment": "Gedeelde vectoren voor Scrubber::text (PHP) en scrubText (JS). Elke app met een kopie van de telemetrie draait ze ook. 'contains' moet in de uitkomst staan, 'absent' nooit.",
+    "vectors": [
+        {
+            "in": "Mail to jan.jansen@example.nl failed",
+            "contains": [
+                "[email]"
+            ],
+            "absent": [
+                "jan.jansen",
+                "example.nl"
+            ]
+        },
+        {
+            "in": "IBAN NL60 REVO 1319 6919 78 rejected",
+            "contains": [
+                "[iban]"
+            ],
+            "absent": [
+                "REVO",
+                "1319"
+            ]
+        },
+        {
+            "in": "IBAN NL60REVO1319691978 rejected",
+            "contains": [
+                "[iban]"
+            ],
+            "absent": [
+                "NL60REVO"
+            ]
+        },
+        {
+            "in": "Call +31 6 12345678 failed",
+            "contains": [
+                "[phone]"
+            ],
+            "absent": [
+                "12345678"
+            ]
+        },
+        {
+            "in": "Call 0031612345678 failed",
+            "contains": [
+                "[phone]"
+            ],
+            "absent": [
+                "612345678"
+            ]
+        },
+        {
+            "in": "Call 06-12345678 failed",
+            "contains": [
+                "[phone]"
+            ],
+            "absent": [
+                "12345678"
+            ]
+        },
+        {
+            "in": "Header Authorization: Bearer abc.def.ghi123",
+            "contains": [
+                "[redacted]"
+            ],
+            "absent": [
+                "abc.def.ghi123"
+            ]
+        },
+        {
+            "in": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJl",
+            "contains": [
+                "[token]"
+            ],
+            "absent": [
+                "eyJhbGci",
+                "c2lnbmF0dXJl"
+            ]
+        },
+        {
+            "in": "token fss_mcp_AbCdEf1234567890xyz leaked",
+            "contains": [
+                "[token]"
+            ],
+            "absent": [
+                "AbCdEf1234567890xyz"
+            ]
+        },
+        {
+            "in": "key sk_live_51HxYzAbCdEf leaked",
+            "contains": [
+                "[token]"
+            ],
+            "absent": [
+                "51HxYzAbCdEf"
+            ]
+        },
+        {
+            "in": "GET https://fullstackstudio.nl/betalen/k3J9xQ2mPz8Lw4Rt?lang=en&token=abc failed",
+            "contains": [
+                "https://fullstackstudio.nl/betalen/[token]?[query]"
+            ],
+            "absent": [
+                "k3J9xQ2mPz8Lw4Rt",
+                "token=abc",
+                "lang=en"
+            ]
+        },
+        {
+            "in": "Redirect to /portal/invite/4f3c2b1a-9d8e-4c7b-a6f5-0e1d2c3b4a59?next=/x",
+            "contains": [
+                "/portal/invite/[uuid]?[query]"
+            ],
+            "absent": [
+                "4f3c2b1a"
+            ]
+        },
+        {
+            "in": "Customer 'Jansen Bouw BV' not found",
+            "contains": [
+                "'[value]'"
+            ],
+            "absent": [
+                "Jansen"
+            ]
+        },
+        {
+            "in": "Class \"App\\Models\\Customer\" not found",
+            "contains": [
+                "App\\Models\\Customer"
+            ],
+            "absent": [
+                "[value]"
+            ]
+        },
+        {
+            "in": "Config 'fss-core.auth' missing",
+            "contains": [
+                "fss-core.auth"
+            ],
+            "absent": []
+        },
+        {
+            "in": "SQLSTATE[23505]: Unique violation: 7 ERROR:  duplicate key value violates unique constraint \"users_email_key\" DETAIL:  Key (email)=(a@b.nl) already exists. (Connection: pgsql, SQL: insert into users (email) values (a@b.nl))",
+            "contains": [
+                "SQLSTATE[23505]: Unique violation"
+            ],
+            "absent": [
+                "a@b.nl",
+                "insert into",
+                "users_email_key",
+                "DETAIL"
+            ]
+        },
+        {
+            "in": "Query failed: select * from customers where email = 'x@y.nl'",
+            "contains": [
+                "[sql]"
+            ],
+            "absent": [
+                "customers",
+                "x@y.nl"
+            ]
+        },
+        {
+            "in": "Invoice 20261234 for postcode 2511 AB",
+            "contains": [
+                "[number]",
+                "[postcode]"
+            ],
+            "absent": [
+                "20261234",
+                "2511"
+            ]
+        },
+        {
+            "in": "Connection to 10.0.12.5 refused",
+            "contains": [
+                "[ip]"
+            ],
+            "absent": [
+                "10.0.12.5"
+            ]
+        },
+        {
+            "in": "Hash 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 mismatch",
+            "contains": [
+                "[token]"
+            ],
+            "absent": [
+                "9f86d081884c7d65"
+            ]
+        },
+        {
+            "in": "password=Hunter2!x&user=1",
+            "contains": [
+                "password=[redacted]"
+            ],
+            "absent": [
+                "Hunter2"
+            ]
+        },
+        {
+            "in": "Undefined array key \"name\"",
+            "contains": [
+                "Undefined array key"
+            ],
+            "absent": []
+        },
+        {
+            "in": "Call to undefined method App\\Http\\Controllers\\FooController::bar()",
+            "contains": [
+                "App\\Http\\Controllers\\FooController::bar()"
+            ],
+            "absent": []
+        },
+        {
+            "in": "Timeout after 2000 ms",
+            "contains": [
+                "Timeout after 2000 ms"
+            ],
+            "absent": []
+        },
+        {
+            "in": "URL https://admin:correcthorse@example.com/api?code=abc#secret",
+            "contains": [
+                "https://example.com/api?[query]"
+            ],
+            "absent": [
+                "admin:",
+                "correcthorse",
+                "code=abc",
+                "secret"
+            ]
+        },
+        {
+            "in": "access_token=abc refresh-token=def code=ghi",
+            "contains": [
+                "[redacted]"
+            ],
+            "absent": [
+                "=abc",
+                "=def",
+                "=ghi"
+            ]
+        },
+        {
+            "in": "SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key value violates unique constraint \"users_email_key\" DETAIL: Key (email)=(jan@example.nl) already exists. (Connection: pgsql, SQL: insert into users (email) values (jan@example.nl))",
+            "contains": [
+                "SQLSTATE[23505]: Unique violation"
+            ],
+            "absent": [
+                "jan@example.nl",
+                "insert into",
+                "users_email_key"
+            ]
+        },
+        {
+            "in": "Undefined array key \"email\"",
+            "contains": [
+                "Undefined array key",
+                "[value]"
+            ],
+            "absent": [
+                "\"email\""
+            ]
+        },
+        {
+            "in": "Kon klant jan@example.nl niet bellen op 06-12345678",
+            "contains": [
+                "Kon klant [email] niet bellen op [phone]"
+            ],
+            "absent": [
+                "jan@",
+                "12345678"
+            ]
+        },
+        {
+            "in": "Server error for https://shop.example.nl/checkout/success?order=8841&token=abc123 (status 500)",
+            "contains": [
+                "https://shop.example.nl/checkout/success?[query]",
+                "status 500"
+            ],
+            "absent": [
+                "8841",
+                "abc123"
+            ]
+        },
+        {
+            "in": "Call to a member function format() on null",
+            "contains": [
+                "Call to a member function format() on null"
+            ],
+            "absent": []
+        },
+        {
+            "in": "Mollie payment tr_WDqYK6vllg failed for 1234 AB, 203.0.113.7 and 0031612345678",
+            "contains": [
+                "[postcode]",
+                "[ip]",
+                "[phone]"
+            ],
+            "absent": [
+                "1234 AB",
+                "203.0.113.7",
+                "612345678"
+            ]
+        }
+    ]
+}

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Error monitoring (GlitchTip) for the Content module `errors`: the DSNs come from Content (`GET /api/v1/project/errors`, cached 10 minutes, the last good
+  answer survives an outage). Backend exceptions are reported through Laravel's exception handler (`reportable`), after the response; the browser reporter
+  is `<x-content::errors />` with `GET /_fsc/e/reporter.js` and the first-party tunnel `POST /_fsc/e/envelope`. Events are rebuilt from an allowlist, messages
+  go through the scrubber of fss-core (shared test vectors). No new dependencies (a minimal envelope sender instead of sentry-laravel). See AGENTS.md.
+
 ## 0.5.2
 
 - Laravel 13 support: `illuminate/support|http|cache` constraints widened to `^11.0|^12.0|^13.0` (and `orchestra/testbench` to `^11.0`). Tests pass on Laravel 12 and 13; no code changes were needed. Laravel 11 stays supported.

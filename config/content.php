@@ -64,4 +64,34 @@ return [
         'locale' => env('FSC_FORMS_LOCALE'),
         'labels' => [],
     ],
+
+    /*
+     * Error monitoring (GlitchTip) through the Content module `errors`. Nothing to set when the module is on: the SDK fetches the DSNs from
+     * Content (`GET /api/v1/project/errors`, cached `config_ttl` seconds) and reports backend exceptions through Laravel's exception handler.
+     * For the browser, place `<x-content::errors />` in the `<head>`; it reports via the first-party `tunnel` route on your own domain.
+     *
+     * Only an allowlist is sent (exception class, scrubbed message, source locations, route template, release, environment): no request
+     * data, user, IP, cookies, headers or bodies. Never in `local`/`testing`. `dsn`/`browser_dsn` override Content (e.g. without the module).
+     * `release`: the full Git SHA of the image build. `tunnel.target`: `backend` (private ingest, needs egress to errors.int0.net) with a
+     * fallback to the public ingest, or `public`.
+     */
+    'errors' => [
+        'enabled' => (bool) env('FSC_ERRORS_ENABLED', true),
+        'backend' => (bool) env('FSC_ERRORS_BACKEND', true),
+        'browser' => (bool) env('FSC_ERRORS_BROWSER', true),
+        'dsn' => env('FSC_ERRORS_DSN'),
+        'browser_dsn' => env('FSC_ERRORS_BROWSER_DSN'),
+        'environment' => env('FSC_ERRORS_ENVIRONMENT'),
+        'release' => env('FSS_RELEASE') ?: env('APP_BUILD_SHA') ?: env('SENTRY_RELEASE'),
+        'config_ttl' => (int) env('FSC_ERRORS_CONFIG_TTL', 600),
+        'max_per_minute' => 60,
+        'tunnel' => [
+            'enabled' => (bool) env('FSC_ERRORS_TUNNEL', true),
+            'path' => '_fsc/e',
+            'target' => env('FSC_ERRORS_TUNNEL_TARGET', 'backend'),
+            'max_bytes' => 65536,
+            'per_minute_ip' => 10,
+            'per_minute' => 120,
+        ],
+    ],
 ];

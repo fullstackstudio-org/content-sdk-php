@@ -10,10 +10,16 @@ use FullStackStudio\Content\Cache\VersionedTagCache;
 use FullStackStudio\Content\ClientOptions;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Console\AgentsCommand;
+use FullStackStudio\Content\Laravel\Errors\ErrorReporter;
+use FullStackStudio\Content\Laravel\Errors\Errors;
+use FullStackStudio\Content\Laravel\Errors\ReporterScriptController;
+use FullStackStudio\Content\Laravel\Errors\TunnelController;
 use FullStackStudio\Content\Laravel\View\Components\Meta;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Throwable;
 
 /** Auto-discovered (composer `extra.laravel`). Publish the config with `php artisan vendor:publish --tag=content-config`. */
 final class ContentServiceProvider extends ServiceProvider
@@ -42,6 +48,9 @@ final class ContentServiceProvider extends ServiceProvider
         });
 
         $this->app->alias(ContentClient::class, 'content');
+
+        $this->app->singleton(Errors::class, fn ($app): Errors => new Errors($app));
+        $this->app->singleton(ErrorReporter::class, fn ($app): ErrorReporter => new ErrorReporter($app, $app->make(Errors::class)));
     }
 
     public function boot(): void
@@ -64,6 +73,35 @@ final class ContentServiceProvider extends ServiceProvider
 
         if ($this->app['config']->get('content.forms.enabled')) {
             self::registerFormRoute();
+        }
+
+        if ($this->app['config']->get('content.errors.enabled', true)) {
+            self::registerErrorRoutes();
+            $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
+                // `reportable` exists on Laravel's own handler; a callback that returns nothing never stops the normal logging.
+                if (method_exists($handler, 'reportable')) {
+                    $handler->reportable(function (Throwable $error): void {
+                        $this->app->make(ErrorReporter::class)->report($error);
+                    });
+                }
+            });
+        }
+    }
+
+    /**
+     * Registers the error-monitoring routes on the site's own domain: `GET {path}/reporter.js` (the browser reporter) and
+     * `POST {path}/envelope` (the tunnel to GlitchTip, `content.errors.tunnel.enabled`). No middleware group: no session, cookies or CSRF.
+     * Called for you when `content.errors.enabled` is on (the default).
+     */
+    public static function registerErrorRoutes(): void
+    {
+        $config = app('config');
+        $base = trim((string) $config->get('content.errors.tunnel.path', '_fsc/e'), '/');
+
+        Route::get($base . '/reporter.js', ReporterScriptController::class)->name('content.errors.reporter');
+
+        if ($config->get('content.errors.tunnel.enabled', true)) {
+            Route::post($base . '/envelope', TunnelController::class)->name('content.errors.tunnel');
         }
     }
 
