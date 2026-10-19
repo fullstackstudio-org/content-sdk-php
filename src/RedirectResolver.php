@@ -31,7 +31,8 @@ final class RedirectResolver
     }
 
     /**
-     * @param string $query the request's query string without `?`; a relative target without its own query takes it along
+     * @param string $query the request's query string without `?`; a relative target without its own query takes it along, any other
+     *        target keeps at least the attribution parameters (utm_*, ad click ids) so campaigns survive the redirect
      * @return array{location: string, status: int}|null
      */
     public function resolve(string $path, string $query = ''): ?array
@@ -68,8 +69,32 @@ final class RedirectResolver
 
         if ($query !== '' && str_starts_with($location, '/') && !str_contains($location, '?')) {
             $location .= '?' . $query;
+        } elseif ($query !== '') {
+            $location = self::withAttribution($location, $query);
         }
 
         return ['location' => $location, 'status' => (int) ($resolved['statusCode'] ?? 301)];
+    }
+
+    /** Appends the utm_* and ad click id parameters of `$query` that `$location` does not have yet (before a `#fragment`). */
+    public static function withAttribution(string $location, string $query): string
+    {
+        $keep = [];
+
+        foreach (explode('&', $query) as $pair) {
+            $name = strtolower(urldecode(explode('=', $pair, 2)[0]));
+
+            if ($pair !== '' && in_array($name, Analytics::DEFAULT_PARAMS, true) && preg_match('/[?&]' . preg_quote($name, '/') . '=/i', $location) !== 1) {
+                $keep[] = $pair;
+            }
+        }
+
+        if ($keep === []) {
+            return $location;
+        }
+
+        [$base, $fragment] = array_pad(explode('#', $location, 2), 2, null);
+
+        return $base . (str_contains($base, '?') ? '&' : '?') . implode('&', $keep) . ($fragment !== null ? '#' . $fragment : '');
     }
 }

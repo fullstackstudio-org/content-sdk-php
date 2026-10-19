@@ -131,6 +131,34 @@ final class FormTest extends LaravelTestCase
         self::assertArrayNotHasKey('extra', $body);
     }
 
+    public function testFirstTouchAttributionFromTheAnalyticsHelperIsSentAsMeta(): void
+    {
+        $this->queueDefinition();
+        $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => 'ok']));
+        $attribution = json_encode(['utm_source' => 'google', 'utm_campaign' => 'herfst', 'gclid' => 'Cj0KCQ', 'fbclid' => "x\u{0007}y", 'landing_url' => '/?gclid=Cj0KCQ', 'referrer' => 'https://www.google.com/', 'evil' => 'dropped', 'gbraid' => ['no']]);
+
+        $this->submit(['_fsc_attribution' => $attribution])->assertRedirect();
+
+        $meta = $this->http->lastBody()['_meta'];
+        self::assertSame('google', $meta['utm_source'], 'first touch wins over the query of the form page');
+        self::assertSame('herfst', $meta['utm_campaign']);
+        self::assertSame('Cj0KCQ', $meta['gclid']);
+        self::assertSame('xy', $meta['fbclid']);
+        self::assertSame('/?gclid=Cj0KCQ', $meta['landing_url']);
+        self::assertSame('https://www.google.com/', $meta['referrer']);
+        self::assertArrayNotHasKey('evil', $meta);
+        self::assertArrayNotHasKey('gbraid', $meta);
+        self::assertArrayNotHasKey('_fsc_attribution', $this->http->lastBody());
+    }
+
+    public function testBrokenAttributionIsIgnored(): void
+    {
+        self::assertSame([], Forms::attributionMeta('{nope'));
+        self::assertSame([], Forms::attributionMeta(null));
+        self::assertSame([], Forms::attributionMeta(str_repeat('a', 20000)));
+        self::assertSame(['msclkid' => 'm1'], Forms::attributionMeta(['msclkid' => ' m1 ', 'utm_source' => '']));
+    }
+
     public function testTheIpHeaderIsConfigurableAndFallsBackToTheRequestIp(): void
     {
         config(['content.forms.ip_header' => 'x-real-ip']);

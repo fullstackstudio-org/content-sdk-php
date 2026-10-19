@@ -65,6 +65,35 @@ final class ContentServiceProvider extends ServiceProvider
         if ($this->app['config']->get('content.forms.enabled')) {
             self::registerFormRoute();
         }
+
+        if ($this->app['config']->get('content.analytics.enabled', true)) {
+            self::registerAnalyticsRoutes();
+        }
+    }
+
+    /**
+     * The analytics routes under `content.analytics.path` (default `_fsc/a`): the helper script always, the first-party proxy (script.js,
+     * recorder.js and the collect calls to Umami) unless `content.analytics.mode` is `direct`. No middleware group: no session, cookies or
+     * CSRF on these routes.
+     */
+    public static function registerAnalyticsRoutes(): void
+    {
+        $config = app('config');
+        $prefix = trim((string) $config->get('content.analytics.path', '_fsc/a'), '/') ?: '_fsc/a';
+
+        Route::get($prefix . '/fsc.js', [AnalyticsController::class, 'helper'])->name('content.analytics.helper');
+
+        if ($config->get('content.analytics.mode') === 'direct') {
+            return;
+        }
+
+        Route::get($prefix . '/script.js', [AnalyticsController::class, 'script'])->name('content.analytics.script');
+        Route::get($prefix . '/recorder.js', [AnalyticsController::class, 'recorder'])->name('content.analytics.recorder');
+        Route::post($prefix . '/api/send', [AnalyticsController::class, 'send'])->name('content.analytics.send');
+        Route::post($prefix . '/api/record', [AnalyticsController::class, 'record'])->name('content.analytics.record');
+        Route::get($prefix . '/api/websites/{id}/recorder', [AnalyticsController::class, 'recorderConfig'])
+            ->where('id', '[0-9a-f-]{36}')
+            ->name('content.analytics.recorder-config');
     }
 
     /** Registers `POST {content.forms.path}/{key}` (route name `content.form`), the target of `<x-content::form>`. Called for you when `content.forms.enabled` is on, or via `Content::formRoutes()`. */

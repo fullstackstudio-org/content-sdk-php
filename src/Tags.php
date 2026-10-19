@@ -37,6 +37,7 @@ final class Tags
     public const APPOINTMENT_SERVICES = 'content:appointment-services';
     public const FAQ = 'content:faq';
     public const LEGAL = 'content:legal';
+    public const ANALYTICS = 'content:analytics';
 
     /** Tags are case-insensitive: slugs and UUIDs are in the API too. */
     private static function key(string $value): string

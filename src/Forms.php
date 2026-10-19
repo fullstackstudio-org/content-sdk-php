@@ -56,6 +56,38 @@ final class Forms
      * @param array<string, string> $overrides
      * @return array<string, string>
      */
+    /**
+     * The first-touch attribution that the analytics helper puts in the hidden field `_fsc_attribution` (or `fscAnalytics.attribution()`
+     * in your own form), as `_meta` keys for `submitForm`: `utm_*`, the ad click ids (`gclid`, `fbclid`, `msclkid`, ...), `landing_url`
+     * and `referrer`. Unknown keys, non-text values and control characters are dropped; values are cut to 500 characters.
+     *
+     * @return array<string, string>
+     */
+    public static function attributionMeta(mixed $json): array
+    {
+        $data = is_string($json) && $json !== '' && strlen($json) <= 16_384 ? json_decode($json, true) : (is_array($json) ? $json : null);
+
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $meta = [];
+
+        foreach ([...Analytics::DEFAULT_PARAMS, 'landing_url', 'referrer'] as $key) {
+            $value = $data[$key] ?? null;
+
+            if (is_string($value)) {
+                $value = trim((string) preg_replace('/[\x00-\x1F\x7F]/', '', $value));
+
+                if ($value !== '') {
+                    $meta[$key] = mb_substr($value, 0, 500);
+                }
+            }
+        }
+
+        return $meta;
+    }
+
     public static function labels(?string $locale = null, array $overrides = []): array
     {
         $short = strtolower(substr((string) $locale, 0, 2));

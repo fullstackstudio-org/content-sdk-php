@@ -204,10 +204,85 @@ above the fold. Plain URLs: `$content->mediaUrl($id)`, `$content->assetUrl($path
 
 ### Blade components (namespace `content::`)
 
-`meta`, `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
+`meta`, `analytics` (see Analytics), `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
 `image`, `form`. Override a block type with your own view: `:views="['articleList' => 'blocks.articles']"` or `config('content.blocks')`; your view receives
 `$block`, `$index`, `$baseUrl`, `$resolve($mediaId)`. The `articleList` block only says what to show: fetch the articles in your view. There is no cookie banner
 component (needs JS): build one on `getConsentConfig()` / `recordConsent()`.
+
+### Analytics (module `analytics`, Umami): pageviews, events, heatmaps, session replay, campaign attribution
+
+Turn the module on for the project in Content (staff do this; Content then creates the Umami website itself) and put one tag in the layout, at the end of
+`<body>` (or in `<head>`). Nothing else is needed: no keys, no ids, no env vars.
+
+```blade
+<x-content::analytics />
+```
+
+What it renders (from `getAnalyticsConfig()`, cached 5 minutes; nothing at all while the module is off or not ready, so it is safe in every layout):
+
+- The Umami tracker, deferred, `data-do-not-track="true"`, `data-domains` (only the site's own hosts count), WITHOUT `data-exclude-search` so `utm_*` reach Umami.
+- The helper script `/_fsc/a/fsc.js`: starts heatmaps and session replay (Umami `recorder.js`) only after cookie consent, and keeps first-touch attribution.
+
+Binding consent rules (do not change them):
+
+| What | Consent needed |
+|---|---|
+| Pageviews and custom events (Umami is cookieless) | No, they always run |
+| Heatmaps (clicks, scroll) and session replay | Yes. Loaded only after the visitor accepted cookies; revoking stops every upload at once |
+
+Replay always masks form input (password fields and every other input); Content can also mask all text (mask level `strict`). Add `data-rr-block`/class
+`rr-block` to an element that must never be recorded, `rr-mask` to mask its text.
+
+**Wiring your cookie banner** (the recorder never starts without one of these). When the visitor accepts or declines:
+
+```js
+window.dispatchEvent(new CustomEvent('fsc:consent', { detail: 'accepted' })); // or 'declined'; also true/false, { analytics: true },
+                                                                              // { categories: ['analytics', ...] }
+localStorage.setItem('fsc-consent', 'accepted');                              // so later pages know it (or 'declined')
+```
+
+`window.fscAnalytics.setConsent(true|false)` does the same as the event. If your banner already stores its choice under another key, set
+`FSC_CONSENT_KEY=<that key>` (values like `accepted`/`declined`, `true`/`false` or JSON `{"analytics":true}` are understood). Do not name heatmaps or replay
+in the banner itself; the privacy text covers them (below). Custom events: `data-umami-event="signup"` on an element, or `window.fscAnalytics.track('signup', {...})`.
+
+**First-party mode (default).** Script and collect calls go through this site: `/_fsc/a/script.js`, `/_fsc/a/recorder.js`, `/_fsc/a/api/send`,
+`/_fsc/a/api/record`, `/_fsc/a/api/websites/<id>/recorder`, proxied to `analytics.fullstackstudio.nl`. Ad blockers that block the analytics host still count
+pageviews, and no third-party host appears in the page. The proxy only accepts this site's own website id, forwards the visitor IP (`FSC_IP_HEADER`, default
+`cf-connecting-ip`; it must be a header your proxy overwrites) and the user agent, never cookies, uses no session middleware, answers `{}` when Umami is slow or down
+(3 s timeout), and limits each visitor IP (`FSC_ANALYTICS_RATE_LIMIT`, 240 per minute). Do not put these routes behind auth, CSRF or a `web` group, and do not
+cache `/_fsc/a/api/*` in a CDN. **Direct mode** (`FSC_ANALYTICS_MODE=direct`) loads everything from `analytics.fullstackstudio.nl` and adds a preconnect;
+only use it when the site cannot run the routes.
+
+**Content-Security-Policy.** First-party needs nothing beyond `'self'` for `script-src` and `connect-src`, plus `worker-src 'self' blob: data:` for the replay
+worker. Direct mode needs `https://analytics.fullstackstudio.nl` in `script-src` and `connect-src`. Get the sources for the configured mode with
+`Content::analyticsCsp()` or merge them into your policy: `Content::analyticsCspMerge($policy)`. With a nonce-based CSP pass it: `<x-content::analytics :nonce="$nonce" />`
+(Laravel's `Vite::cspNonce()` is used automatically when set).
+
+**Attribution.** On the first page of a visit the helper keeps `utm_source/medium/campaign/term/content`, the ad click ids (`gclid`, `gbraid`, `wbraid`, `dclid`,
+`gclsrc`, `fbclid`, `msclkid`, `ttclid`, `li_fat_id`, `twclid`, `rdt_cid`, `epik`, `sccid`), the landing URL and an external referrer in `sessionStorage`. Every
+`<x-content::form>` sends them along (hidden field `_fsc_attribution`, read by the form route) and Content stores them with the submission (`meta.utm`,
+`meta.clickIds`, `meta.landingUrl`, `meta.referrer`). For your own form add `data-fsc-attribution` to the `<form>`, then in the controller:
+`$content->submitForm($key, $values, ['meta' => Forms::attributionMeta($request->input('_fsc_attribution'))])`; a fetch-based form can send
+`window.fscAnalytics.attribution()` as `_meta`.
+
+**Redirects must keep the query string**, or campaigns are lost: `RedirectMiddleware` keeps it (and keeps at least the utm and click id parameters when the
+target has its own query or is absolute). Your own redirects (`redirect()->to(...)`, route redirects, `www` to apex in nginx/Traefik) must pass the query along too
+(`$request->getQueryString()`; nginx `return 301 https://example.nl$request_uri;`).
+
+**Privacy text** (privacy page, not the banner): "We measure visits with Umami, a privacy-friendly statistics tool without cookies; IP addresses are not stored.
+Only if you accept cookies do we also analyse clicks and navigation anonymously (heatmaps and session recordings, with everything you type hidden)."
+
+Checklist "analytics correct ingericht":
+
+1. Module `analytics` on in Content and ready (`$content->getAnalyticsConfig()['ready'] === true`; `websiteId` set, `domains` = the live hosts).
+2. `<x-content::analytics />` in the layout used by every public page (not in admin/account pages if you do not want them counted).
+3. `GET /_fsc/a/script.js` returns JavaScript on the live site; in the browser network tab `/_fsc/a/api/send` answers 200 on a page view.
+4. Without consent there is no `recorder.js` request; after accepting there is, and `/_fsc/a/api/record` posts appear while clicking. After declining they stop.
+5. The cookie banner dispatches `fsc:consent` and stores its choice (`fsc-consent` or `FSC_CONSENT_KEY`).
+6. CSP (if any) allows the sources above; no CSP errors in the console.
+7. `FSC_IP_HEADER` matches the proxy in front of the site (Cloudflare: `cf-connecting-ip`).
+8. Open `/?utm_source=test&gclid=abc`, submit a form: the submission in Content shows the utm and click id. Redirects keep `?utm_...`.
+9. The privacy page mentions Umami and the after-consent heatmaps/recordings.
 
 ### Cache and webhook invalidation
 
@@ -240,6 +315,7 @@ Details and examples: README sections "Modules", "Webshop", "Members", "Chat", "
 - Do not render HTML from other sources through `article-body`/`page-blocks` (they print Content's sanitized HTML unescaped).
 - Do not expose the server token or call write routes (`admin`) from user-reachable code paths without your own authorization.
 - Do not use `Http::fake()` for the SDK: it uses its own cURL transport.
+- Do not load Umami's `recorder.js` yourself or start it before consent, do not add cookies or an id of your own to analytics, and do not drop the query string on redirects.
 
 ## Testing
 
@@ -254,5 +330,5 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.5.2 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+This guide: version 0.6.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
 Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.

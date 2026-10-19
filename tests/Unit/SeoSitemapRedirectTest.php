@@ -95,6 +95,17 @@ final class SeoSitemapRedirectTest extends TestCase
         Sitemap::entries($this->client());
     }
 
+    public function testRedirectsKeepCampaignParametersOnEveryTarget(): void
+    {
+        self::assertSame('https://x.nl/?a=1&utm_source=g&gclid=C1#top', RedirectResolver::withAttribution('https://x.nl/?a=1#top', 'utm_source=g&page=2&gclid=C1'));
+        self::assertSame('/new?b=2&fbclid=F', RedirectResolver::withAttribution('/new?b=2', 'fbclid=F'));
+        self::assertSame('/new?utm_source=own', RedirectResolver::withAttribution('/new?utm_source=own', 'utm_source=visitor'), 'the target\'s own value wins');
+        self::assertSame('https://x.nl/', RedirectResolver::withAttribution('https://x.nl/', 'page=2'));
+
+        $this->http->queue(FakeTransport::json(['redirect' => ['location' => 'https://new.example/landing', 'statusCode' => 301]]));
+        self::assertSame(['location' => 'https://new.example/landing?utm_campaign=herfst&msclkid=M', 'status' => 301], (new RedirectResolver($this->client()))->resolve('/old', 'utm_campaign=herfst&msclkid=M&x=1'));
+    }
+
     public function testRedirectResolver(): void
     {
         $this->http->queue(FakeTransport::json(['redirect' => ['location' => '/new', 'statusCode' => 301]]), FakeTransport::json(['redirect' => ['location' => 'https://x.nl/?a=1', 'statusCode' => 302]]), FakeTransport::json(['redirect' => null]));
