@@ -2,6 +2,15 @@
 
 ## 0.6.0
 
+- Analytics (Content module `analytics`, Umami). `getAnalyticsConfig()` and `<x-content::analytics />`: the cookieless tracker (pageviews and events without
+  consent) and a helper script (`/_fsc/a/fsc.js`, shipped in `resources/assets/fsc-analytics.js`) that starts heatmaps and session replay only after cookie
+  consent (`fsc:consent` event or the `fsc-consent` storage key), blocks every replay upload after revoking, and keeps first-touch attribution (utm, ad click ids,
+  landing URL, external referrer).
+- First-party mode by default: `/_fsc/a/script.js`, `recorder.js`, `api/send`, `api/record` and the recorder settings are proxied to the analytics host
+  (visitor IP and user agent forwarded, no cookies, no session, short timeout, rate limit per IP, only the site's own website id). `FSC_ANALYTICS_MODE=direct` opts out.
+- `Analytics::csp()`/`mergeCsp()` and `Content::analyticsCsp()`/`analyticsCspMerge()` for the Content-Security-Policy.
+- Forms: `<x-content::form>` sends the first-touch attribution as `_meta` (`Forms::attributionMeta()` for your own forms).
+- Redirects keep the utm and ad click id parameters also when the target has its own query or is absolute.
 - Error monitoring (GlitchTip) for the Content module `errors`: the DSNs come from Content (`GET /api/v1/project/errors`, cached 10 minutes, the last good
   answer survives an outage). Backend exceptions are reported through Laravel's exception handler (`reportable`), after the response; the browser reporter
   is `<x-content::errors />` with `GET /_fsc/e/reporter.js` and the first-party tunnel `POST /_fsc/e/envelope`. Events are rebuilt from an allowlist, messages

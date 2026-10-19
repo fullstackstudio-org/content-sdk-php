@@ -271,6 +271,30 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
 There is no cookie banner component: the banner needs JavaScript and `localStorage`, so use the JS one (`@fullstackstudio/content`) or build it on
 `getConsentConfig()` / `recordConsent()`.
 
+## Analytics (Umami)
+
+With the module `analytics` on in Content, one tag in the layout sets up visitor statistics:
+
+```blade
+<x-content::analytics />
+```
+
+Pageviews and custom events are cookieless and run without consent. Heatmaps and session replay start only after the visitor accepted cookies: dispatch
+`fsc:consent` from your banner (`window.dispatchEvent(new CustomEvent('fsc:consent', { detail: 'accepted' }))`) and store the choice in `localStorage['fsc-consent']`.
+By default (first-party mode) the script and its collect calls go through `/_fsc/a/...` on your own domain and are proxied to the analytics host; set
+`FSC_ANALYTICS_MODE=direct` to load from the analytics host instead. CSP sources: `Content::analyticsCsp()`. First-touch attribution (utm, ad click ids,
+landing URL, referrer) is sent with every `<x-content::form>`. Full rules, the banner wiring and a checklist: `AGENTS.md`, section "Analytics".
+
+| Env | Default | |
+|---|---|---|
+| `FSC_ANALYTICS_ENABLED` | `true` | `false` renders nothing and registers no routes |
+| `FSC_ANALYTICS_MODE` | `first-party` | or `direct` |
+| `FSC_ANALYTICS_PATH` | `_fsc/a` | prefix of the first-party routes |
+| `FSC_ANALYTICS_HOST` | `https://analytics.fullstackstudio.nl` | upstream of the proxy |
+| `FSC_IP_HEADER` | `cf-connecting-ip` | visitor IP header your proxy sets (also used by forms) |
+| `FSC_ANALYTICS_RATE_LIMIT` | `240` | proxied requests per visitor IP per minute |
+| `FSC_CONSENT_KEY` / `FSC_CONSENT_EVENT` | `fsc-consent` / `fsc:consent` | where your banner stores / announces the choice |
+
 ## Error monitoring
 
 With the Content module `errors` switched on, the SDK reports backend exceptions (through Laravel's exception handler) and, with
@@ -346,6 +370,7 @@ The default is cURL (no redirects, per-call timeout). `Psr18Transport` wraps any
 ```bash
 composer install
 vendor/bin/phpunit
+bun test tests/js   # or: node --test tests/js (the browser helper of analytics)
 ```
 
 Tests never touch the network.

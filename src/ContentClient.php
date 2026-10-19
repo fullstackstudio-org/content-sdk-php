@@ -562,6 +562,21 @@ final class ContentClient
         ])->data;
     }
 
+    // --- Analytics (module `analytics`) ---------------------------------------------------------------------------------------
+
+    /**
+     * Any token. The Umami site config: `ready`, `websiteId`, `scriptUrl`, `recorderUrl`, `hostUrl`, `domains`, the binding `consent`
+     * rules (pageviews/events without consent, replay/heatmap only after consent) and the `attribution` parameters to keep. Cached for
+     * five minutes by default (no webhook event changes it). Throws `ContentException` 404 `module_disabled` when the module is off.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function getAnalyticsConfig(array $options = []): array
+    {
+        return $this->context->get('/analytics', [Tags::ANALYTICS], null, ['ttl' => 300, ...$options])->data['analytics'] ?? [];
+    }
+
     // --- Cookie consent --------------------------------------------------------------------------------------------------
 
     /**

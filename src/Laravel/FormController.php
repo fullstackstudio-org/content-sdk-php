@@ -174,6 +174,10 @@ final class FormController
             }
         }
 
+        // First-touch attribution from the analytics helper (utm_*, ad click ids, landing URL, external referrer) wins over the query of
+        // the form page: it is where the visit came from.
+        $meta = [...$meta, ...Forms::attributionMeta($request->input('_fsc_attribution'))];
+
         return array_map(static fn (string $value): string => mb_substr($value, 0, self::META_LIMIT), $meta);
     }
 

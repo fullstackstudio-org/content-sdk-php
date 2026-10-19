@@ -66,6 +66,35 @@ return [
     ],
 
     /*
+     * Analytics (Content module `analytics`, Umami). Place `<x-content::analytics />` in the layout (end of <body> or <head>); with the
+     * module on in Content nothing else is needed. Pageviews and events are cookieless and run without consent; heatmaps and session
+     * replay start only after cookie consent (see AGENTS.md for wiring a banner).
+     *
+     * `mode`: `first-party` (default) serves the Umami script and its collect calls from this site under `path` (/_fsc/a/...) and proxies
+     * them to `host`, so ad blockers that block the analytics host still count pageviews and a CSP only needs 'self'. `direct` loads
+     * everything from `host` (then the CSP needs that host, see `Content::analyticsCsp()`).
+     * `ip_header`: the header with the visitor IP that this site receives (Cloudflare: `cf-connecting-ip`); it is forwarded to Umami so
+     * countries and unique visitors stay right. Only a header your proxy overwrites; null = the IP Laravel sees.
+     */
+    'analytics' => [
+        'enabled' => (bool) env('FSC_ANALYTICS_ENABLED', true),
+        'mode' => env('FSC_ANALYTICS_MODE', 'first-party'),
+        'path' => env('FSC_ANALYTICS_PATH', '_fsc/a'),
+        'host' => env('FSC_ANALYTICS_HOST', 'https://analytics.fullstackstudio.nl'),
+        'ip_header' => env('FSC_IP_HEADER', 'cf-connecting-ip'),
+        'timeout_ms' => (int) env('FSC_ANALYTICS_TIMEOUT_MS', 3000),
+        // Seconds the site config from Content is cached (also when the module is off, so a site without analytics makes no calls).
+        'config_ttl' => (int) env('FSC_ANALYTICS_CONFIG_TTL', 300),
+        // Seconds the proxied script.js / recorder.js are cached by the site (and by the browser).
+        'script_ttl' => (int) env('FSC_ANALYTICS_SCRIPT_TTL', 3600),
+        // Proxy requests per visitor IP per minute (collect calls; scripts are cached and not counted).
+        'rate_limit' => (int) env('FSC_ANALYTICS_RATE_LIMIT', 240),
+        // The localStorage key and window event your cookie banner uses (see AGENTS.md).
+        'consent_key' => env('FSC_CONSENT_KEY', 'fsc-consent'),
+        'consent_event' => env('FSC_CONSENT_EVENT', 'fsc:consent'),
+    ],
+
+    /**
      * Error monitoring (GlitchTip) through the Content module `errors`. Nothing to set when the module is on: the SDK fetches the DSNs from
      * Content (`GET /api/v1/project/errors`, cached `config_ttl` seconds) and reports backend exceptions through Laravel's exception handler.
      * For the browser, place `<x-content::errors />` in the `<head>`; it reports via the first-party `tunnel` route on your own domain.
