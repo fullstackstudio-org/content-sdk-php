@@ -52,21 +52,23 @@ final class ErrorReporter
             }
 
             $this->seen[$fingerprint] = $now;
-            $settings = $this->errors->config();
-
-            if ($settings === null || ($settings->backendDsn === null && $settings->browserDsn === null)) {
-                return;
-            }
 
             if (! $this->allow()) {
                 return;
             }
 
-            $event = EventBuilder::fromThrowable($error, $settings, $this->app->basePath(), $this->errors->route());
-            $origin = $this->errors->origin();
-            $send = function () use ($event, $settings, $origin): void {
+            // Everything that may wait on the network (the config from Content, GlitchTip) runs after the response.
+            $route = $this->errors->route();
+            $send = function () use ($error, $route): void {
                 try {
-                    $this->errors->delivery()->deliver($event, $settings, $origin);
+                    $settings = $this->errors->config();
+
+                    if ($settings === null || ($settings->backendDsn === null && $settings->browserDsn === null)) {
+                        return;
+                    }
+
+                    $event = EventBuilder::fromThrowable($error, $settings, $this->app->basePath(), $route);
+                    $this->errors->delivery()->deliver($event, $settings, $this->errors->origin());
                 } catch (Throwable) {
                     // Monitoring never breaks the app.
                 }
