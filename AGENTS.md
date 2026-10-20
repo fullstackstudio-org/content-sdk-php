@@ -516,6 +516,15 @@ Checklist for a site:
 - Do not call the address endpoints from the browser with a token, and do not log addresses or address queries.
 - Do not load Umami's `recorder.js` yourself or start it before consent, do not add cookies or an id of your own to analytics, and do not drop the query string on redirects.
 
+## Laravel-site pitfalls
+
+- **Force https.** In `AppServiceProvider::boot()` call `URL::forceScheme('https')` when `app()->environment('production')`. Behind Cloudflare and the
+  ingress the request arrives as http, so `redirect('/bedankt')` produced `http://...`; the CSP `form-action 'self'` blocked that redirect from an
+  https page and the form hung on "versturen".
+- **Sessions in files.** Use `SESSION_DRIVER=file`, never `cookie`. A cookie session grows past nginx's 4k fastcgi buffer and gives a 502 "upstream
+  sent too big header" on form errors. Also set the buffers in the nginx `location` that passes to PHP-FPM: `fastcgi_buffer_size 32k;` and
+  `fastcgi_buffers 16 16k;`. `examples/laravel` has both.
+
 ## Testing
 
 No network in tests. Give the client a fake `FullStackStudio\Content\Http\Transport` (`send(Request): Response`; `new Response($status, $headersLowercase, $jsonBody)`) and bind it:
