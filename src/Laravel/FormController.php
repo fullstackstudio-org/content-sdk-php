@@ -22,6 +22,11 @@ final class FormController
 {
     private const META_LIMIT = 500;
 
+    /** Cookie session driver only: at most this many characters per old-input value and in total (see oldInput()). */
+    private const COOKIE_OLD_INPUT_VALUE = 300;
+
+    private const COOKIE_OLD_INPUT_BUDGET = 900;
+
     public function __invoke(Request $request, ContentClient $client, Repository $config, string $key): RedirectResponse
     {
         try {
@@ -107,7 +112,7 @@ final class FormController
     {
         // Uploaded files cannot go into the session: drop them from the old input (the visitor picks them again).
         $hidden = ['_token', 'cf-turnstile-response', (string) ($definition['honeypotField'] ?? ''), ...array_keys($request->allFiles())];
-        $redirect = $this->back($request, $key)->withInput($request->except($hidden));
+        $redirect = $this->back($request, $key)->withInput($this->oldInput($request->except($hidden)));
 
         if ($errors !== []) {
             $bag = new ViewErrorBag();
@@ -116,6 +121,36 @@ final class FormController
         }
 
         return $general !== null ? $redirect->with("content_form.{$key}", ['status' => 'error', 'message' => $general]) : $redirect;
+    }
+
+    /**
+     * With `SESSION_DRIVER=cookie` the whole session, so the old input too, travels in a Set-Cookie. A long message would push the
+     * response headers past the 4k/8k fastcgi buffer of nginx (a 502 "upstream sent too big header" after the submit did go through).
+     * On that driver the old input is therefore capped; any server-side driver (file, database, redis) keeps it whole.
+     *
+     * @param array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    private function oldInput(array $input): array
+    {
+        if (config('session.driver') !== 'cookie') {
+            return $input;
+        }
+
+        $budget = self::COOKIE_OLD_INPUT_BUDGET;
+        $kept = [];
+
+        foreach ($input as $name => $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $value = mb_substr($value, 0, min(self::COOKIE_OLD_INPUT_VALUE, $budget));
+            $budget -= strlen($value);
+            $kept[$name] = $value;
+        }
+
+        return $kept;
     }
 
     /** Back to the page with the form (same host only), at the form. */

@@ -191,6 +191,29 @@ final class FormTest extends LaravelTestCase
         $this->submit()->assertSessionHas('content_form.contact.message', 'Thanks!');
     }
 
+    public function testTheCookieSessionDriverCapsTheOldInputSoTheSetCookieStaysSmall(): void
+    {
+        config(['session.driver' => 'cookie']);
+        $this->queueDefinition();
+
+        $response = $this->submit(['name' => '', 'agree' => '', 'email' => 'jan@example.nl', 'message' => str_repeat('x', 5000)]);
+
+        $input = $response->baseResponse->getSession()->get('_old_input');
+        self::assertLessThanOrEqual(900, strlen(implode('', $input)));
+        self::assertSame('jan@example.nl', $input['email']);
+        self::assertLessThanOrEqual(300, strlen($input['message']));
+    }
+
+    public function testAServerSideSessionDriverKeepsTheWholeOldInput(): void
+    {
+        config(['session.driver' => 'array']);
+        $this->queueDefinition();
+
+        $response = $this->submit(['name' => '', 'agree' => '', 'email' => 'jan@example.nl', 'message' => str_repeat('x', 5000)]);
+
+        self::assertSame(5000, strlen($response->baseResponse->getSession()->get('_old_input')['message']));
+    }
+
     public function testLocalValidationFailuresNeverReachContentAndKeepTheOldInput(): void
     {
         $this->queueDefinition();

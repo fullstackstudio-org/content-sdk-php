@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `FormController`: on `SESSION_DRIVER=cookie` the flashed old input is capped (300 characters per value, 900 in total), so a failed submit with a long message cannot push the Set-Cookie past nginx's fastcgi buffer (502 "upstream sent too big header"). Server-side session drivers keep the full input. Use `SESSION_DRIVER=file` for sites.
+
 ## 0.8.0
 
 - Site standards (Content module `site`). `getSite()` (`GET /api/v1/site`, any token, tag `content:site`; the webhook event `site.updated` clears it)
