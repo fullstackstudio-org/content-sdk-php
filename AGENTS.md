@@ -19,7 +19,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.6.0" }
+    "require": { "fullstackstudio/content": "^0.7.0" }
 }
 ```
 
@@ -68,7 +68,7 @@ public function __construct(private readonly ContentClient $content) {}   // sin
 
 Client methods: `getProject`, `listArticles`, `getArticle`, `listCategories`, `getTranslations`, `listPages`, `getPage`, `getForm`, `submitForm`,
 `restartFormPayment`, `listMedia`, `getMedia`, `mediaUrl`, `assetUrl`, `listRedirects`, `resolveRedirect`, `getSeo`, `getSitemap`, `search`,
-`getConsentConfig`, `recordConsent`. Params go first, call options last: `timeoutMs`, `clientIp`, `cache` (false skips the cache), `tags`, `ttl`.
+`getConsentConfig`, `recordConsent`, `suggestAddresses`, `lookupAddress`. Params go first, call options last: `timeoutMs`, `clientIp`, `cache` (false skips the cache), `tags`, `ttl`.
 
 A server token reads **drafts**. A public page must never show unpublished content: list with `'status' => 'published'` and check
 `($item['status'] ?? null) === 'published'` on detail pages (`getPage` already 404s for unpublished pages).
@@ -196,6 +196,24 @@ in total, and files are read into memory. Read an uploaded file back with a serv
 createdAt }]` and `$content->downloadSubmissionFile($formKey, $submissionId, $fileId)` returns `['bytes' => ..., 'contentType' => ..., 'fileName' => ...]`
 (treat as untrusted, serve as a download). The webhook `form.submission.created` lists `files` without names or bytes.
 
+### Address autocomplete (Dutch addresses, no module)
+
+```blade
+<x-content::address-field name="address" required />   {{-- inside your own <form>; inputs address[street], address[houseNumber], address[addition], address[postcode], address[city], address[country] --}}
+```
+
+One search field with suggestions (PDOK through Content), then a one-line summary with "Change"; "Enter manually" shows the separate fields (also the only UI
+without JavaScript). The fields are ordinary inputs, so they travel with a normal Laravel POST. For a flat Content form pass your field names:
+`:names="['street' => 'straat', 'houseNumber' => 'huisnummer', 'addition' => 'toevoeging', 'postcode' => 'postcode', 'city' => 'plaats', 'country' => 'land']"`
+(`lat`/`lon` with `:geo="true"`). Start values: `:value="[...]"`, `old()` wins after a validation error. `addition` holds the house letter and addition (`A`, `2`, `A-2`).
+Validate server-side like any other input (the browser values are user input); `Address::normalizePostcode()` helps. Do not call Content from the browser
+and do not put the server token in a view: the browser only talks to this site's routes `GET /_fsc/address/suggest|lookup|field.js|field.css`
+(`content.address.*`, on by default, no session or cookies, rate limit `content.address.rate_limit` per visitor IP per minute; `FSC_ADDRESS_ENABLED=false` switches them off).
+Server side: `$content->suggestAddresses($q, 8, ['clientIp' => $ip])` and `$content->lookupAddress($postcode, $number)` (exact match or `null`). Both give an empty
+result when PDOK is down (fail-soft); only invalid input (query under 3 or over 100 characters, bad postcode) throws `ContentException` 400. Addresses are
+personal data: do not log queries or results. Put `FSC_IP_HEADER` right behind your proxy so the per-visitor limits work. The script and styles are separate
+requests from your own domain (CSP `'self'`); add your nonce with `nonce="..."` if you use one.
+
 ### Media and images
 
 `<x-content::image :media="$media" sizes="(min-width: 768px) 50vw, 100vw" formats="avif,webp" :eager="true" alt="" />` renders `<img srcset>` or `<picture>`
@@ -205,7 +223,7 @@ above the fold. Plain URLs: `$content->mediaUrl($id)`, `$content->assetUrl($path
 ### Blade components (namespace `content::`)
 
 `meta`, `analytics` (see Analytics), `errors` (see Error monitoring), `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
-`image`, `form`. Override a block type with your own view: `:views="['articleList' => 'blocks.articles']"` or `config('content.blocks')`; your view receives
+`image`, `form`, `address-field` (see Address autocomplete). Override a block type with your own view: `:views="['articleList' => 'blocks.articles']"` or `config('content.blocks')`; your view receives
 `$block`, `$index`, `$baseUrl`, `$resolve($mediaId)`. The `articleList` block only says what to show: fetch the articles in your view. There is no cookie banner
 component (needs JS): build one on `getConsentConfig()` / `recordConsent()`.
 
@@ -349,6 +367,7 @@ Checklist for a site:
 - Do not render HTML from other sources through `article-body`/`page-blocks` (they print Content's sanitized HTML unescaped).
 - Do not expose the server token or call write routes (`admin`) from user-reachable code paths without your own authorization.
 - Do not use `Http::fake()` for the SDK: it uses its own cURL transport.
+- Do not call the address endpoints from the browser with a token, and do not log addresses or address queries.
 - Do not load Umami's `recorder.js` yourself or start it before consent, do not add cookies or an id of your own to analytics, and do not drop the query string on redirects.
 
 ## Testing
@@ -364,5 +383,5 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.6.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+This guide: version 0.7.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
 Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.

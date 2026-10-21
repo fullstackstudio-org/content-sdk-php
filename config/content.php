@@ -94,6 +94,18 @@ return [
         'consent_event' => env('FSC_CONSENT_EVENT', 'fsc:consent'),
     ],
 
+    /*
+     * Dutch address autocomplete (`<x-content::address-field>`). The browser asks this site (`path`), the site asks Content with the server token, so
+     * no token is exposed. `ip_header`: the header with the visitor IP behind your proxy (Cloudflare: `cf-connecting-ip`), only a header your proxy
+     * overwrites; null = the IP Laravel sees. `rate_limit`: requests per visitor IP per minute.
+     */
+    'address' => [
+        'enabled' => (bool) env('FSC_ADDRESS_ENABLED', true),
+        'path' => env('FSC_ADDRESS_PATH', '_fsc/address'),
+        'ip_header' => env('FSC_IP_HEADER', 'cf-connecting-ip'),
+        'rate_limit' => (int) env('FSC_ADDRESS_RATE_LIMIT', 120),
+    ],
+
     /**
      * Error monitoring (GlitchTip) through the Content module `errors`. Nothing to set when the module is on: the SDK fetches the DSNs from
      * Content (`GET /api/v1/project/errors`, cached `config_ttl` seconds) and reports backend exceptions through Laravel's exception handler.

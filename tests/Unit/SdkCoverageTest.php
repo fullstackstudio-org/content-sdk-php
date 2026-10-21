@@ -30,6 +30,8 @@ final class SdkCoverageTest extends TestCase
     private const PHP_ONLY = [
         '/translations' => 'The tail of the dynamic `/{kind}/*/translations` in `Admin::createTranslation` (the four JS paths are in JS_ONLY).',
         '/analytics' => '`getAnalyticsConfig()`: the analytics module is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
+        '/address/suggest' => '`suggestAddresses()`: Dutch address lookup is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
+        '/address/lookup' => '`lookupAddress()`: see `/address/suggest`.',
         '/api/media/*' => '`mediaUrl()`: the JS version builds it from a template string that does not start with a slash, so the scan does not see it.',
     ];
 

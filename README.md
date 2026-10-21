@@ -271,6 +271,33 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
 There is no cookie banner component: the banner needs JavaScript and `localStorage`, so use the JS one (`@fullstackstudio/content`) or build it on
 `getConsentConfig()` / `recordConsent()`.
 
+## Address autocomplete (Netherlands)
+
+Dutch address fields with autocomplete (PDOK, through Content; no module and no extra scope, any token). One tag in a form:
+
+```blade
+<form method="POST" action="/checkout">
+    @csrf
+    <x-content::address-field name="address" required />   {{-- inputs: address[street], address[houseNumber], address[addition], address[postcode], address[city], address[country] --}}
+</form>
+```
+
+The visitor types a street and house number (or postcode and number) and picks a suggestion (arrow keys, Enter, Escape); the chosen address shows as one
+line with "Change", and "Enter manually" shows the separate fields. Without JavaScript the separate fields are shown. The browser asks your own site
+(`/_fsc/address/suggest`, `/_fsc/address/lookup`), which asks Content with the server token, so no token reaches the browser. Attributes: `name` (prefix),
+`required`, `:names="['street' => 'straat', ...]"` (your own input names, e.g. a flat Content form), `:value="[...]"` (start values; `old()` wins), `:geo="true"`
+(hidden `lat`/`lon`), `:countries="['NL' => 'Nederland']"`, `locale`, `:labels="[...]"`, `:styles="false"` (leave out `/_fsc/address/field.css`), `nonce`.
+
+In PHP: `$content->suggestAddresses('roggekamp 68', 8)` (a list of `{label, street, houseNumber, houseLetter, addition, postcode, city, municipality, province, country, lat, lon}`)
+and `$content->lookupAddress('2592VB', '68')` (one address or `null`; an exact match on postcode and number only). Both answer empty when nothing matches or the address source is down.
+
+| Env | Default | |
+|---|---|---|
+| `FSC_ADDRESS_ENABLED` | `true` | `false` registers no address routes |
+| `FSC_ADDRESS_PATH` | `_fsc/address` | prefix of the routes |
+| `FSC_ADDRESS_RATE_LIMIT` | `120` | requests per visitor IP per minute |
+| `FSC_IP_HEADER` | `cf-connecting-ip` | visitor IP header your proxy sets (shared with forms and analytics) |
+
 ## Analytics (Umami)
 
 With the module `analytics` on in Content, one tag in the layout sets up visitor statistics:

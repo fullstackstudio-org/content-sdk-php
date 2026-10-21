@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+- Dutch address autocomplete (PDOK Locatieserver, through Content; any token, no module). `suggestAddresses($q, $limit = 8)` and `lookupAddress($postcode, $number)` on the client,
+  and `<x-content::address-field name="address" />`: one search field with suggestions (debounced, keyboard support), a one-line summary with "Change", and "Enter manually"
+  with separate street, number, addition, postcode, city and country fields as the fallback (the only UI without JavaScript). The inputs are plain inputs of your own form;
+  `names`, `value`, `geo`, `countries`, `labels`, `locale`, `styles` and `nonce` configure it. Postcode + number in manual mode fills an empty street and city.
+- The browser never sees a token: it asks the site's own routes `GET /_fsc/address/suggest|lookup|field.js|field.css` (`content.address.*`, `FSC_ADDRESS_ENABLED`, `FSC_ADDRESS_PATH`,
+  `FSC_ADDRESS_RATE_LIMIT`; no session or cookies, rate limit per visitor IP, fail-soft). Needs Content with the `v1.address` routes (`GET /api/v1/address/suggest|lookup`).
+- `Address` helpers (labels nl/en, field names, postcode and query normalisation).
+
 ## 0.6.0
 
 - Analytics (Content module `analytics`, Umami). `getAnalyticsConfig()` and `<x-content::analytics />`: the cookieless tracker (pageviews and events without

@@ -577,6 +577,48 @@ final class ContentClient
         return $this->context->get('/analytics', [Tags::ANALYTICS], null, ['ttl' => 300, ...$options])->data['analytics'] ?? [];
     }
 
+    // --- Address lookup (Netherlands, PDOK) ----------------------------------------------------------------------------------------
+
+    /**
+     * Type-ahead suggestions for a Dutch address (street, number, place), any token, no module. `$q` is 3 to 100 characters, `$limit`
+     * 1 to 10. Returns a list of `{label, street, houseNumber, houseLetter, addition, postcode, city, municipality, province, country, lat, lon}`;
+     * an empty list when nothing matches or the address source is down (Content answers fail-soft). Not cached by the SDK: Content caches.
+     * Pass the visitor's IP via `clientIp` (Content rate-limits per visitor).
+     *
+     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * @return list<array<string, mixed>>
+     */
+    public function suggestAddresses(string $q, int $limit = 8, array $options = []): array
+    {
+        $ip = $this->context->visitorIp($options['clientIp'] ?? null);
+
+        return array_values($this->context->execute([
+            'path' => '/address/suggest',
+            'query' => ['q' => $q, 'limit' => $limit],
+            'headers' => $ip !== null ? ['X-FSC-Client-Ip' => $ip] : null,
+            'options' => $options,
+        ])->data['addresses'] ?? []);
+    }
+
+    /**
+     * The address for an exact postcode and house number (`68`, `68a`, `68-2`), or null when there is no exact match (or the address source is down).
+     *
+     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * @return array<string, mixed>|null
+     */
+    public function lookupAddress(string $postcode, string|int $number, array $options = []): ?array
+    {
+        $ip = $this->context->visitorIp($options['clientIp'] ?? null);
+        $address = $this->context->execute([
+            'path' => '/address/lookup',
+            'query' => ['postcode' => $postcode, 'number' => (string) $number],
+            'headers' => $ip !== null ? ['X-FSC-Client-Ip' => $ip] : null,
+            'options' => $options,
+        ])->data['address'] ?? null;
+
+        return is_array($address) ? $address : null;
+    }
+
     // --- Cookie consent --------------------------------------------------------------------------------------------------
 
     /**

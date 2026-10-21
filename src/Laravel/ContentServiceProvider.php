@@ -79,6 +79,10 @@ final class ContentServiceProvider extends ServiceProvider
             self::registerAnalyticsRoutes();
         }
 
+        if ($this->app['config']->get('content.address.enabled', true)) {
+            self::registerAddressRoutes();
+        }
+
         if ($this->app['config']->get('content.errors.enabled', true)) {
             self::registerErrorRoutes();
             $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
@@ -115,6 +119,20 @@ final class ContentServiceProvider extends ServiceProvider
         Route::get($prefix . '/api/websites/{id}/recorder', [AnalyticsController::class, 'recorderConfig'])
             ->where('id', '[0-9a-f-]{36}')
             ->name('content.analytics.recorder-config');
+    }
+
+    /**
+     * The address routes under `content.address.path` (default `_fsc/address`): `GET suggest`, `GET lookup`, `GET field.js` and `GET field.css`, the target of
+     * `<x-content::address-field>`. No middleware group: no session, cookies or CSRF. Called for you when `content.address.enabled` is on (the default).
+     */
+    public static function registerAddressRoutes(): void
+    {
+        $prefix = trim((string) app('config')->get('content.address.path', '_fsc/address'), '/') ?: '_fsc/address';
+
+        Route::get($prefix . '/suggest', [AddressController::class, 'suggest'])->name('content.address.suggest');
+        Route::get($prefix . '/lookup', [AddressController::class, 'lookup'])->name('content.address.lookup');
+        Route::get($prefix . '/field.js', [AddressController::class, 'script'])->name('content.address.script');
+        Route::get($prefix . '/field.css', [AddressController::class, 'styles'])->name('content.address.styles');
     }
 
     /**
