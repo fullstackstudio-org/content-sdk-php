@@ -1,7 +1,7 @@
 # fullstackstudio/content (PHP)
 
 PHP SDK for [Fullstack Content](https://content.fullstackstudio.nl): a typed-by-convention client for `/api/v1`, a tag-based read cache,
-webhook verification and a Laravel integration. It follows the same contract as the JavaScript SDK (`@fullstackstudio/content`).
+webhook verification and a Laravel integration.
 
 - PHP 8.2 or newer, `ext-curl` and `ext-json`. No other runtime dependency: Laravel, PSR-18 and PSR-16 are optional.
 - Responses are plain associative arrays (the JSON as the API sends it, single objects unwrapped).
@@ -268,8 +268,8 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
   texts. The visitor's IP is read from `content.forms.ip_header` (default `cf-connecting-ip`; set it to the header your proxy overwrites, or `null` to use
   the IP Laravel sees) and sent as `X-FSC-Client-Ip`, so Content's per-visitor limits work behind your server.
 
-There is no cookie banner component: the banner needs JavaScript and `localStorage`, so use the JS one (`@fullstackstudio/content`) or build it on
-`getConsentConfig()` / `recordConsent()`.
+There is no cookie banner component: build the banner on `getConsentConfig()` / `recordConsent()` and follow the consent contract below (section
+"Site standards").
 
 ## Address autocomplete (Netherlands)
 
@@ -297,6 +297,42 @@ and `$content->lookupAddress('2592VB', '68')` (one address or `null`; an exact m
 | `FSC_ADDRESS_PATH` | `_fsc/address` | prefix of the routes |
 | `FSC_ADDRESS_RATE_LIMIT` | `120` | requests per visitor IP per minute |
 | `FSC_IP_HEADER` | `cf-connecting-ip` | visitor IP header your proxy sets (shared with forms and analytics) |
+
+## Site standards (module `site`)
+
+Two components that belong in every layout, also while the module is off (then they render nothing):
+
+```blade
+<head>
+    <x-content::meta :page="$page ?? null" :path="request()->getPathInfo()" />
+    <x-content::head />       {{-- verification metas, favicon, apple-touch-icon, theme-color, LocalBusiness JSON-LD, own head code --}}
+    <x-content::errors />
+</head>
+<body>
+    ...
+    <x-content::body-end />   {{-- own body code, contact click events (tel:, mailto:, WhatsApp) to Umami --}}
+    <x-content::analytics />
+</body>
+```
+
+Everything comes from one `getSite()` (`GET /api/v1/site`, any token) per request, cached under `content:site` and cleared by the webhook event
+`site.updated`. A failure renders the last good answer or nothing (one warning, then a 15 s pause); never an exception. `<x-content::meta>` uses the
+site's share image (`social.ogImage`) when the page and the SEO settings have none.
+
+- **Own code** (customer snippets for the head or the end of the body): consent `necessary` is printed as it is, with the page nonce on every
+  `<script>`/`<style>`. `analytics`, `marketing` and `preferences` are inert `<template data-fsc-code data-consent="…">` elements; a small inline loader
+  (with the nonce) activates them once the visitor accepted that category.
+- **Consent contract** (shared with analytics): the banner stores the choice in `localStorage['fsc-consent']` and dispatches the `window` event
+  `fsc:consent`, both with `{choice: 'all'|'none'|'custom', categories: [...]}` (also `'accepted'`/`'declined'`, `{analytics: true, ...}`). No cookie.
+  Key and event: `FSC_CONSENT_KEY` / `FSC_CONSENT_EVENT`.
+- **JSON-LD** is encoded with `JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT`, so no value can end the script block.
+- **CSP**: the components use the nonce (`Vite::cspNonce()` or `nonce="…"`). `Content::siteCsp()` gives the hosts of the snippets' `src`/`href` (and of
+  URLs in inline scripts) per directive; `Content::siteCspMerge($policy)` merges them into a policy string or array (a missing directive starts from
+  `default-src`). Without Laravel: `FullStackStudio\Content\Site::head()/bodyEnd()/csp()/mergeCsp()`.
+- `FSC_SITE_ENABLED=false` switches the lookup off; `FSC_SITE_TIMEOUT_MS` (default 2000) limits it.
+
+The pages catch-all, `RedirectMiddleware`, `Sitemap::response()` and `Robots::response()` belong in every site as well; with their module off they give a
+404, do nothing or list only your own entries, without errors. Exact code: `AGENTS.md`, section "Altijd in elke site".
 
 ## Analytics (Umami)
 
@@ -332,8 +368,8 @@ section "Error monitoring", and `config/content.php` (`errors`).
 ## Example site
 
 `examples/laravel` is a small but real Laravel 13 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for
-the rest), every other path as a page of blocks, a contact form (`<x-content::form>`), `sitemap.xml`, the webhook route, the redirect middleware,
-`<x-content::meta>` and `GET /api/health`. When Content is down the site answers 503 instead of a stack trace, and `/api/health` stays up.
+the rest), every other path as a page of blocks, a contact form (`<x-content::form>`), `sitemap.xml`, `robots.txt`, the webhook route, the redirect
+middleware, the layout components (`meta`, `head`, `errors`, `body-end`, `analytics`) and `GET /api/health`. When Content is down the site answers 503 instead of a stack trace, and `/api/health` stays up.
 
 ```bash
 cd examples/laravel

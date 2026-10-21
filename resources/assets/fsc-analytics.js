@@ -44,6 +44,8 @@
         if (typeof value === 'object') {
             if (typeof value.analytics === 'boolean') return value.analytics;
             if (typeof value.statistics === 'boolean') return value.statistics;
+            if (value.choice === 'all') return true;
+            if (value.choice === 'none') return false;
             if (Array.isArray(value.categories)) return value.categories.indexOf('analytics') !== -1 || value.categories.indexOf('statistics') !== -1;
             if ('accepted' in value) return interpret(value.accepted);
             return null;

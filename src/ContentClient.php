@@ -45,7 +45,7 @@ use FullStackStudio\Content\Modules\Tickets;
  */
 final class ContentClient
 {
-    public const VERSION = '0.6.0';
+    public const VERSION = '0.8.0';
 
     /** Total size of the files of one submission (the API's limit). */
     private const MAX_FORM_FILES_BYTES = 50 * 1024 * 1024;
@@ -575,6 +575,29 @@ final class ContentClient
     public function getAnalyticsConfig(array $options = []): array
     {
         return $this->context->get('/analytics', [Tags::ANALYTICS], null, ['ttl' => 300, ...$options])->data['analytics'] ?? [];
+    }
+
+    // --- Site standards (module `site`) ------------------------------------------------------------------------------------------
+
+    /**
+     * Any token (also a publishable one). The site standards of the project: `version`, `verification` (google, bing, facebook,
+     * pinterest), `business` (LocalBusiness data or null), `social` (`ogImage`, `favicon`, `appleTouchIcon`, `themeColor`),
+     * `clickEvents` and the enabled `code` snippets (`id`, `name`, `placement` head|body, `consent` necessary|analytics|marketing|preferences,
+     * `html`). With the module off Content answers the empty shape (version "", nulls, no code). Cached under `content:site`; the webhook
+     * event `site.updated` clears it.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function getSite(array $options = []): array
+    {
+        $data = $this->context->get('/site', [Tags::SITE], null, $options)->data;
+
+        if (!is_array($data)) {
+            return [];
+        }
+
+        return is_array($data['site'] ?? null) ? $data['site'] : $data;
     }
 
     // --- Address lookup (Netherlands, PDOK) ----------------------------------------------------------------------------------------

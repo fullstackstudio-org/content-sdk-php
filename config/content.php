@@ -95,6 +95,20 @@ return [
     ],
 
     /*
+     * Site standards (Content module `site`): `<x-content::head />` and `<x-content::body-end />` render the customer's own code (gated by
+     * cookie consent), verification metas, favicon, theme colour and the LocalBusiness JSON-LD. Read from `GET /api/v1/site`, cached under
+     * `content:site` (webhook `site.updated`). A failed lookup renders the last good answer or nothing and pauses lookups for
+     * `failure_cooldown_seconds`; a project without the module pauses for `module_off_cooldown_seconds`. The consent key and event are the
+     * same as for analytics (`content.analytics.consent_key` / `consent_event`).
+     */
+    'site' => [
+        'enabled' => (bool) env('FSC_SITE_ENABLED', true),
+        'timeout_ms' => (int) env('FSC_SITE_TIMEOUT_MS', 2000),
+        'failure_cooldown_seconds' => 15,
+        'module_off_cooldown_seconds' => 60,
+    ],
+
+    /*
      * Dutch address autocomplete (`<x-content::address-field>`). The browser asks this site (`path`), the site asks Content with the server token, so
      * no token is exposed. `ip_header`: the header with the visitor IP behind your proxy (Cloudflare: `cf-connecting-ip`), only a header your proxy
      * overwrites; null = the IP Laravel sees. `rate_limit`: requests per visitor IP per minute.

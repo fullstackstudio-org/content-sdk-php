@@ -4,6 +4,141 @@ Guide for AI coding agents working in a Laravel (or other PHP) site that uses th
 forms, SEO, the sitemap, redirects, caching or the webhook. Everything below matches the code of this version; if the code and this file
 disagree, the code wins. Full reference: `README.md` next to this file.
 
+## Altijd in elke site
+
+Bouw dit in **elke** site die dit pakket gebruikt, ook als de module voor het project (nog) uit staat. Aanzetten in Content vraagt dan geen
+codewijziging. Met de module uit renderen de componenten niets, geeft de paginaroute een gewone 404 en doen redirects niets, zonder exceptions
+en zonder logregels boven `debug`.
+
+**1. Layout** (`resources/views/layouts/app.blade.php`): in `<head>` eerst de meta, dan de site-standaarden en de foutrapportage; vlak vóór
+`</body>` de eigen code en analytics. De componenten zetten zelf de CSP-nonce (`Vite::cspNonce()`) op elke `<script>` en `<style>`, of geef
+`nonce="..."` mee.
+
+```blade
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    @isset($page)
+        <x-content::meta :page="$page" :path="$path ?? null" />
+    @else
+        <x-content::meta :path="request()->getPathInfo()" />
+    @endisset
+    <x-content::head />      {{-- verificatie (Google, Bing, Facebook, Pinterest), favicon, apple-touch-icon, theme-color, LocalBusiness JSON-LD, eigen head-code --}}
+    <x-content::errors />    {{-- browserfouten naar GlitchTip (module errors) --}}
+    @vite(['resources/css/app.css'])
+</head>
+<body>
+    ...
+    <x-content::body-end />  {{-- eigen body-code en klik-events (tel:, mailto:, WhatsApp) naar Umami --}}
+    <x-content::analytics /> {{-- Umami (module analytics) --}}
+</body>
+```
+
+`<x-content::meta>` valt zonder eigen afbeelding terug op de deelafbeelding van de site (`social.ogImage`). Alles komt uit één `GET /api/v1/site`
+per verzoek (cache-tag `content:site`, webhook `site.updated`). Valt Content uit, dan wordt het laatste goede antwoord gebruikt of niets, met één
+waarschuwing in de log en een pauze van 15 s.
+
+**2. Routes** (`routes/web.php`): sitemap, robots en als laatste de catch-all voor pagina's uit Content. Verwijder `public/robots.txt` (de
+webserver serveert een statisch bestand eerst).
+
+```php
+use App\Http\Controllers\PageController;
+use FullStackStudio\Content\Laravel\Robots;
+use FullStackStudio\Content\Laravel\Sitemap;
+
+Route::get('/sitemap.xml', fn () => Sitemap::response([
+    'extra' => [['url' => url('/')]],                       // je eigen routes
+]));
+Route::get('/robots.txt', fn () => Robots::response());     // Disallow: / als robotsIndex uit staat (testsite), anders Allow + Sitemap
+
+// ... je eigen routes ...
+
+Route::get('/{path}', [PageController::class, 'show'])->where('path', '.*');   // ALTIJD als laatste
+```
+
+```php
+public function show(string $path): View
+{
+    $path = trim($path, '/');
+    if ($path === '' || strlen($path) > 200) { abort(404); }
+    try {
+        $page = $this->content->getPage($path);
+    } catch (ContentException $e) {
+        if ($e->isNotFound()) { abort(404); }      // ook 404 `module_disabled`: pagina's staan uit
+        report($e);
+        abort(503);
+    }
+    if (($page['status'] ?? 'published') !== 'published') { abort(404); }
+    return view('page', ['page' => $page, 'path' => '/' . $path]);
+}
+```
+
+`Sitemap::response()` geeft met de SEO-module uit alleen je `extra`-regels en bij een storing een 503 met `Retry-After`; zonder `canonicalOrigin`
+in Content gebruikt hij de eigen origin van de app. `Robots::response()` staat met de module uit alles toe en geeft bij een storing een 503.
+
+**3. Redirects** (`bootstrap/app.php`), vóór alles in de web-groep:
+
+```php
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->trustProxies(at: '*');
+    $middleware->web(prepend: [\FullStackStudio\Content\Laravel\RedirectMiddleware::class]);
+})
+```
+
+Met de module uit pauzeert de lookup 60 s per keer; bij een storing 15 s. De querystring (utm, click ids) blijft behouden.
+
+**4. Webhook**: `FSC_WEBHOOK_ENABLED=true` en `FSC_WEBHOOK_SECRET=fsc_whsec_...` (runtime-env). De route `POST /content/webhook` leegt de cache-tags,
+ook `content:site` bij `site.updated`. Maak in Content een webhook naar `https://<site>/content/webhook`.
+
+**5. Content-Security-Policy.** Heeft de site een CSP, voeg dan de bronnen van de eigen code en analytics toe. De componenten gebruiken de nonce;
+gebruik dus een nonce-gebaseerde `script-src` (en `style-src` voor eigen `<style>`-blokken):
+
+```php
+// app/Http/Middleware/ContentSecurityPolicy.php, in de web-groep
+use FullStackStudio\Content\Laravel\Facades\Content;
+use Illuminate\Support\Facades\Vite;
+
+public function handle(Request $request, Closure $next): Response
+{
+    Vite::useCspNonce();                                      // vóór het renderen: de componenten nemen deze nonce over
+    $response = $next($request);
+    $nonce = Vite::cspNonce();
+    $csp = "default-src 'self'; script-src 'self' 'nonce-{$nonce}'; style-src 'self' 'nonce-{$nonce}'; "
+        . "img-src 'self' data: https://content.fullstackstudio.nl; connect-src 'self'; frame-ancestors 'self'";
+    $csp = Content::analyticsCspMerge(Content::siteCspMerge($csp));   // string in, string uit; een array kan ook
+    $response->headers->set('Content-Security-Policy', $csp);
+
+    return $response;
+}
+```
+
+`siteCspMerge()` neemt een array (geeft een array terug) of een CSP-string (geeft een string terug). Een ontbrekende directive begint bij
+`default-src`; zonder `default-src` blijft hij weg (toevoegen zou de rest verbieden). Hosts die een script pas later zelf laadt (bijvoorbeeld de
+regionale endpoints van Google Analytics) staan niet in de snippet: voeg die met de hand toe.
+
+**6. Cookiebanner: het toestemmingscontract.** Eigen code met toestemming `necessary` draait altijd. Code voor `analytics`, `marketing` of
+`preferences` staat als inerte `<template data-fsc-code data-consent="...">` in de pagina en draait pas na toestemming voor die categorie; heatmaps en
+session replay van analytics volgen hetzelfde contract. De banner van de site doet bij elke keuze twee dingen:
+
+```js
+const choice = { choice: 'custom', categories: ['analytics'] };          // of { choice: 'all' } / { choice: 'none' }
+localStorage.setItem('fsc-consent', JSON.stringify(choice));             // volgende pagina's lezen dit
+window.dispatchEvent(new CustomEvent('fsc:consent', { detail: choice })); // deze pagina activeert meteen
+```
+
+- Sleutel en event: `fsc-consent` en `fsc:consent` (aan te passen met `FSC_CONSENT_KEY` / `FSC_CONSENT_EVENT`; geldt voor site en analytics).
+- Begrepen waarden: `{categories: [...]}`, `{choice: 'all'|'none'|'custom', categories}`, `{analytics: true, marketing: false, preferences: true}`,
+  `'accepted'`/`'all'`/`true` (alles), `'declined'`/`'necessary'`/`'none'`/`false` (niets), ook als JSON-tekst. Onbekende categorieën tellen niet.
+- Geen cookie: de keuze staat alleen in `localStorage` (de server rendert altijd dezelfde HTML; de browser beslist). Geen keuze = niets dan `necessary`.
+- Intrekken werkt vanaf de volgende pagina: code die al draaide kan niet worden uitgeladen. Herlaad de pagina na intrekken als dat nodig is.
+- Leg de keuze ook vast als bewijs: `recordConsent(['choice' => ..., 'categories' => [...]], ['clientIp' => ..., 'userAgent' => ...])` vanuit je
+  eigen route (`POST /api/v1/consent`). De categorieën die de banner moet tonen komen uit `getConsentConfig()['categories']`.
+- Eigen code met `document.write` werkt niet na toestemming (de pagina is dan al geladen); gebruik de asynchrone variant van de leverancier.
+
+Checklist: `<x-content::meta>`, `<x-content::head />`, `<x-content::errors />` in `<head>`; `<x-content::body-end />` en `<x-content::analytics />` vóór
+`</body>`; catch-all als laatste route; `RedirectMiddleware` vooraan in de web-groep; `/sitemap.xml` en `/robots.txt` via het pakket; webhook aan;
+CSP gemerged; de banner schrijft `fsc-consent` en stuurt `fsc:consent`.
+
 ## What it is
 
 `fullstackstudio/content` is the PHP client for **Fullstack Content**, a headless CMS (`https://content.fullstackstudio.nl`, API `/api/v1`).
@@ -19,7 +154,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.7.0" }
+    "require": { "fullstackstudio/content": "^0.8.0" }
 }
 ```
 
@@ -73,7 +208,7 @@ public function __construct(private readonly ContentClient $content) {}   // sin
 
 Client methods: `getProject`, `listArticles`, `getArticle`, `listCategories`, `getTranslations`, `listPages`, `getPage`, `getForm`, `submitForm`,
 `restartFormPayment`, `listMedia`, `getMedia`, `mediaUrl`, `assetUrl`, `listRedirects`, `resolveRedirect`, `getSeo`, `getSitemap`, `search`,
-`getConsentConfig`, `recordConsent`, `suggestAddresses`, `lookupAddress`. Params go first, call options last: `timeoutMs`, `clientIp`, `cache` (false skips the cache), `tags`, `ttl`.
+`getConsentConfig`, `recordConsent`, `getSite`, `getAnalyticsConfig`, `suggestAddresses`, `lookupAddress`. Params go first, call options last: `timeoutMs`, `clientIp`, `cache` (false skips the cache), `tags`, `ttl`.
 
 A server token reads **drafts**. A public page must never show unpublished content: list with `'status' => 'published'` and check
 `($item['status'] ?? null) === 'published'` on detail pages (`getPage` already 404s for unpublished pages).
@@ -227,10 +362,10 @@ above the fold. Plain URLs: `$content->mediaUrl($id)`, `$content->assetUrl($path
 
 ### Blade components (namespace `content::`)
 
-`meta`, `analytics` (see Analytics), `errors` (see Error monitoring), `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
+`meta`, `head` and `body-end` (see "Altijd in elke site"), `analytics` (see Analytics), `errors` (see Error monitoring), `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
 `image`, `form`, `address-field` (see Address autocomplete). Override a block type with your own view: `:views="['articleList' => 'blocks.articles']"` or `config('content.blocks')`; your view receives
 `$block`, `$index`, `$baseUrl`, `$resolve($mediaId)`. The `articleList` block only says what to show: fetch the articles in your view. There is no cookie banner
-component (needs JS): build one on `getConsentConfig()` / `recordConsent()`.
+component (needs JS): build one on `getConsentConfig()` / `recordConsent()` and follow the consent contract in "Altijd in elke site".
 
 ### Analytics (module `analytics`, Umami): pageviews, events, heatmaps, session replay, campaign attribution
 
@@ -264,7 +399,8 @@ window.dispatchEvent(new CustomEvent('fsc:consent', { detail: 'accepted' })); //
 localStorage.setItem('fsc-consent', 'accepted');                              // so later pages know it (or 'declined')
 ```
 
-`window.fscAnalytics.setConsent(true|false)` does the same as the event. If your banner already stores its choice under another key, set
+This is the same contract as for the site's own code (section "Altijd in elke site"); prefer `{ choice, categories }` there, the helper understands
+both. `window.fscAnalytics.setConsent(true|false)` does the same as the event. If your banner already stores its choice under another key, set
 `FSC_CONSENT_KEY=<that key>` (values like `accepted`/`declined`, `true`/`false` or JSON `{"analytics":true}` are understood). Do not name heatmaps or replay
 in the banner itself; the privacy text covers them (below). Custom events: `data-umami-event="signup"` on an element, or `window.fscAnalytics.track('signup', {...})`.
 
@@ -322,7 +458,7 @@ reaches: use a shared store (`FSC_CACHE_STORE=redis`) or accept the TTL.
 
 ### Other modules (brief)
 
-Properties on the client, same names as the JS SDK, inputs/outputs plain arrays, call options last: `products`, `cart`, `orders`, `payments`, `discounts`, `shipping`
+Properties on the client, inputs/outputs plain arrays, call options last: `products`, `cart`, `orders`, `payments`, `discounts`, `shipping`
 (webshop: price with `cart->applyCode`, then `orders->place`, then `payments->startForOrder` and redirect to `payment.checkoutUrl`; pass `expectedTotalCents`; keep `accessToken` out of URLs),
 `members` (login incl. two-factor; keep the session token in an httpOnly cookie), `appointments`, `tickets` (uploads via `Http\UploadFile`), `customers`, `invoices`, `newsletter`
 (`subscribe`/`confirm`/`unsubscribe`), `returns`, `reviews`, `downloads`, `events`, `faq`, `legal`, `chat` (store the conversation token), `admin` (write routes; server token + scopes).
@@ -388,5 +524,5 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.7.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+This guide: version 0.8.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
 Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.

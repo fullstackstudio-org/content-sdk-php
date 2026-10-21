@@ -13,7 +13,8 @@ final class Seo
      *
      * @param array<string, mixed>|null $seo
      * @param array<string, mixed>|null $page a page or article (`title`, `seoTitle`, `seoDescription`, `excerpt`, `cover`, `publishedAt`, `updatedAt`, `authorName`)
-     * @param array{baseUrl?: string, path?: string, type?: 'website'|'article'} $options
+     * @param array{baseUrl?: string, path?: string, type?: 'website'|'article', fallbackImage?: array<string, mixed>|null} $options `fallbackImage`
+     *        (`{url, width?, height?, alt?}`, e.g. `site.social.ogImage` from `getSite()`) is used when neither the page nor the SEO settings have an image
      * @return array<string, mixed>
      */
     public static function meta(?array $seo, ?array $page = null, array $options = []): array
@@ -25,7 +26,7 @@ final class Seo
             ? ($page !== null && is_string($template) && str_contains($template, '%s') ? str_replace('%s', (string) $rawTitle, $template) : (string) $rawTitle)
             : null;
         $description = self::filled($page['seoDescription'] ?? null) ?? self::filled($page['excerpt'] ?? null) ?? self::filled($seo['defaultDescription'] ?? null);
-        $media = ($page['cover'] ?? null) ?: ($seo['defaultOgImage'] ?? null);
+        $media = ($page['cover'] ?? null) ?: ($seo['defaultOgImage'] ?? null) ?: ($options['fallbackImage'] ?? null);
         $image = is_array($media) && isset($media['url'])
             ? array_filter([
                 'url' => self::absolute((string) $media['url'], $baseUrl),

@@ -60,6 +60,11 @@ final class WebhookController
                 $cache->invalidateTags($tags);
             }
 
+            if (in_array(Tags::SITE, $tags, true)) {
+                // A paused lookup (module was off, or an outage) must not hide the new site standards.
+                SiteSettings::forgetPause();
+            }
+
             $events->dispatch(new ContentWebhookReceived($event, $tags));
         } catch (Throwable $error) {
             Log::error('[content-webhook] processing failed: ' . $error->getMessage());

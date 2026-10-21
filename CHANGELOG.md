@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.0
+
+- Site standards (Content module `site`). `getSite()` (`GET /api/v1/site`, any token, tag `content:site`; the webhook event `site.updated` clears it)
+  and two layout components: `<x-content::head />` (verification metas for Google, Bing, Facebook and Pinterest, favicon, apple-touch-icon,
+  theme-color, LocalBusiness JSON-LD, the customer's own head code) and `<x-content::body-end />` (own body code, and with click events on and the
+  analytics module active a delegated listener that sends `contact-click` for tel:, mailto: and WhatsApp links to Umami). They never throw: a failure
+  renders the last good answer or nothing (one warning, a 15 s pause), the module being off renders nothing (debug log only). One lookup per request.
+- Own code with consent `necessary` is printed with the page nonce on every `<script>`/`<style>` (script text is never touched); other categories
+  are inert `<template data-fsc-code>` elements activated by an inline loader once the visitor accepted that category (`localStorage['fsc-consent']`
+  and the `fsc:consent` event, the same contract as analytics; `{choice, categories}` is now understood by the analytics helper too).
+- JSON-LD is encoded with `JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE`.
+- `<x-content::meta>` (and `Seo::meta()` with the new `fallbackImage` option) falls back to the site's share image when the page and the SEO
+  settings have none.
+- CSP: `Content::siteCsp()` / `siteCspMerge($policy)` (string or array) and `Site::csp()` / `Site::mergeCsp()`. A missing directive starts from
+  `default-src`, so merging never narrows a policy.
+- Always in every site, also with the module off: `Sitemap::response()` no longer throws (module off = your `extra` entries, Content down = 503 with
+  `Retry-After`, no `canonicalOrigin` = the app's own origin); new `Robots::response()` for `robots.txt`; the redirect lookup pauses 60 s on
+  `module_disabled` without calling `onError`; `ContentException::isModuleDisabled()`. AGENTS.md has a new first section "Altijd in elke site".
+- `ContentClient::VERSION` was still `0.6.0`; it is now `0.8.0`.
+
 ## 0.7.0
 
 - Dutch address autocomplete (PDOK Locatieserver, through Content; any token, no module). `suggestAddresses($q, $limit = 8)` and `lookupAddress($postcode, $number)` on the client,

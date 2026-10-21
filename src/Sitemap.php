@@ -8,8 +8,8 @@ namespace FullStackStudio\Content;
 final class Sitemap
 {
     /**
-     * @param array{baseUrl?: string, locale?: string, localePrefix?: callable(string): string, entryPath?: callable(array<string, mixed>): ?string, extra?: list<array{url: string, lastmod?: string|null}>} $options
-     *   `baseUrl` defaults to the project's `canonicalOrigin`; `localePrefix` maps a locale to a path prefix (Content returns paths without one);
+     * @param array{baseUrl?: string, fallbackBaseUrl?: string, locale?: string, localePrefix?: callable(string): string, entryPath?: callable(array<string, mixed>): ?string, extra?: list<array{url: string, lastmod?: string|null}>} $options
+     *   `baseUrl` defaults to the project's `canonicalOrigin`, then to `fallbackBaseUrl` (the Laravel helper passes the app's own origin); `localePrefix` maps a locale to a path prefix (Content returns paths without one);
      *   `entryPath` gives your own path per entry (null skips it); `extra` are entries of your own (the homepage, ...).
      * @return list<array{url: string, lastmod: string|null}> empty when `robotsIndex` is off (a test site)
      */
@@ -21,7 +21,7 @@ final class Sitemap
             return [];
         }
 
-        $origin = rtrim((string) ($options['baseUrl'] ?? $sitemap['canonicalOrigin'] ?? ''), '/');
+        $origin = rtrim((string) ($options['baseUrl'] ?? (($sitemap['canonicalOrigin'] ?? '') ?: ($options['fallbackBaseUrl'] ?? ''))), '/');
 
         if ($origin === '') {
             throw new ContentException(0, 'invalid_config', "Sitemap: pass `baseUrl`, or set a `canonicalOrigin` in the project's SEO settings.");

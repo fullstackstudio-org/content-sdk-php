@@ -20,6 +20,7 @@ namespace FullStackStudio\Content;
  *   redirects                  content:redirects
  *   seo                        content:seo
  *   sitemap                    content:sitemap
+ *   site standards             content:site
  *   products / product / product categories / appointment services / faq / legal: see the constants below.
  */
 final class Tags
@@ -38,6 +39,7 @@ final class Tags
     public const FAQ = 'content:faq';
     public const LEGAL = 'content:legal';
     public const ANALYTICS = 'content:analytics';
+    public const SITE = 'content:site';
 
     /** Tags are case-insensitive: slugs and UUIDs are in the API too. */
     private static function key(string $value): string
@@ -122,6 +124,8 @@ final class Tags
             $add([...$withRef([self::class, 'form'], $data['key'] ?? null)]);
         } elseif (str_starts_with($type, 'redirect.')) {
             $add([self::REDIRECTS]);
+        } elseif ($type === 'site.updated') {
+            $add([self::SITE]);
         } elseif ($type === 'seo.updated') {
             $add([self::SEO, self::SITEMAP]);
         } elseif (str_starts_with($type, 'legal.document.') || $type === 'legal.version.published') {

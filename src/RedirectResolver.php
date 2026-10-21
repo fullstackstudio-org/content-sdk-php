@@ -16,7 +16,9 @@ use FullStackStudio\Content\Cache\Store;
 final class RedirectResolver
 {
     /**
-     * @param array{timeoutMs?: int, failureCooldownSeconds?: int, skip?: callable(string): bool, onError?: callable(\Throwable): void} $options
+     * @param array{timeoutMs?: int, failureCooldownSeconds?: int, moduleOffCooldownSeconds?: int, skip?: callable(string): bool, onError?: callable(\Throwable): void} $options
+     *        `moduleOffCooldownSeconds` (default 60): pause after a 404 `module_disabled` (the project has no redirects module); that is not
+     *        an error, so `onError` is not called for it
      * @param Store|null $pauseStore remembers the failure cooldown across requests
      */
     public function __construct(private readonly ContentClient $client, private readonly array $options = [], private readonly ?Store $pauseStore = null)
@@ -52,6 +54,12 @@ final class RedirectResolver
         try {
             $resolved = $this->client->resolveRedirect($path, ['timeoutMs' => $this->options['timeoutMs'] ?? 1500]);
         } catch (\Throwable $error) {
+            if ($error instanceof ContentException && $error->isModuleDisabled()) {
+                $this->pauseStore?->put($pauseKey, 1, $this->options['moduleOffCooldownSeconds'] ?? 60);
+
+                return null;
+            }
+
             $this->pauseStore?->put($pauseKey, 1, $this->options['failureCooldownSeconds'] ?? 15);
 
             if (isset($this->options['onError'])) {

@@ -58,6 +58,12 @@ class ContentException extends RuntimeException
         return $this->status === 404;
     }
 
+    /** The project has the module behind this route switched off (404 `module_disabled`). */
+    public function isModuleDisabled(): bool
+    {
+        return $this->status === 404 && $this->errorCode === 'module_disabled';
+    }
+
     public function isRateLimited(): bool
     {
         return $this->status === 429 || $this->errorCode === 'rate_limited';

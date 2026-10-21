@@ -49,6 +49,13 @@ final class ContentServiceProvider extends ServiceProvider
 
         $this->app->alias(ContentClient::class, 'content');
 
+        // One per request: head, body-end and meta share a single lookup (and a single failure).
+        $this->app->scoped(SiteSettings::class, function ($app): SiteSettings {
+            $store = $app['config']->get('content.cache.store');
+
+            return new SiteSettings($app->make(ContentClient::class), $app['cache']->store($store ?: null), $app['config'], $app->bound('log') ? $app['log'] : null);
+        });
+
         $this->app->singleton(Errors::class, fn ($app): Errors => new Errors($app));
         $this->app->singleton(ErrorReporter::class, fn ($app): ErrorReporter => new ErrorReporter($app, $app->make(Errors::class)));
     }
