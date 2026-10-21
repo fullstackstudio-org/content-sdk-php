@@ -74,7 +74,8 @@ public function show(string $path): View
 ```
 
 `Sitemap::response()` geeft met de SEO-module uit alleen je `extra`-regels en bij een storing een 503 met `Retry-After`; zonder `canonicalOrigin`
-in Content gebruikt hij de eigen origin van de app. `Robots::response()` staat met de module uit alles toe en geeft bij een storing een 503.
+in Content gebruikt hij de eigen origin van de app. `Robots::response()` staat met de module uit alles toe, en ook als Content onbereikbaar is (200,
+`no-store`): een korte storing mag het crawlen niet stilleggen; een testsite blijft dan afgeschermd door de `noindex` van `<x-content::meta>`.
 
 **3. Redirects** (`bootstrap/app.php`), vóór alles in de web-groep:
 
@@ -88,7 +89,8 @@ in Content gebruikt hij de eigen origin van de app. `Robots::response()` staat m
 Met de module uit pauzeert de lookup 60 s per keer; bij een storing 15 s. De querystring (utm, click ids) blijft behouden.
 
 **4. Webhook**: `FSC_WEBHOOK_ENABLED=true` en `FSC_WEBHOOK_SECRET=fsc_whsec_...` (runtime-env). De route `POST /content/webhook` leegt de cache-tags,
-ook `content:site` bij `site.updated`. Maak in Content een webhook naar `https://<site>/content/webhook`.
+ook `content:site` bij `site.updated`. Maak in Content een webhook naar `https://<site>/content/webhook` met `events: ["*"]` (alle events), of
+neem `site.updated` expliciet op naast de andere events: zonder dat event zie je een wijziging van de site-standaarden pas na de cache-TTL.
 
 **5. Content-Security-Policy.** Heeft de site een CSP, voeg dan de bronnen van de eigen code en analytics toe. De componenten gebruiken de nonce;
 gebruik dus een nonce-gebaseerde `script-src` (en `style-src` voor eigen `<style>`-blokken):
@@ -113,8 +115,9 @@ public function handle(Request $request, Closure $next): Response
 ```
 
 `siteCspMerge()` neemt een array (geeft een array terug) of een CSP-string (geeft een string terug). Een ontbrekende directive begint bij
-`default-src`; zonder `default-src` blijft hij weg (toevoegen zou de rest verbieden). Hosts die een script pas later zelf laadt (bijvoorbeeld de
-regionale endpoints van Google Analytics) staan niet in de snippet: voeg die met de hand toe.
+`default-src`; zonder `default-src` blijft hij weg (toevoegen zou de rest verbieden). Een bestaande `script-src-elem`/`style-src-elem` krijgt de
+bronnen ook. Hosts die een script pas later zelf laadt staan niet in de snippet: voeg die met de hand toe. Voor Google Analytics 4 / Google Tag Manager
+is dat in `connect-src` (en `img-src`): `https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com`.
 
 **6. Cookiebanner: het toestemmingscontract.** Eigen code met toestemming `necessary` draait altijd. Code voor `analytics`, `marketing` of
 `preferences` staat als inerte `<template data-fsc-code data-consent="...">` in de pagina en draait pas na toestemming voor die categorie; heatmaps en
@@ -134,6 +137,8 @@ window.dispatchEvent(new CustomEvent('fsc:consent', { detail: choice })); // dez
 - Leg de keuze ook vast als bewijs: `recordConsent(['choice' => ..., 'categories' => [...]], ['clientIp' => ..., 'userAgent' => ...])` vanuit je
   eigen route (`POST /api/v1/consent`). De categorieën die de banner moet tonen komen uit `getConsentConfig()['categories']`.
 - Eigen code met `document.write` werkt niet na toestemming (de pagina is dan al geladen); gebruik de asynchrone variant van de leverancier.
+- Scripts draaien in de volgorde van de bron: een extern script zonder `async` wordt afgewacht (geladen of fout, hooguit 15 s) voordat het volgende
+  script erin gaat, ook over fragmenten heen. Een inline `Lib.init()` na `<script src=".../lib.js">` werkt dus gewoon.
 
 Checklist: `<x-content::meta>`, `<x-content::head />`, `<x-content::errors />` in `<head>`; `<x-content::body-end />` en `<x-content::analytics />` vóór
 `</body>`; catch-all als laatste route; `RedirectMiddleware` vooraan in de web-groep; `/sitemap.xml` en `/robots.txt` via het pakket; webhook aan;

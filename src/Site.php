@@ -276,7 +276,8 @@ final class Site
      * Merge the site sources into an existing policy: a string (`script-src 'self'; img-src *`) gives a string back, an array
      * (`['script-src' => ["'self'"], ...]`, values may be a list or a space separated string) gives an array back. A directive that is
      * missing starts from `default-src` (what the browser would use); when there is no `default-src` either, the directive is left out,
-     * because adding it would forbid everything else. `'none'` is dropped once a source is added.
+     * because adding it would forbid everything else. `'none'` is dropped once a source is added. An existing `script-src-elem` /
+     * `style-src-elem` gets the `script-src` / `style-src` sources as well.
      *
      * @param string|array<string, string|list<string>> $policy
      * @param array<string, list<string>> $sources e.g. `Site::csp($site)`
@@ -294,6 +295,13 @@ final class Site
         } else {
             foreach ($policy as $name => $value) {
                 $directives[strtolower((string) $name)] = is_array($value) ? array_values(array_map('strval', $value)) : (preg_split('/\s+/', trim((string) $value), -1, PREG_SPLIT_NO_EMPTY) ?: []);
+            }
+        }
+
+        // A browser uses `script-src-elem` / `style-src-elem` for elements when present; extend those too.
+        foreach (['script-src' => 'script-src-elem', 'style-src' => 'style-src-elem'] as $base => $element) {
+            if (isset($directives[$element]) && ($sources[$base] ?? []) !== []) {
+                $sources[$element] = [...($sources[$element] ?? []), ...$sources[$base]];
             }
         }
 
@@ -370,24 +378,51 @@ final class Site
         $length = strlen($html);
         $attr = ' nonce="' . self::e($nonce) . '"';
 
-        while ($offset < $length && preg_match('/<(script|style)\b((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>/i', $html, $match, PREG_OFFSET_CAPTURE, $offset) === 1) {
-            [$tag, $start] = $match[0];
-            $name = $match[1][0];
-            $attributes = (string) preg_replace('/\s+nonce\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)|\s+nonce(?=[\s\/]|$)/i', '', $match[2][0]);
-            $selfClosing = str_ends_with(rtrim($attributes), '/');
-            $attributes = $selfClosing ? rtrim(substr(rtrim($attributes), 0, -1)) : $attributes;
-            $out .= substr($html, $offset, $start - $offset) . '<' . $name . $attributes . $attr . ($selfClosing ? ' />' : '>');
+        // A small tokenizer: tags are read with their quoted attribute values (so a `<script>` inside an attribute is never touched),
+        // comments are skipped, and only a real `<script` or `<style` start tag (name followed by whitespace, `/` or `>`) is changed.
+        while ($offset < $length && ($start = strpos($html, '<', $offset)) !== false) {
+            $out .= substr($html, $offset, $start - $offset);
+
+            if (substr($html, $start, 4) === '<!--') {
+                $stop = strpos($html, '-->', $start + 4);
+                $stop = $stop === false ? $length : $stop + 3;
+                $out .= substr($html, $start, $stop - $start);
+                $offset = $stop;
+
+                continue;
+            }
+
+            if (preg_match('/\G<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>/', $html, $match, 0, $start) !== 1) {
+                $out .= '<';
+                $offset = $start + 1;
+
+                continue;
+            }
+
+            $tag = $match[0];
+            $name = strtolower($match[2]);
             $offset = $start + strlen($tag);
 
-            // Raw text up to the matching end tag stays as it is.
-            if (preg_match('/<\/' . $name . '\s*>/i', $html, $end, PREG_OFFSET_CAPTURE, $offset) === 1) {
-                $stop = $end[0][1] + strlen($end[0][0]);
-                $out .= substr($html, $offset, $stop - $offset);
-                $offset = $stop;
-            } else {
-                $out .= substr($html, $offset);
-                $offset = $length;
+            if ($match[1] === '/' || ($name !== 'script' && $name !== 'style') || ($match[3] !== '' && preg_match('/^[\s\/]/', $match[3]) !== 1)) {
+                $out .= $tag;
+
+                continue;
             }
+
+            $attributes = (string) preg_replace('/\s+nonce\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)|\s+nonce(?=[\s\/]|$)/i', '', $match[3]);
+            $selfClosing = str_ends_with(rtrim($attributes), '/');
+            $attributes = $selfClosing ? rtrim(substr(rtrim($attributes), 0, -1)) : $attributes;
+            $out .= '<' . $match[2] . $attributes . $attr . ($selfClosing ? ' />' : '>');
+
+            // Raw text up to the matching end tag stays as it is.
+            if (preg_match('/<\/' . $name . '(?=[\s\/>])[^>]*>/i', $html, $end, PREG_OFFSET_CAPTURE, $offset) === 1) {
+                $stop = $end[0][1] + strlen($end[0][0]);
+            } else {
+                $stop = $length;
+            }
+
+            $out .= substr($html, $offset, $stop - $offset);
+            $offset = $stop;
         }
 
         return $out . substr($html, $offset);

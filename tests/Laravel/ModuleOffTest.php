@@ -117,12 +117,13 @@ final class ModuleOffTest extends LaravelTestCase
         $this->get('/robots.txt')->assertOk()->assertSee("User-agent: *\nDisallow: /\n", false);
     }
 
-    public function testSitemapAndRobotsAnswer503WhenContentIsDown(): void
+    public function testSitemapAnswers503AndRobotsAllowsCrawlingWhenContentIsDown(): void
     {
         $this->routes['/sitemap'] = new TransportException('down', true);
         $this->routes['/seo'] = new TransportException('down', true);
 
         $this->get('/sitemap.xml')->assertStatus(503)->assertHeader('Retry-After', '300');
-        $this->get('/robots.txt')->assertStatus(503);
+        $this->get('/robots.txt')->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertSee("User-agent: *\nAllow: /\n\nSitemap: http://localhost/sitemap.xml\n", false);
     }
 }

@@ -57,27 +57,39 @@ function template(consent, children) {
 
 function page({ stored = null, templates = [], nonce = 'n0nce' } = {}) {
     const body = node('body', {}, '', templates);
+    const created = [];
+    const timers = [];
     const listeners = {};
     const storage = { data: stored === null ? {} : { 'fsc-consent': stored }, getItem(k) { return k in this.data ? this.data[k] : null; } };
     const document = {
         readyState: 'complete',
         currentScript: { nonce, getAttribute: () => nonce },
-        createElement(tag) { const el = node(tag); el.fresh = true; return el; },
+        createElement(tag) { const el = node(tag); el.fresh = true; created.push(el); return el; },
+        createComment() { return node('#comment'); },
         importNode(content) { const f = node('#fragment', {}, '', content.children.map(clone)); return f; },
         querySelectorAll(selector) { return selector === 'template[data-fsc-code]' ? body.children.filter((c) => c.tagName === 'TEMPLATE' && c.hasAttribute('data-fsc-code')) : []; },
         addEventListener() {},
     };
     const window = {
+        setTimeout(fn, ms) { timers.push([fn, ms]); return timers.length; },
         localStorage: storage,
         addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
         dispatch(type, detail) { (listeners[type] || []).forEach((fn) => fn({ detail })); },
         listeners,
     };
     const run = () => vm.runInNewContext(LOADER, { window, document });
-    return { body, window, document, run };
+    return { body, window, document, run, created, timers };
 }
 
 const scripts = (body) => body.children.filter((c) => c.tagName === 'SCRIPT');
+/** Lets every external script that is waited for finish loading (in order), like the browser would. */
+function settle(p) {
+    for (let i = 0; i < 20; i++) {
+        const waiting = p.created.filter((el) => el.onload && !el.loadedOnce);
+        if (waiting.length === 0) return;
+        waiting.forEach((el) => { el.loadedOnce = true; el.onload(); });
+    }
+}
 const remaining = (body) => body.children.filter((c) => c.tagName === 'TEMPLATE').map((t) => t.getAttribute('data-consent'));
 
 function standardTemplates() {
@@ -97,6 +109,7 @@ test('without a choice nothing runs', () => {
 test('a stored "accepted" activates every category with fresh, nonced scripts in order', () => {
     const p = page({ stored: 'accepted', templates: standardTemplates() });
     p.run();
+    settle(p);
     assert.deepEqual(remaining(p.body), []);
     const s = scripts(p.body);
     assert.equal(s.length, 2);
@@ -158,10 +171,41 @@ test('a second copy of the loader only scans again', () => {
     p.run();
     assert.equal(p.window.listeners['fsc:consent'].length, 1);
     p.window.dispatch('fsc:consent', 'all');
+    settle(p);
     assert.equal(scripts(p.body).length, 2, 'each template is activated once');
 });
 
-test('click events: tel, mailto without query, WhatsApp; nothing for other links; safe without Umami', () => {
+test('scripts run in source order: an inline script waits for the external one before it, across templates', () => {
+    const p = page({ templates: [
+        template('analytics', [node('script', { src: 'https://cdn.test/lib.js' }), node('script', {}, 'Lib.init()')]),
+        template('analytics', [node('script', { src: 'https://cdn.test/async.js', async: '' }), node('script', {}, 'after()')]),
+    ] });
+    p.run();
+    p.window.dispatch('fsc:consent', { categories: ['analytics'] });
+
+    const texts = () => scripts(p.body).map((x) => x.getAttribute('src') || x.text);
+    assert.deepEqual(texts(), ['https://cdn.test/lib.js'], 'Lib.init() waits for lib.js');
+    assert.equal(p.body.children.filter((c) => c.tagName === '#COMMENT').length, 3, 'the others keep their place');
+
+    p.created[0].onload();
+    assert.deepEqual(texts(), ['https://cdn.test/lib.js', 'Lib.init()', 'https://cdn.test/async.js', 'after()'], 'an async script is not waited for');
+    assert.equal(p.body.children.filter((c) => c.tagName === '#COMMENT').length, 0);
+});
+
+test('a failing or hanging external script does not block the rest', () => {
+    const p = page({ stored: 'all', templates: [template('marketing', [node('script', { src: 'https://blocked.test/a.js' }), node('script', { src: 'https://slow.test/b.js' }), node('script', {}, 'c()')])] });
+    p.run();
+    p.created[0].onerror();
+    assert.equal(scripts(p.body).length, 2);
+    const [fallback, ms] = p.timers[1];
+    assert.equal(ms, 15000);
+    fallback();
+    assert.deepEqual(scripts(p.body).map((x) => x.getAttribute('src') || x.text), ['https://blocked.test/a.js', 'https://slow.test/b.js', 'c()']);
+    p.created[1].onload();
+    assert.equal(scripts(p.body).length, 3, 'a late load after the fallback runs nothing twice');
+});
+
+test('click events: tel, mailto and WhatsApp without query; nothing for other links; safe without Umami', () => {
     const tracked = [];
     let handler = null;
     let options = null;
@@ -187,7 +231,7 @@ test('click events: tel, mailto without query, WhatsApp; nothing for other links
     assert.deepEqual(JSON.parse(JSON.stringify(tracked)), [
         ['contact-click', { kind: 'tel', href: 'tel:+31701234567' }],
         ['contact-click', { kind: 'mailto', href: 'mailto:info@jansen.nl' }],
-        ['contact-click', { kind: 'whatsapp', href: 'https://wa.me/31612345678?text=Hallo' }],
-        ['contact-click', { kind: 'whatsapp', href: 'https://api.whatsapp.com/send?phone=316' }],
+        ['contact-click', { kind: 'whatsapp', href: 'https://wa.me/31612345678' }],
+        ['contact-click', { kind: 'whatsapp', href: 'https://api.whatsapp.com/send' }],
     ]);
 });

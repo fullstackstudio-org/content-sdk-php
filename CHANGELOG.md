@@ -10,13 +10,18 @@
 - Own code with consent `necessary` is printed with the page nonce on every `<script>`/`<style>` (script text is never touched); other categories
   are inert `<template data-fsc-code>` elements activated by an inline loader once the visitor accepted that category (`localStorage['fsc-consent']`
   and the `fsc:consent` event, the same contract as analytics; `{choice, categories}` is now understood by the analytics helper too).
+- Consent-gated scripts run one at a time in source order (an external script without `async` is awaited, at most 15 s), so an inline init after
+  its library works. Click events send mailto: and WhatsApp hrefs without their query. The last good site answer is only written to the cache
+  when its version changes.
 - JSON-LD is encoded with `JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE`.
 - `<x-content::meta>` (and `Seo::meta()` with the new `fallbackImage` option) falls back to the site's share image when the page and the SEO
   settings have none.
 - CSP: `Content::siteCsp()` / `siteCspMerge($policy)` (string or array) and `Site::csp()` / `Site::mergeCsp()`. A missing directive starts from
-  `default-src`, so merging never narrows a policy.
+  `default-src`, so merging never narrows a policy; an existing `script-src-elem`/`style-src-elem` is extended too. The nonce is only added to
+  real `<script>`/`<style>` start tags (never inside attribute values, comments or tags such as `<script-x>`).
 - Always in every site, also with the module off: `Sitemap::response()` no longer throws (module off = your `extra` entries, Content down = 503 with
-  `Retry-After`, no `canonicalOrigin` = the app's own origin); new `Robots::response()` for `robots.txt`; the redirect lookup pauses 60 s on
+  `Retry-After`, no `canonicalOrigin` = the app's own origin); new `Robots::response()` for `robots.txt` (allows crawling when the module is off
+  or Content is down; `Disallow: /` only when `robotsIndex` is off); the redirect lookup pauses 60 s on
   `module_disabled` without calling `onError`; `ContentException::isModuleDisabled()`. AGENTS.md has a new first section "Altijd in elke site".
 - `ContentClient::VERSION` was still `0.6.0`; it is now `0.8.0`.
 

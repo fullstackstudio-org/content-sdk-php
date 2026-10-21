@@ -132,6 +132,10 @@ final class SiteTest extends TestCase
         self::assertSame('<script type="module" data-x="a>b" nonce="n"></script><p>hi</p>', Site::withNonce('<script type="module" data-x="a>b"></script><p>hi</p>', 'n'));
         self::assertSame('<STYLE nonce="n">p{}</STYLE>', Site::withNonce('<STYLE>p{}</STYLE>', 'n'));
         self::assertSame('<script></script>', Site::withNonce('<script></script>', null));
+        self::assertSame('<div data-x="<script>"><script-x>a</script-x><scripts></scripts></div>', Site::withNonce('<div data-x="<script>"><script-x>a</script-x><scripts></scripts></div>', 'n'), 'no match inside an attribute or in another tag name');
+        self::assertSame('<!-- <script> --><script nonce="n">1</script >', Site::withNonce('<!-- <script> --><script>1</script >', 'n'));
+        self::assertSame("<script\nsrc=\"a.js\" nonce=\"n\"></script><style nonce=\"n\">p{}</style>", Site::withNonce("<script\nsrc=\"a.js\"></script><style>p{}</style>", 'n'));
+        self::assertSame('a < b <script nonce="n">x</script>', Site::withNonce('a < b <script>x</script>', 'n'));
         self::assertSame('<script nonce="&quot;&gt;"></script>', Site::withNonce('<script></script>', '">'));
     }
 
@@ -186,6 +190,17 @@ final class SiteTest extends TestCase
         self::assertStringNotContainsString('b()', $html);
     }
 
+    public function testTheInlinedScriptsCannotEndTheirScriptElement(): void
+    {
+        $html = Site::head(self::contract(), ['nonce' => 'n']) . Site::bodyEnd(self::contract(), ['nonce' => 'n', 'clickEvents' => true]);
+
+        foreach (['fsc-code.js', 'fsc-clicks.js'] as $file) {
+            $source = (string) preg_replace('#^\s*/\*.*?\*/\s*#s', '', (string) file_get_contents(dirname(__DIR__, 2) . '/resources/assets/' . $file));
+            self::assertDoesNotMatchRegularExpression('#</?script|<!--#i', $source, $file);
+            self::assertStringContainsString(substr($source, 0, 40), $html, $file . ' is inlined without its header comment');
+        }
+    }
+
     public function testTheEmptyShapeRendersNothing(): void
     {
         self::assertSame('', Site::head(self::emptyShape(), ['nonce' => 'n']));
@@ -238,5 +253,10 @@ final class SiteTest extends TestCase
             "'none' goes once a source is added; arrays stay arrays",
         );
         self::assertSame("default-src 'self'", Site::mergeCsp("default-src 'self'", []));
+        self::assertSame(
+            "default-src 'self'; script-src 'self' https://a.test; script-src-elem 'self' https://a.test; style-src-elem 'self'",
+            Site::mergeCsp("default-src 'self'; script-src 'self'; script-src-elem 'self'; style-src-elem 'self'", ['script-src' => ['https://a.test']]),
+            'an existing script-src-elem is extended too',
+        );
     }
 }

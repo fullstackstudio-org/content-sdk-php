@@ -13,6 +13,8 @@ use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Tests\Support\FakeTransport;
 use FullStackStudio\Content\Tests\Unit\SiteTest;
 use FullStackStudio\Content\Webhooks\WebhookVerifier;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Vite;
@@ -174,6 +176,34 @@ final class SiteComponentsTest extends LaravelTestCase
         $this->routes['/site'] = FakeTransport::json(['error' => ['code' => 'internal', 'message' => 'x']], 500);
 
         self::assertStringContainsString('google-site-verification', Blade::render('<x-content::head />'));
+    }
+
+    public function testTheLastGoodAnswerIsOnlyWrittenWhenItChanges(): void
+    {
+        $store = new class extends ArrayStore {
+            /** @var list<string> */
+            public array $puts = [];
+
+            public function put($key, $value, $seconds): bool
+            {
+                $this->puts[] = $key;
+
+                return parent::put($key, $value, $seconds);
+            }
+        };
+        $settings = fn (): SiteSettings => new SiteSettings(app(ContentClient::class), new Repository($store), app('config'));
+        $lastGood = static fn (): int => count(array_filter($store->puts, static fn (string $key): bool => str_contains($key, SiteSettings::LAST_GOOD_KEY)));
+
+        $this->routes['/site'] = FakeTransport::json(SiteTest::contract());
+        $settings()->current();
+        $settings()->current();
+        self::assertSame(1, $lastGood(), 'the second request writes nothing');
+
+        $this->routes['/site'] = FakeTransport::json(SiteTest::contract(['version' => 'b2']));
+        config(['content.cache.enabled' => false]);
+        $this->app->forgetInstance(ContentClient::class);
+        $settings()->current();
+        self::assertSame(2, $lastGood(), 'a new version is written');
     }
 
     public function testMetaFallsBackToTheSiteShareImage(): void

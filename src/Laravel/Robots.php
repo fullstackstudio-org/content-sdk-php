@@ -16,7 +16,8 @@ use Throwable;
  * - `robotsIndex` off (a test site): `Disallow: /` for every crawler.
  * - Otherwise everything is allowed and the sitemap is announced (`sitemap` option, default `url('/sitemap.xml')`; `false` leaves it out).
  * - SEO module off: allowed, like a site without Content settings.
- * - Content down: 503 (crawlers treat that as "come back later" and crawl nothing meanwhile). Never throws.
+ * - Content down: also allowed (200, not cached by the client), so a short outage never stops crawling; a test site is still covered
+ *   by the `noindex` of `<x-content::meta>`, which uses the cached SEO settings. Never throws.
  *
  * `extra`: your own lines, added below `User-agent: *` (for example `Disallow: /account`).
  */
@@ -30,13 +31,14 @@ final class Robots
         try {
             $index = (app(ContentClient::class)->getSeo()['robotsIndex'] ?? true) !== false;
         } catch (ContentException $error) {
-            if (!$error->isModuleDisabled()) {
-                return new Response('', 503, [...$headers, 'Retry-After' => '300', 'Cache-Control' => 'no-store']);
-            }
-
             $index = true;
+
+            if (!$error->isModuleDisabled()) {
+                $headers['Cache-Control'] = 'no-store';
+            }
         } catch (Throwable) {
-            return new Response('', 503, [...$headers, 'Retry-After' => '300', 'Cache-Control' => 'no-store']);
+            $index = true;
+            $headers['Cache-Control'] = 'no-store';
         }
 
         return new Response(self::text($index, $options), 200, $headers);

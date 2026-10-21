@@ -4,7 +4,8 @@
  *
  * Customer code that needs consent is an inert `<template data-fsc-code data-consent="analytics|marketing|preferences">`. Once the
  * visitor accepted that category, the template is replaced by its content; every `<script>` is re-created (attributes copied, the
- * nonce added, order kept) so the browser runs it, and every `<style>` gets the nonce.
+ * nonce added) so the browser runs it, one at a time in source order (an external script without `async` is awaited), and every
+ * `<style>` gets the nonce.
  *
  * Consent is read from `localStorage[key]` (default `fsc-consent`, the same key the analytics helper reads) and from the `window`
  * event `event` (default `fsc:consent`). Understood: `accepted`/`all`/`true` (every category), `declined`/`necessary`/`none`/`false`
@@ -47,15 +48,35 @@
         s.text = o.text;
         return s;
     }
+    // Scripts run strictly in source order, across templates: an external script without `async` is awaited (load or error, at most
+    // 15 s) before the next script is inserted, so an inline init after its library works like in the original markup.
+    var queue = [], busy = false;
+    function next() {
+        if (busy) return;
+        var job = queue.shift();
+        if (!job) return;
+        var s = fresh(job[1]), p = job[0];
+        if (s.getAttribute('src') && !s.hasAttribute('async')) {
+            busy = true;
+            var done = false, go = function () { if (done) return; done = true; busy = false; next(); };
+            s.onload = go; s.onerror = go;
+            w.setTimeout(go, 15000);
+            if (p.parentNode) p.parentNode.replaceChild(s, p); else go();
+        } else {
+            if (p.parentNode) p.parentNode.replaceChild(s, p);
+            next();
+        }
+    }
     function on(t) {
         var f = d.importNode(t.content, true), l = f.querySelectorAll('script,style');
         for (var i = 0; i < l.length; i++) {
             var e = l[i];
-            if (e.tagName === 'SCRIPT') e.parentNode.replaceChild(fresh(e), e);
+            if (e.tagName === 'SCRIPT') { var p = d.createComment(''); e.parentNode.replaceChild(p, e); queue.push([p, e]); }
             else if (n) e.nonce = n;
         }
         t.parentNode.insertBefore(f, t);
         t.parentNode.removeChild(t);
+        next();
     }
     function scan() {
         var l = d.querySelectorAll('template[data-fsc-code]');

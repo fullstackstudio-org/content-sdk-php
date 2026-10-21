@@ -133,7 +133,12 @@ final class SiteSettings
             $this->log('debug', 'Content site standards are empty for this project (module off or nothing configured).');
         }
 
-        $this->safePut(self::LAST_GOOD_KEY, $site, 604_800);
+        // Written only when it differs (version), so a normal page view does not write to the cache.
+        $stored = $this->lastGood();
+
+        if ($stored === null || ($stored['version'] ?? null) !== ($site['version'] ?? null)) {
+            $this->safePut(self::LAST_GOOD_KEY, $site, 604_800);
+        }
 
         return $this->site = $site;
     }
