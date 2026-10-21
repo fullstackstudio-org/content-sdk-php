@@ -28,6 +28,7 @@ final class Events
         'redirect.updated',
         'redirect.deleted',
         'seo.updated',
+        'site.updated',
         'page.created',
         'page.updated',
         'page.published',
