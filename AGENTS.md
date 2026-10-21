@@ -54,6 +54,11 @@ forms. `X-FSC-Client-Ip` (visitor IP, for Content's per-visitor limits) is only 
 server token is right, but it must exist **only** as an environment variable at runtime: never in the repository, a committed `.env`, a build
 image, a view, JavaScript or a response.
 
+**Missing a scope? Do not mint a new token.** The rights of an existing token (scopes, and for `fsc_pub_` its allowed origins) can be changed in
+place: Content admin (project, tab Tokens, "Rechten wijzigen"), FSS admin (project, tab Content), Content MCP `update_api_token` or FSS MCP
+`update_content_api_token`. The secret stays the same, so `FSC_SERVER_TOKEN` does not change; the next request gets the new rights. A `403
+insufficient_scope` on one route (for example `errors:read`) is fixed this way.
+
 ## Basics
 
 ```php
@@ -350,7 +355,7 @@ values, breadcrumbs, context, stack variables, source code.
   cluster) and fall back to the public ingest `errors.fullstackstudio.nl` when that does not answer.
 
 Checklist for a site:
-1. `composer update fullstackstudio/content` (>= 0.6.0); `FSC_SERVER_TOKEN` has the scope `errors:read` (a new server token has it).
+1. `composer update fullstackstudio/content` (>= 0.6.0); `FSC_SERVER_TOKEN` has the scope `errors:read` (a new server token has it; an older token gets it via "Rechten wijzigen", no new token needed).
 2. Ask FullStack Studio to switch the module `errors` on (or check `GET /api/v1/project/errors` answers `status: ready`).
 3. `<x-content::errors />` in the `<head>` of every layout; remove any old Sentry/GlitchTip code and `SENTRY_*` env.
 4. The image build passes the commit as `FSS_RELEASE`; the egress policy to `errors.int0.net` exists (else set `FSC_ERRORS_TUNNEL_TARGET=public`).
