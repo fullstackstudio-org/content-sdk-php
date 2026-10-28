@@ -1,6 +1,6 @@
 {
     "name": "fullstackstudio/content",
-    "description": "PHP SDK for Fullstack Content: client, tag-based cache, webhook verification and Laravel integration.",
+    "description": "PHP SDK for FullStack Hub: client, tag-based cache, webhook verification and Laravel integration.",
     "type": "library",
     "license": "MIT",
     "keywords": ["fullstack-content", "cms", "headless", "laravel"],

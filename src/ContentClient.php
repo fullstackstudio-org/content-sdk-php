@@ -29,7 +29,7 @@ use FullStackStudio\Content\Modules\Shipping;
 use FullStackStudio\Content\Modules\Tickets;
 
 /**
- * The client for `/api/v1` of Fullstack Content (mirror of the JS SDK `client.ts`).
+ * The client for `/api/v1` of FullStack Hub (mirror of the JS SDK `client.ts`).
  *
  * - Read routes live directly on the client (`getArticle`, `listPages`, ...); write routes live under `$client->admin`.
  * - Responses are plain associative arrays. Where the API wraps a single object (`{ "article": {...} }`) the object is returned;

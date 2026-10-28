@@ -8,7 +8,7 @@ use InvalidArgumentException;
 use stdClass;
 
 /**
- * Verifies webhooks from Fullstack Content (mirror of `webhooks.ts`).
+ * Verifies webhooks from FullStack Hub (mirror of `webhooks.ts`).
  *
  * Scheme (docs/webhooks.md): header `X-FSC-Signature: t=<unix-seconds>,v1=<hex>` with
  * `v1 = HMAC-SHA256(secret, "<t>.<raw body>")`. Check against the RAW body (never re-serialized JSON), keep `t` within five

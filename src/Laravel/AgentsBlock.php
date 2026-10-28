@@ -21,9 +21,9 @@ final class AgentsBlock
     {
         return implode("\n", [
             self::START,
-            '## Fullstack Content (CMS)',
+            '## FullStack Hub (CMS)',
             '',
-            'This site gets its content (pages, articles, forms, SEO, redirects, media) from Fullstack Content, through the PHP SDK `fullstackstudio/content`.',
+            'This site gets its content (pages, articles, forms, SEO, redirects, media) from FullStack Hub, through the PHP SDK `fullstackstudio/content`.',
             '',
             'Before changing anything about content, forms, SEO, sitemap, redirects, caching or the webhook, read `vendor/fullstackstudio/content/AGENTS.md`',
             '(the full integration guide for agents, with copy-paste recipes).',

@@ -146,7 +146,7 @@ CSP gemerged; de banner schrijft `fsc-consent` en stuurt `fsc:consent`.
 
 ## What it is
 
-`fullstackstudio/content` is the PHP client for **Fullstack Content**, a headless CMS (`https://content.fullstackstudio.nl`, API `/api/v1`).
+`fullstackstudio/content` is the PHP client for **FullStack Hub**, a headless CMS (`https://content.fullstackstudio.nl`, API `/api/v1`).
 The site renders; Content stores pages (blocks), articles, categories, forms and their submissions, media, SEO settings and redirects.
 It also has webshop, members, appointments, tickets, invoices, newsletter, chat, FAQ, events and legal modules (see the end).
 
