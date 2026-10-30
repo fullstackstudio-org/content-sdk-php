@@ -1,1 +1,1 @@
-<{{ $tag }} {{ $attributes->class(['fsc-article-body']) }}>{!! $html ?? '' !!}</{{ $tag }}>
+{!! $richStyle ?? '' !!}<{{ $tag }} {{ $attributes->class(['fsc-article-body']) }}>{!! $html ?? '' !!}</{{ $tag }}>

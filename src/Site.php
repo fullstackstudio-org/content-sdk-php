@@ -475,6 +475,18 @@ final class Site
     private static array $assets = [];
 
     /** An inline script from `resources/assets` (read once per process), without its leading comment block and trailing whitespace. */
+    /** The stylesheet for the rich-editor blocks (`div.fsc-rt-*`, native tables, `hr`), without the surrounding `<style>`. */
+    public static function richCss(): string
+    {
+        return self::asset('fsc-rich.css');
+    }
+
+    /** Does this HTML hold something of the Hub rich editor: an `fsc-rt-` block, a native table or a horizontal rule? */
+    public static function hasRichBlocks(?string $html): bool
+    {
+        return $html !== null && preg_match('/fsc-rt-|<(?:table|hr)[\s>\/]/', $html) === 1;
+    }
+
     private static function asset(string $file): string
     {
         if (!isset(self::$assets[$file])) {

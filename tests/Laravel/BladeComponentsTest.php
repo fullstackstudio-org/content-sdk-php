@@ -35,6 +35,40 @@ final class BladeComponentsTest extends LaravelTestCase
         self::assertStringContainsString('<div class="fsc-article-body prose"><p>Hello <strong>you</strong></p></div>', $html);
     }
 
+    public function testArticleBodyPrintsTheRichStyleOnceForRichEditorHtml(): void
+    {
+        $html = '<div class="fsc-rt-callout fsc-rt-callout--info"><p>Hi</p></div>';
+        $first = $this->render('<x-content::article-body :html="$html" />', ['html' => $html]);
+        $second = $this->render('<x-content::article-body :html="$html" />', ['html' => $html]);
+
+        self::assertSame(1, substr_count($first, '<style>'));
+        self::assertStringContainsString(':where(.fsc-rt-callout)', $first);
+        self::assertStringContainsString('<div class="fsc-article-body">' . $html . '</div>', $first);
+        self::assertStringNotContainsString('<style', $second, 'one style per request');
+    }
+
+    public function testRichStyleCarriesTheViteNonceAndIsSkippedForPlainHtml(): void
+    {
+        \Illuminate\Support\Facades\Vite::useCspNonce('n0nce');
+        $plain = $this->render('<x-content::article-body :html="$html" />', ['html' => '<p>Plain</p>']);
+        self::assertStringNotContainsString('<style', $plain);
+
+        $table = $this->render('<x-content::article-body :html="$html" />', ['html' => '<table><tr><td>x</td></tr></table>']);
+        self::assertStringContainsString('<style nonce="n0nce">', $table);
+    }
+
+    public function testRichTextAndColumnsBlocksGetTheRichStyleOnce(): void
+    {
+        $blocks = [
+            ['id' => 'a', 'type' => 'richText', 'html' => '<hr /><p>x</p>'],
+            ['id' => 'b', 'type' => 'columns', 'columns' => [['html' => '<div class="fsc-rt-divider"></div>']]],
+        ];
+        $html = $this->render('<x-content::page-blocks :blocks="$blocks" :media="[]" />', ['blocks' => $blocks]);
+
+        self::assertSame(1, substr_count($html, '<style'));
+        self::assertStringContainsString('fsc-rt-divider', $html);
+    }
+
     public function testArticleBodyHandlesNullAndRestrictsTheTag(): void
     {
         self::assertStringContainsString('<article class="fsc-article-body"></article>', $this->render('<x-content::article-body :html="null" tag="article" />'));

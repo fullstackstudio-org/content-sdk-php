@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Hub rich editor support. `<x-content::article-body>` and the `richText` and `columns` blocks of `<x-content::page-blocks>` print one small inline
+  `<style>` (once per request, only when the HTML holds an `fsc-rt-*` block, a native `table` or an `hr`) with default styles for those blocks.
+  All selectors sit in `:where()` (specificity 0) and inherit fonts and colours, so a site's own CSS wins; accents follow `--fsc-accent` and the
+  optional `--fsc-rt-info|success|warning`. The nonce defaults to Laravel's Vite CSP nonce (`nonce` prop on `article-body`). HTML without such content renders
+  exactly as before. New `Site::richCss()`, `Site::hasRichBlocks()` and `Laravel\RichStyle`. Needs the matching Content release (its article and page sanitizer
+  now keeps `hr`, `table`, `thead`, `tbody`, `tr`, `th`, `td` with `colspan`/`rowspan`/`scope`, and `tel:` links).
 - `FormController`: on `SESSION_DRIVER=cookie` the flashed old input is capped (300 characters per value, 900 in total), so a failed submit with a long message cannot push the Set-Cookie past nginx's fastcgi buffer (502 "upstream sent too big header"). Server-side session drivers keep the full input. Use `SESSION_DRIVER=file` for sites.
 
 ## 0.8.0
