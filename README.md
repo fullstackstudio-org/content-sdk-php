@@ -246,8 +246,12 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
 
 - **`article-body`** prints `bodyHtml` unescaped. That is safe only because Content sanitizes it on save (allowlisted tags, no scripts, no event handlers, no
   `javascript:` links); never pass it HTML from anywhere else. `tag="article"` changes the wrapping element.
-  Content produced by the Hub rich editor (`div.fsc-rt-*` blocks, native `table`, `hr`) gets one small inline `<style>` per request (zero-specificity
-  selectors, so your own CSS wins; the nonce defaults to the Vite CSP nonce, or pass `nonce="..."`). `page-blocks` (`richText`, `columns`) does the same.
+  Content produced by the Hub rich editor (`div.fsc-rt-*` blocks, native `table`, `hr`) gets one small inline `<style>` per request. The rules
+  live in the cascade layer `fsc-rich` and every selector has zero specificity. The nonce defaults to the Vite CSP nonce, or pass `nonce="..."`.
+  `page-blocks` (`richText`, `columns`) does the same. Overriding: unlayered CSS of your own always wins (no setup). With Tailwind v4 or any other
+  layered CSS the layer must rank below yours, and layer order is fixed by the first mention: `<x-content::head />` prints `<style>@layer fsc-rich;</style>`,
+  so put it **before** your stylesheet / `@vite` in `<head>`. (If you cannot, start your CSS with `@layer fsc-rich;`.) Otherwise the late `<style>` in the body would
+  rank above your `base`/`components`/`utilities` layers.
 - **`page-blocks`** renders all block types (`richText`, `image`, `gallery`, `cta`, `hero`, `columns`, `articleList`, `form`, `embed`; `legalDocument`
   renders nothing until you give it a view). Only the HTML of `richText` and `columns` is printed unescaped; everything else is escaped and links are checked
   against `javascript:`/`data:`. Pass `:media="$page['media']"` so blocks whose file was deleted are left out; without it the media URL is derived from the id.

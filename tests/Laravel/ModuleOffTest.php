@@ -78,9 +78,11 @@ final class ModuleOffTest extends LaravelTestCase
         }
     }
 
-    public function testEveryComponentRendersNothing(): void
+    public function testEveryComponentRendersNothingButTheLayerDeclaration(): void
     {
-        foreach (['<x-content::head />', '<x-content::body-end />', '<x-content::analytics />', '<x-content::errors />'] as $component) {
+        self::assertSame('<style>@layer fsc-rich;</style>', trim(Blade::render('<x-content::head />')), 'head only declares the rich-editor layer');
+
+        foreach (['<x-content::body-end />', '<x-content::analytics />', '<x-content::errors />'] as $component) {
             self::assertSame('', trim(Blade::render($component)), $component);
         }
 

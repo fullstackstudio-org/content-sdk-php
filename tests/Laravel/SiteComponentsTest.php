@@ -130,7 +130,7 @@ final class SiteComponentsTest extends LaravelTestCase
         Log::spy();
         $this->routes['/site'] = FakeTransport::json(SiteTest::emptyShape());
 
-        self::assertSame('', Blade::render('<x-content::head />'));
+        self::assertSame('<style>@layer fsc-rich;</style>', Blade::render('<x-content::head />'));
         self::assertSame('', Blade::render('<x-content::body-end />'));
         self::assertSame([], Content::siteCsp());
 
@@ -142,7 +142,7 @@ final class SiteComponentsTest extends LaravelTestCase
         Log::spy();
         $this->routes['/site'] = FakeTransport::json(['error' => ['code' => 'module_disabled', 'message' => 'x']], 404);
 
-        self::assertSame('', Blade::render('<x-content::head />'));
+        self::assertSame('<style>@layer fsc-rich;</style>', Blade::render('<x-content::head />'));
         $this->newRequest();
         self::assertSame('', Blade::render('<x-content::body-end />'));
 
@@ -155,11 +155,11 @@ final class SiteComponentsTest extends LaravelTestCase
         Log::spy();
         $this->routes['/site'] = new TransportException('down', true);
 
-        self::assertSame('', Blade::render('<x-content::head />'));
+        self::assertSame('<style>@layer fsc-rich;</style>', Blade::render('<x-content::head />'));
         self::assertSame('', Blade::render('<x-content::body-end />'));
         self::assertStringContainsString('<title>', Blade::render('<x-content::meta :page="$page" />', ['page' => ['title' => 'Over ons']]));
         $this->newRequest();
-        self::assertSame('', Blade::render('<x-content::head />'));
+        self::assertSame('<style>@layer fsc-rich;</style>', Blade::render('<x-content::head />'));
 
         self::assertCount(1, $this->calls('/site'), 'one failed lookup, then a pause');
         Log::shouldHaveReceived('log')->once()->withArgs(static fn (string $level): bool => $level === 'warning');
@@ -236,7 +236,7 @@ final class SiteComponentsTest extends LaravelTestCase
     public function testTheSiteWebhookClearsTheCacheAndThePause(): void
     {
         $this->routes['/site'] = FakeTransport::json(['error' => ['code' => 'module_disabled', 'message' => 'x']], 404);
-        self::assertSame('', Blade::render('<x-content::head />'));
+        self::assertSame('<style>@layer fsc-rich;</style>', Blade::render('<x-content::head />'));
 
         $body = '{"id":"e1","type":"site.updated","createdAt":"c","projectId":"p","data":{}}';
         $this->call('POST', '/content/webhook', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_X_FSC_SIGNATURE' => WebhookVerifier::sign('fsc_whsec_testvector', $body)], $body)
@@ -254,7 +254,7 @@ final class SiteComponentsTest extends LaravelTestCase
         config(['content.site.enabled' => false]);
         $this->routes['/site'] = FakeTransport::json(SiteTest::contract());
 
-        self::assertSame('', Blade::render('<x-content::head />'));
+        self::assertSame('<style>@layer fsc-rich;</style>', Blade::render('<x-content::head />'));
         self::assertSame([], $this->calls('/site'));
     }
 }

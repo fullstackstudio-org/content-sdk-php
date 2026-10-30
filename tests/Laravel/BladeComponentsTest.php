@@ -57,6 +57,32 @@ final class BladeComponentsTest extends LaravelTestCase
         self::assertStringContainsString('<style nonce="n0nce">', $table);
     }
 
+    public function testRichStyleIsOneCascadeLayerWithZeroSpecificityRules(): void
+    {
+        $css = \FullStackStudio\Content\Site::richCss();
+
+        self::assertStringStartsWith('@layer fsc-rich {', $css);
+        self::assertStringEndsWith('}', $css);
+        foreach (preg_split('/\R/', $css) as $line) {
+            if (str_contains($line, '{') && !str_starts_with($line, '@layer')) {
+                self::assertStringStartsWith(':where(', trim($line), $line);
+            }
+        }
+    }
+
+    public function testTheNonceIsEscapedInTheStyleAndInTheLayerDeclaration(): void
+    {
+        $evil = '"><script>alert(1)</script>';
+        $html = $this->render('<x-content::article-body :html="$html" :nonce="$nonce" />', ['html' => '<hr />', 'nonce' => $evil]);
+
+        self::assertStringNotContainsString('<script>', $html);
+        self::assertStringContainsString('<style nonce="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">', $html);
+
+        $head = $this->render('<x-content::head :nonce="$nonce" />', ['nonce' => $evil]);
+        self::assertStringNotContainsString('<script>', $head);
+        self::assertStringContainsString('@layer fsc-rich;', $head);
+    }
+
     public function testRichTextAndColumnsBlocksGetTheRichStyleOnce(): void
     {
         $blocks = [

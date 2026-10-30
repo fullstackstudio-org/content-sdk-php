@@ -474,8 +474,7 @@ final class Site
     /** @var array<string, string> */
     private static array $assets = [];
 
-    /** An inline script from `resources/assets` (read once per process), without its leading comment block and trailing whitespace. */
-    /** The stylesheet for the rich-editor blocks (`div.fsc-rt-*`, native tables, `hr`), without the surrounding `<style>`. */
+    /** The stylesheet for the rich-editor blocks (`div.fsc-rt-*`, native tables, `hr`) inside `@layer fsc-rich`, without the surrounding `<style>`. */
     public static function richCss(): string
     {
         return self::asset('fsc-rich.css');
@@ -487,6 +486,7 @@ final class Site
         return $html !== null && preg_match('/fsc-rt-|<(?:table|hr)[\s>\/]/', $html) === 1;
     }
 
+    /** An inline script or stylesheet from `resources/assets` (read once per process), without its leading comment block and trailing whitespace. */
     private static function asset(string $file): string
     {
         if (!isset(self::$assets[$file])) {

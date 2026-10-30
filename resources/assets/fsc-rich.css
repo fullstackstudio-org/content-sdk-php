@@ -1,24 +1,26 @@
 /* Styles for the blocks the Hub rich editor stores (div.fsc-rt-*) and for its native tables and rules. Printed inline, once per request, by
-   <x-content::article-body> and the richText and columns blocks when the HTML contains an fsc-rt- block. Every selector sits in :where() (specificity 0),
-   so any rule of the site wins; fonts and colours inherit, accents come from --fsc-accent / --fsc-rt-* when the site defines them. */
-:where(.fsc-rt-divider) { height: 1px; margin: 2em 0; background: currentColor; opacity: .15; }
-:where(.fsc-rt-callout) { margin: 1.2em 0; padding: .9em 1em; border-left: 3px solid var(--fsc-rt-info, #0b6bcb); background: color-mix(in srgb, var(--fsc-rt-info, #0b6bcb) 9%, transparent); }
-:where(.fsc-rt-callout--success) { border-left-color: var(--fsc-rt-success, #1d8a3e); background: color-mix(in srgb, var(--fsc-rt-success, #1d8a3e) 9%, transparent); }
-:where(.fsc-rt-callout--warning) { border-left-color: var(--fsc-rt-warning, #c77700); background: color-mix(in srgb, var(--fsc-rt-warning, #c77700) 11%, transparent); }
-:where(.fsc-rt-callout > :first-child) { margin-top: 0; }
-:where(.fsc-rt-callout > :last-child) { margin-bottom: 0; }
-:where(.fsc-rt-button) { margin: 1.2em 0; }
-:where(.fsc-rt-button a) { display: inline-block; padding: .65em 1.25em; border-radius: var(--fsc-radius, .4rem); background: var(--fsc-accent, #1d4ed8); color: var(--fsc-accent-contrast, #fff); font-weight: 600; text-decoration: none; }
-:where(.fsc-rt-image) { margin: 1.2em 0; }
-:where(.fsc-rt-image img) { display: block; max-width: 100%; height: auto; }
-:where(.fsc-rt-image--small) { max-width: 320px; }
-:where(.fsc-rt-image--medium) { max-width: 560px; }
-:where(.fsc-rt-embed) { margin: 1.2em 0; }
-:where(.fsc-rt-table) { display: table; width: 100%; margin: 1.2em 0; border-collapse: collapse; }
-:where(.fsc-rt-row) { display: table-row; }
-:where(.fsc-rt-cell) { display: table-cell; padding: .5em .65em; border: 1px solid var(--fsc-border, color-mix(in srgb, currentColor 22%, transparent)); }
-:where(.fsc-rt-row--head .fsc-rt-cell) { font-weight: 600; }
-:where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(table) { width: 100%; margin: 1.2em 0; border-collapse: collapse; }
-:where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(th, td) { padding: .5em .65em; border: 1px solid var(--fsc-border, color-mix(in srgb, currentColor 22%, transparent)); text-align: left; vertical-align: top; }
-:where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(th) { font-weight: 600; }
-:where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(hr) { margin: 2em 0; border: 0; border-top: 1px solid var(--fsc-border, color-mix(in srgb, currentColor 22%, transparent)); }
+   <x-content::article-body> and the richText and columns blocks when the HTML contains an fsc-rt- block. Everything sits in the cascade layer `fsc-rich` and every selector in :where() (specificity 0),
+   so any rule of the site wins (unlayered CSS always, Tailwind v4 layers when `fsc-rich` is declared before them, see README); fonts and colours inherit, accents come from --fsc-accent / --fsc-rt-* when the site defines them. */
+@layer fsc-rich {
+    :where(.fsc-rt-divider) { height: 1px; margin: 2em 0; background: currentColor; opacity: .15; }
+    :where(.fsc-rt-callout) { margin: 1.2em 0; padding: .9em 1em; border-left: 3px solid var(--fsc-rt-info, #0b6bcb); background: color-mix(in srgb, var(--fsc-rt-info, #0b6bcb) 9%, transparent); }
+    :where(.fsc-rt-callout--success) { border-left-color: var(--fsc-rt-success, #1d8a3e); background: color-mix(in srgb, var(--fsc-rt-success, #1d8a3e) 9%, transparent); }
+    :where(.fsc-rt-callout--warning) { border-left-color: var(--fsc-rt-warning, #c77700); background: color-mix(in srgb, var(--fsc-rt-warning, #c77700) 11%, transparent); }
+    :where(.fsc-rt-callout > :first-child) { margin-top: 0; }
+    :where(.fsc-rt-callout > :last-child) { margin-bottom: 0; }
+    :where(.fsc-rt-button) { margin: 1.2em 0; }
+    :where(.fsc-rt-button a) { display: inline-block; padding: .65em 1.25em; border-radius: var(--fsc-radius, .4rem); background: var(--fsc-accent, #1d4ed8); color: var(--fsc-accent-contrast, #fff); font-weight: 600; text-decoration: none; }
+    :where(.fsc-rt-image) { margin: 1.2em 0; }
+    :where(.fsc-rt-image img) { display: block; max-width: 100%; height: auto; }
+    :where(.fsc-rt-image--small) { max-width: 320px; }
+    :where(.fsc-rt-image--medium) { max-width: 560px; }
+    :where(.fsc-rt-embed) { margin: 1.2em 0; }
+    :where(.fsc-rt-table) { display: table; width: 100%; margin: 1.2em 0; border-collapse: collapse; }
+    :where(.fsc-rt-row) { display: table-row; }
+    :where(.fsc-rt-cell) { display: table-cell; padding: .5em .65em; border: 1px solid var(--fsc-border, color-mix(in srgb, currentColor 22%, transparent)); }
+    :where(.fsc-rt-row--head .fsc-rt-cell) { font-weight: 600; }
+    :where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(table) { width: 100%; margin: 1.2em 0; border-collapse: collapse; }
+    :where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(th, td) { padding: .5em .65em; border: 1px solid var(--fsc-border, color-mix(in srgb, currentColor 22%, transparent)); text-align: left; vertical-align: top; }
+    :where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(th) { font-weight: 600; }
+    :where(.fsc-article-body, .fsc-block--richText, .fsc-column) :where(hr) { margin: 2em 0; border: 0; border-top: 1px solid var(--fsc-border, color-mix(in srgb, currentColor 22%, transparent)); }
+}
