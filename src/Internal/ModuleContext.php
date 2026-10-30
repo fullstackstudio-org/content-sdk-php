@@ -232,10 +232,10 @@ final class ModuleContext
             $response = $this->transport->send($request);
         } catch (TransportException $error) {
             if ($error->timedOut) {
-                throw new ContentException(0, 'timeout', 'Fullstack Content did not respond in time.', null, null, $error);
+                throw new ContentException(0, 'timeout', 'FullStack Hub did not respond in time.', null, null, $error);
             }
 
-            throw new ContentException(0, 'network_error', 'Fullstack Content is unreachable.', null, null, $error);
+            throw new ContentException(0, 'network_error', 'FullStack Hub is unreachable.', null, null, $error);
         }
 
         $requestId = $response->header('x-fsc-request-id');
@@ -243,7 +243,7 @@ final class ModuleContext
         if ($response->status < 200 || $response->status >= 300) {
             $retryAfter = $response->header('retry-after');
             $code = 'http_error';
-            $message = "Fullstack Content responded with {$response->status}.";
+            $message = "FullStack Hub responded with {$response->status}.";
             $decoded = json_decode($response->body, true);
 
             // Not JSON (an error page from a proxy or Cloudflare): the default message stays, the body is not passed on.
@@ -279,7 +279,7 @@ final class ModuleContext
         $data = json_decode($response->body, true);
 
         if (!is_array($data)) {
-            throw new ContentException($response->status, 'invalid_response', 'Fullstack Content did not return a valid JSON response.', $requestId);
+            throw new ContentException($response->status, 'invalid_response', 'FullStack Hub did not return a valid JSON response.', $requestId);
         }
 
         return new Reply($data, $response->headers);

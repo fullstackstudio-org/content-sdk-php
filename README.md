@@ -1,6 +1,6 @@
 # fullstackstudio/content (PHP)
 
-PHP SDK for [Fullstack Content](https://content.fullstackstudio.nl): a typed-by-convention client for `/api/v1`, a tag-based read cache,
+PHP SDK for [FullStack Hub](https://content.fullstackstudio.nl): a typed-by-convention client for `/api/v1`, a tag-based read cache,
 webhook verification and a Laravel integration.
 
 - PHP 8.2 or newer, `ext-curl` and `ext-json`. No other runtime dependency: Laravel, PSR-18 and PSR-16 are optional.

@@ -16,7 +16,7 @@ final class AgentsCommand extends Command
 {
     protected $signature = 'fsc:agents';
 
-    protected $description = 'Add the Fullstack Content block to AGENTS.md (and the @AGENTS.md import to CLAUDE.md) so AI agents find the SDK guide';
+    protected $description = 'Add the FullStack Hub block to AGENTS.md (and the @AGENTS.md import to CLAUDE.md) so AI agents find the SDK guide';
 
     public function handle(): int
     {
