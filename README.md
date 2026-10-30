@@ -380,7 +380,7 @@ php artisan serve
 
 ## Deploying on the FSS platform
 
-`examples/laravel/Dockerfile` is the template for customer sites: multi-stage (composer `--no-dev`, vite build), then `php:8.4-fpm-alpine` with nginx in
+`examples/laravel/Dockerfile` is the template for customer sites: multi-stage (composer `--no-dev`, vite build), then `registry.int0.net/base/php:8.5.12-fpm-alpine` (PHP >= 8.5.12, which fixes CVE-2026-109618/109619) with nginx in
 one container, listening on port 3000, running as `www-data`, `HEALTHCHECK` on `/api/health`. Tuned for a small idle footprint: OPcache without timestamp
 validation, PHP-FPM `pm = ondemand` (`pm.max_children = 4`, `pm.process_idle_timeout = 30s`), one nginx worker, `memory_limit = 64M` (raised for uploads, see `FSC_UPLOAD_MAX_MB`), and a tiny shell
 entrypoint instead of supervisord. Measured with `docker stats`: about 32-35 MiB for the whole container at idle.
