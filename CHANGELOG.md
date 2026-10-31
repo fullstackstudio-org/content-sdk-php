@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.0
+
 - Hub rich editor support. `<x-content::article-body>` and the `richText` and `columns` blocks of `<x-content::page-blocks>` print one small inline
   `<style>` (once per request, only when the HTML holds an `fsc-rt-*` block, a native `table` or an `hr`) with default styles for those blocks.
   The rules sit in the cascade layer `fsc-rich`, all selectors in `:where()` (specificity 0), fonts and colours are inherited, so a site's own CSS wins.

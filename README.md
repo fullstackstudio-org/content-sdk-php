@@ -15,7 +15,7 @@ token or SSH key is needed, so a Docker build can install it as-is. Until it is 
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.5" }
+    "require": { "fullstackstudio/content": "^0.9" }
 }
 ```
 

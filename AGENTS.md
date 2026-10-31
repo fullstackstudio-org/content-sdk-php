@@ -159,7 +159,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.8.0" }
+    "require": { "fullstackstudio/content": "^0.9.0" }
 }
 ```
 
@@ -538,5 +538,5 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.8.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+This guide: version 0.9.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
 Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.
