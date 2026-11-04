@@ -15,7 +15,7 @@ token or SSH key is needed, so a Docker build can install it as-is. Until it is 
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.5" }
+    "require": { "fullstackstudio/content": "^0.10" }
 }
 ```
 
@@ -340,9 +340,10 @@ site's share image (`social.ogImage`) when the page and the SEO settings have no
 The pages catch-all, `RedirectMiddleware`, `Sitemap::response()` and `Robots::response()` belong in every site as well; with their module off they give a
 404, do nothing or list only your own entries, without errors. Exact code: `AGENTS.md`, section "Altijd in elke site".
 
-## Analytics (Umami)
+## Analytics (Umami and the Hub's native engine)
 
-With the module `analytics` on in Content, one tag in the layout sets up visitor statistics:
+With the module `analytics` on in Content, one tag in the layout sets up visitor statistics. The Hub decides per project which tracker runs (`engine`:
+`umami`, `native` or `both`); the site does not change:
 
 ```blade
 <x-content::analytics />
@@ -352,7 +353,9 @@ Pageviews and custom events are cookieless and run without consent. Heatmaps and
 `fsc:consent` from your banner (`window.dispatchEvent(new CustomEvent('fsc:consent', { detail: 'accepted' }))`) and store the choice in `localStorage['fsc-consent']`.
 By default (first-party mode) the script and its collect calls go through `/_fsc/a/...` on your own domain and are proxied to the analytics host; set
 `FSC_ANALYTICS_MODE=direct` to load from the analytics host instead. CSP sources: `Content::analyticsCsp()`. First-touch attribution (utm, ad click ids,
-landing URL, referrer) is sent with every `<x-content::form>`. Full rules, the banner wiring and a checklist: `AGENTS.md`, section "Analytics".
+landing URL, referrer) is sent with every `<x-content::form>`. The native tracker (`/_fsc/a/fsa.js`, `window.fsa.track()` / `revenue()`) posts to
+`/_fsc/a/e`, which signs the visitor IP with the per-site key from the Hub and forwards to the collector inside the cluster; it keeps a visitor id and sends
+heatmap clicks only after consent. Full rules, the banner wiring and a checklist: `AGENTS.md`, section "Analytics".
 
 | Env | Default | |
 |---|---|---|
@@ -363,6 +366,8 @@ landing URL, referrer) is sent with every `<x-content::form>`. Full rules, the b
 | `FSC_IP_HEADER` | `cf-connecting-ip` | visitor IP header your proxy sets (also used by forms) |
 | `FSC_ANALYTICS_RATE_LIMIT` | `240` | proxied requests per visitor IP per minute |
 | `FSC_CONSENT_KEY` / `FSC_CONSENT_EVENT` | `fsc-consent` / `fsc:consent` | where your banner stores / announces the choice |
+| `FSC_ANALYTICS_COLLECTOR_URL` | `http://collector.analytics.svc.cluster.local/e` | native engine: the in-cluster collector |
+| `FSC_ANALYTICS_COLLECTOR_TIMEOUT_MS` | `1500` | native engine: timeout of the forward |
 
 ## Error monitoring
 

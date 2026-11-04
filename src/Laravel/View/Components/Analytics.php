@@ -12,13 +12,14 @@ use Illuminate\View\Component;
 use Throwable;
 
 /**
- * `<x-content::analytics />` in the layout: the Umami tracker (cookieless, without consent) and the helper script that starts heatmaps and
- * session replay only after cookie consent and adds first-touch attribution to forms. Renders nothing when the module is off, not
- * provisioned or Content is unreachable. `nonce` defaults to Laravel's Vite CSP nonce when one is set.
+ * `<x-content::analytics />` in the layout: the tracker(s) of the Hub's engine (Umami, the native `fsa.js`, or both during the
+ * double-measure period; all cookieless without consent) and the helper script that starts heatmaps and session replay only after cookie
+ * consent and adds first-touch attribution to forms. Renders nothing when the module is off, not provisioned or Content is unreachable.
+ * `nonce` defaults to Laravel's Vite CSP nonce when one is set. `status="404"` on an error page marks it as not found (native tracker).
  */
 final class Analytics extends Component
 {
-    public function __construct(public readonly ?string $nonce = null)
+    public function __construct(public readonly ?string $nonce = null, public readonly int|string|null $status = null)
     {
     }
 
@@ -40,6 +41,8 @@ final class Analytics extends Component
                     'consentKey' => (string) config('content.analytics.consent_key', 'fsc-consent'),
                     'consentEvent' => (string) config('content.analytics.consent_event', 'fsc:consent'),
                     'helperSrc' => $base . '/fsc.js',
+                    'native' => $settings->nativeSitekey() !== null && $settings->collectorUrl() !== null,
+                    'status' => is_numeric($this->status) ? (int) $this->status : null,
                 ]);
             }
         } catch (Throwable) {

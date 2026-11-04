@@ -46,7 +46,7 @@ final class Content extends Facade
     {
         $settings = AnalyticsSettings::make();
 
-        return Analytics::csp($settings->mode(), $settings->host());
+        return Analytics::csp($settings->mode(), $settings->host(), $settings->nativeSitekey() !== null);
     }
 
     /** Adds the analytics sources to an existing CSP string (missing directives are added). */
@@ -54,7 +54,7 @@ final class Content extends Facade
     {
         $settings = AnalyticsSettings::make();
 
-        return Analytics::mergeCsp($policy, $settings->mode(), $settings->host());
+        return Analytics::mergeCsp($policy, $settings->mode(), $settings->host(), $settings->nativeSitekey() !== null);
     }
 
     /**

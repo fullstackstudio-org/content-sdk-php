@@ -6,6 +6,7 @@
  * - Heatmaps and session replay (Umami recorder.js) start ONLY after the visitor accepted cookies. Revoking consent stops every upload at
  *   once (the record endpoint is blocked in this page) and the recorder is not loaded on later pages.
  * - First-touch attribution (utm_*, ad click ids, landing URL, external referrer) is kept in sessionStorage and added to forms.
+ * - With the native engine (fsa.js) `fscAnalytics.track()` and `setConsent()` reach that tracker too.
  *
  * Consent wiring for a site's own banner (any of these):
  *   window.dispatchEvent(new CustomEvent('fsc:consent', { detail: 'accepted' }));   // or 'declined', true/false, { analytics: true },
@@ -121,6 +122,8 @@
         var granted = interpret(value);
         if (granted === null) return;
         consent = granted;
+        // The native tracker (fsa.js) listens to the same event and storage key; a direct call must reach it too.
+        try { if (w.fsa && typeof w.fsa.setConsent === 'function') w.fsa.setConsent(granted); } catch (e) { /* never break a banner */ }
         if (granted) {
             startRecorder();
         } else {
@@ -208,13 +211,20 @@
         setConsent: setConsent,
         hasConsent: function () { return consent; },
         attribution: attribution,
+        // One call for every engine: Umami and/or the native tracker (engine `both` counts in both).
         track: function (name, payload) {
+            var result;
             try {
-                if (w.umami && typeof w.umami.track === 'function') return w.umami.track(name, payload);
+                if (w.fsa && typeof w.fsa.track === 'function') w.fsa.track(name, payload);
             } catch (e) {
                 // Analytics never breaks a user action.
             }
-            return undefined;
+            try {
+                if (w.umami && typeof w.umami.track === 'function') result = w.umami.track(name, payload);
+            } catch (e) {
+                // Idem.
+            }
+            return result;
         },
     };
 })(window, document);

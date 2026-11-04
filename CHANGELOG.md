@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.10.0
+
+- Native analytics engine (Hub module `analytics`, `engine: native|both`, plan analytics-engine phase 1). `<x-content::analytics />` picks the tracker(s)
+  from the Hub: `umami` (default, also for a Hub without the field), `native` (the new tracker `/_fsc/a/fsa.js`) or `both` (Umami and native side by side,
+  for the double-measure period). `fsa.js` (no dependencies, no cookies): pageviews incl. SPA navigation, engaged time, scroll depth 25/50/75/100,
+  outbound links, downloads, form start/submit, 404 (`status="404"` on the component), `fsa.track(name, props)`, `fsa.revenue(amount, currency, props)`
+  and `data-fsa-event`. A persistent visitor id (`localStorage` `fsa-id`) and heatmap clicks only after consent (same banner contract; never with Global
+  Privacy Control for the id); e-mail addresses and phone numbers are removed from paths, titles and props; only utm/click id parameters stay in URLs.
+- `POST /_fsc/a/e`: checks the sitekey, strips the persistent id and heatmap clicks without consent, signs the visitor IP with the per-site key from the
+  Hub (`X-Fsc-Client-Ip`, `X-Fsc-Ts`, `X-Fsc-Sig`) and forwards to the in-cluster collector (`content.analytics.collector_url`,
+  `FSC_ANALYTICS_COLLECTOR_URL`; `collector_timeout_ms`). Always `202 {}` to the browser. Registered in every mode, no session, no cookies.
+- `Analytics::engine()`, `nativeSitekey()`, `nativeSigningKey()`, `signHeaders()`; `Analytics::csp()`/`mergeCsp()` take `$native` (direct mode adds `'self'`);
+  `AnalyticsSettings::engine()`, `nativeSitekey()`, `nativeSigningKey()`, `collectorUrl()`. `window.fscAnalytics.track()`/`setConsent()` reach the native
+  tracker too. With engine `native` the Umami proxy no longer forwards (no website id).
+- Needs the matching Hub release (`GET /api/v1/analytics` with `engine` and `native`). An older SDK keeps working on `umami` and `both` (Umami only) and
+  renders nothing for `native`.
+
+## 0.9.0
+
 - Hub rich editor support. `<x-content::article-body>` and the `richText` and `columns` blocks of `<x-content::page-blocks>` print one small inline
   `<style>` (once per request, only when the HTML holds an `fsc-rt-*` block, a native `table` or an `hr`) with default styles for those blocks.
   The rules sit in the cascade layer `fsc-rich`, all selectors in `:where()` (specificity 0), fonts and colours are inherited, so a site's own CSS wins.

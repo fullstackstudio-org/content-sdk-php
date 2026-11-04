@@ -159,7 +159,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.8.0" }
+    "require": { "fullstackstudio/content": "^0.10.0" }
 }
 ```
 
@@ -372,7 +372,7 @@ above the fold. Plain URLs: `$content->mediaUrl($id)`, `$content->assetUrl($path
 `$block`, `$index`, `$baseUrl`, `$resolve($mediaId)`. The `articleList` block only says what to show: fetch the articles in your view. There is no cookie banner
 component (needs JS): build one on `getConsentConfig()` / `recordConsent()` and follow the consent contract in "Altijd in elke site".
 
-### Analytics (module `analytics`, Umami): pageviews, events, heatmaps, session replay, campaign attribution
+### Analytics (module `analytics`, Umami and/or the Hub's native engine): pageviews, events, heatmaps, session replay, campaign attribution
 
 Turn the module on for the project in Content (staff do this; Content then creates the Umami website itself) and put one tag in the layout, at the end of
 `<body>` (or in `<head>`). Nothing else is needed: no keys, no ids, no env vars.
@@ -422,6 +422,27 @@ worker. Direct mode needs `https://analytics.fullstackstudio.nl` in `script-src`
 `Content::analyticsCsp()` or merge them into your policy: `Content::analyticsCspMerge($policy)`. With a nonce-based CSP pass it: `<x-content::analytics :nonce="$nonce" />`
 (Laravel's `Vite::cspNonce()` is used automatically when set).
 
+**Native engine (Hub `engine: native` or `both`).** The Hub decides per project which tracker runs; the site changes nothing. `umami` (default):
+the Umami tags above. `native`: the Hub's own tracker `/_fsc/a/fsa.js` instead. `both` (the double-measure period): both, each counting on its own.
+`fsa.js` sends pageviews (also SPA navigation), engaged time, scroll depth 25/50/75/100, outbound links, downloads (mailto/tel/WhatsApp only as the kind,
+never the address), form started/submitted (never a field value), 404 (`<x-content::analytics status="404" />` on the error page) and your own events:
+
+```js
+window.fsa.track('signup', { plan: 'pro' });          // keys [a-z0-9_.], max 30; strings max 200; numbers; booleans
+window.fsa.revenue(49.95, 'EUR', { order: 'A-1' });  // webshops
+// or declarative: <button data-fsa-event="cta_click" data-fsa-prop-location="hero">
+// window.fscAnalytics.track(name, props) reaches Umami AND the native tracker, whichever runs.
+```
+
+No cookies. Without consent nothing is stored on the device (the collector counts with a daily rotating hash); after consent (same banner contract as
+above) a random id in `localStorage` (`fsa-id`, never with Global Privacy Control) and heatmap clicks; revoking deletes the id at once. Paths, titles and
+props lose e-mail addresses and phone numbers, URLs keep only the path and the utm/click id parameters. Events go to `POST /_fsc/a/e` on this site; the
+SDK checks the sitekey (no open relay), strips the id and heatmap clicks again when there is no consent, signs the visitor IP with the per-site key the Hub
+gives the server token (`X-Fsc-Client-Ip`/`X-Fsc-Ts`/`X-Fsc-Sig`) and forwards to the collector inside the cluster (`FSC_ANALYTICS_COLLECTOR_URL`, default
+`http://collector.analytics.svc.cluster.local/e`, 1.5 s timeout `FSC_ANALYTICS_COLLECTOR_TIMEOUT_MS`). It always answers `202 {}`; a collector outage never
+reaches the page. Without a signing key (publishable token, or a Hub that is not set up) the native tracker is not rendered. Always first-party, also in
+direct mode (then `Content::analyticsCsp()` adds `'self'`). The pod needs network egress to the collector (FSS cluster: NetworkPolicy, done by the platform).
+
 **Attribution.** On the first page of a visit the helper keeps `utm_source/medium/campaign/term/content`, the ad click ids (`gclid`, `gbraid`, `wbraid`, `dclid`,
 `gclsrc`, `fbclid`, `msclkid`, `ttclid`, `li_fat_id`, `twclid`, `rdt_cid`, `epik`, `sccid`), the landing URL and an external referrer in `sessionStorage`. Every
 `<x-content::form>` sends them along (hidden field `_fsc_attribution`, read by the form route) and Content stores them with the submission (`meta.utm`,
@@ -435,6 +456,8 @@ target has its own query or is absolute). Your own redirects (`redirect()->to(..
 
 **Privacy text** (privacy page, not the banner): "We measure visits with Umami, a privacy-friendly statistics tool without cookies; IP addresses are not stored.
 Only if you accept cookies do we also analyse clicks and navigation anonymously (heatmaps and session recordings, with everything you type hidden)."
+With the native engine: "We measure visits with our own statistics, without cookies; IP addresses are not stored. Only if you accept cookies do we remember
+your browser with a random number, so we can see return visits, and analyse clicks (heatmaps). No recordings."
 
 Checklist "analytics correct ingericht":
 
@@ -447,6 +470,8 @@ Checklist "analytics correct ingericht":
 7. `FSC_IP_HEADER` matches the proxy in front of the site (Cloudflare: `cf-connecting-ip`).
 8. Open `/?utm_source=test&gclid=abc`, submit a form: the submission in Content shows the utm and click id. Redirects keep `?utm_...`.
 9. The privacy page mentions Umami and the after-consent heatmaps/recordings.
+10. Native engine (`engine` native/both): `GET /_fsc/a/fsa.js` returns JavaScript, `POST /_fsc/a/e` answers 202 on a page view, `getAnalyticsConfig()['native']`
+    has `ready: true` and a `signingKey` (server token), and the pod reaches the collector.
 
 ### Cache and webhook invalidation
 
@@ -538,5 +563,5 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.8.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+This guide: version 0.10.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
 Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.

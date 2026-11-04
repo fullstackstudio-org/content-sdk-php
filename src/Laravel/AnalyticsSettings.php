@@ -92,11 +92,48 @@ final class AnalyticsSettings
         return $config;
     }
 
-    /** The website id the first-party proxy accepts, or null. */
+    /** The website id the first-party proxy accepts, or null (also when the engine is `native`). */
     public function websiteId(): ?string
     {
-        $id = $this->current()['websiteId'] ?? null;
+        $config = $this->current();
+        $id = $config['websiteId'] ?? null;
 
-        return is_string($id) ? $id : null;
+        return is_string($id) && Analytics::engine($config ?? []) !== 'native' ? $id : null;
+    }
+
+    /** `umami`, `native` or `both` (D9); `umami` without a config. */
+    public function engine(): string
+    {
+        return Analytics::engine($this->current() ?? []);
+    }
+
+    /**
+     * The native sitekey this site may forward events for, or null: engine `umami`, native not ready in the Hub, or no signing key
+     * (a publishable token, or a Hub without the master secret). Without a signing key every visitor would reach the collector with
+     * this pod's IP, so the native tracker is not rendered at all.
+     */
+    public function nativeSitekey(): ?string
+    {
+        $config = $this->current() ?? [];
+
+        if (Analytics::engine($config) === 'umami' || Analytics::nativeSigningKey($config) === null) {
+            return null;
+        }
+
+        return Analytics::nativeSitekey($config);
+    }
+
+    /** The per-site signing key for the collector proxy (never sent to a browser). */
+    public function nativeSigningKey(): ?string
+    {
+        return $this->nativeSitekey() !== null ? Analytics::nativeSigningKey($this->current() ?? []) : null;
+    }
+
+    /** The collector's ingest URL inside the cluster (`content.analytics.collector_url`), http(s) only. */
+    public function collectorUrl(): ?string
+    {
+        $url = trim((string) $this->config->get('content.analytics.collector_url', Analytics::DEFAULT_COLLECTOR_URL));
+
+        return preg_match('#^https?://[A-Za-z0-9.-]+(?::\d{1,5})?(?:/[A-Za-z0-9._~/-]*)?$#D', $url) === 1 ? $url : null;
     }
 }

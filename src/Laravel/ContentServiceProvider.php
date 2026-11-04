@@ -104,9 +104,9 @@ final class ContentServiceProvider extends ServiceProvider
     }
 
     /**
-     * The analytics routes under `content.analytics.path` (default `_fsc/a`): the helper script always, the first-party proxy (script.js,
-     * recorder.js and the collect calls to Umami) unless `content.analytics.mode` is `direct`. No middleware group: no session, cookies or
-     * CSRF on these routes.
+     * The analytics routes under `content.analytics.path` (default `_fsc/a`): the helper script and the native tracker (`fsa.js`, `POST e`,
+     * always first-party) in every mode, the Umami proxy (script.js, recorder.js and the collect calls) unless `content.analytics.mode` is
+     * `direct`. No middleware group: no session, cookies or CSRF on these routes.
      */
     public static function registerAnalyticsRoutes(): void
     {
@@ -114,6 +114,8 @@ final class ContentServiceProvider extends ServiceProvider
         $prefix = trim((string) $config->get('content.analytics.path', '_fsc/a'), '/') ?: '_fsc/a';
 
         Route::get($prefix . '/fsc.js', [AnalyticsController::class, 'helper'])->name('content.analytics.helper');
+        Route::get($prefix . '/fsa.js', [NativeAnalyticsController::class, 'tracker'])->name('content.analytics.native-tracker');
+        Route::post($prefix . '/e', [NativeAnalyticsController::class, 'collect'])->name('content.analytics.native-collect');
 
         if ($config->get('content.analytics.mode') === 'direct') {
             return;

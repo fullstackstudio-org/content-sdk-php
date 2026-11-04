@@ -66,7 +66,8 @@ return [
     ],
 
     /*
-     * Analytics (Content module `analytics`, Umami). Place `<x-content::analytics />` in the layout (end of <body> or <head>); with the
+     * Analytics (Content module `analytics`: Umami, the Hub's native engine, or both; the Hub decides per project with `engine`).
+     * Place `<x-content::analytics />` in the layout (end of <body> or <head>); with the
      * module on in Content nothing else is needed. Pageviews and events are cookieless and run without consent; heatmaps and session
      * replay start only after cookie consent (see AGENTS.md for wiring a banner).
      *
@@ -92,6 +93,10 @@ return [
         // The localStorage key and window event your cookie banner uses (see AGENTS.md).
         'consent_key' => env('FSC_CONSENT_KEY', 'fsc-consent'),
         'consent_event' => env('FSC_CONSENT_EVENT', 'fsc:consent'),
+        // Native engine (Hub `engine: native|both`): the collector inside the cluster that `POST {path}/e` forwards to, signed with the
+        // per-site key the Hub hands to the server token. No public collector route exists.
+        'collector_url' => env('FSC_ANALYTICS_COLLECTOR_URL', 'http://collector.analytics.svc.cluster.local/e'),
+        'collector_timeout_ms' => (int) env('FSC_ANALYTICS_COLLECTOR_TIMEOUT_MS', 1500),
     ],
 
     /*
