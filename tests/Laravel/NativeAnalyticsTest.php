@@ -203,6 +203,28 @@ final class NativeAnalyticsTest extends LaravelTestCase
         self::assertSame(['pageview', 'heatmap'], array_column($forwarded['e'], 't'));
     }
 
+    public function testScrollMapAndFrustrationSignalsAreCookielessAndPassWithoutConsent(): void
+    {
+        $this->content->always(FakeTransport::json(self::config('native')));
+        $heat = ['t' => 'heatmap', 'u' => 'https://studio.nl/', 'sel' => 'a', 'x' => 0.5, 'y' => 0.5, 'px' => 0.4, 'py' => 0.1, 'dh' => 5000, 'hk' => 'dead'];
+        $scroll = ['t' => 'scroll_max', 'u' => 'https://studio.nl/', 'sd' => 70];
+        $rage = ['t' => 'frustration', 'n' => 'rage_click', 'u' => 'https://studio.nl/', 'sel' => '#cta'];
+        $error = ['t' => 'frustration', 'n' => 'error_click', 'u' => 'https://studio.nl/', 'sel' => 'button.buy', 'p' => ['err' => 'TypeError', 'eh' => '9f3a01bc']];
+        $back = ['t' => 'frustration', 'n' => 'quick_back', 'u' => 'https://studio.nl/'];
+
+        $this->postBatch($this->batch(['c' => 0, 'pid' => 'abcdefabcdefabcdef', 'e' => [$heat, $scroll, $rage, $error, $back]]))->assertStatus(202);
+        $forwarded = json_decode((string) $this->collector->last()->body, true);
+        self::assertArrayNotHasKey('pid', $forwarded);
+        self::assertSame(['scroll_max', 'frustration', 'frustration', 'frustration'], array_column($forwarded['e'], 't'), 'heatmap is stripped, the cookieless signals stay');
+        self::assertSame(['TypeError', '9f3a01bc'], [$forwarded['e'][2]['p']['err'], $forwarded['e'][2]['p']['eh']]);
+
+        // With consent the heatmap click (with page position) passes unchanged too.
+        $this->postBatch($this->batch(['c' => 1, 'pid' => 'abcdefabcdefabcdef', 'e' => [$heat, $scroll]]))->assertStatus(202);
+        $forwarded = json_decode((string) $this->collector->last()->body, true);
+        self::assertSame(['heatmap', 'scroll_max'], array_column($forwarded['e'], 't'));
+        self::assertSame([0.4, 0.1, 5000, 'dead'], [$forwarded['e'][0]['px'], $forwarded['e'][0]['py'], $forwarded['e'][0]['dh'], $forwarded['e'][0]['hk']]);
+    }
+
     public function testNoOpenRelayAndBadRequestsAreRefusedWithoutForwarding(): void
     {
         $this->content->always(FakeTransport::json(self::config('native')));

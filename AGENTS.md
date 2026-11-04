@@ -426,7 +426,8 @@ worker. Direct mode needs `https://analytics.fullstackstudio.nl` in `script-src`
 the Umami tags above. `native`: the Hub's own tracker `/_fsc/a/fsa.js` instead. `both` (the double-measure period): both, each counting on its own.
 `fsa.js` sends pageviews (also SPA navigation), engaged time, scroll depth 25/50/75/100, outbound links, downloads (mailto/tel/WhatsApp only as the kind,
 never the address), form started/submitted (never a field value), 404 (`<x-content::analytics status="404" />` on the error page), Web Vitals
-(LCP, INP, CLS, FCP, TTFB, once per page load) and your own events:
+(LCP, INP, CLS, FCP, TTFB, once per page load), the deepest scroll point per page view (`scroll_max`, 10% steps), frustration signals (`frustration`: rage, dead
+and error clicks, quick back; an element selector and for errors only the error class and a hash, never text, values, messages or stacks) and your own events:
 
 ```js
 window.fsa.track('signup', { plan: 'pro' });          // keys [a-z0-9_.], max 30; strings max 200; numbers; booleans
@@ -436,7 +437,7 @@ window.fsa.revenue(49.95, 'EUR', { order: 'A-1' });  // webshops
 ```
 
 No cookies. Without consent nothing is stored on the device (the collector counts with a daily rotating hash); after consent (same banner contract as
-above) a random id in `localStorage` (`fsa-id`, never with Global Privacy Control) and heatmap clicks; without consent any stored id is deleted. Paths,
+above) a random id in `localStorage` (`fsa-id`, never with Global Privacy Control) and heatmap clicks (element selector and position, never text or field values); without consent any stored id is deleted. Paths,
 referrers, titles and props lose e-mail addresses, phone numbers and secret-looking segments (`/reset-password/<token>` becomes `/reset-password/[token]`;
 UUIDs, long hex, long random strings); URLs keep only the path (max 500 characters) and the utm/click id parameters. Events go to `POST /_fsc/a/e` on this site; the
 SDK checks the sitekey (no open relay), strips the id and heatmap clicks again when there is no consent, signs the visitor IP with the per-site key the Hub

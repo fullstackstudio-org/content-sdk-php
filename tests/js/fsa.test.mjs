@@ -27,8 +27,13 @@ function storage(initial = {}) {
 }
 
 /** A fake element: tag, attributes, parent chain, a bounding box. `closest` supports the selectors the tracker uses. */
-function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100, height: 40 }) {
+const INTERACTIVE_TAGS = ['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL', 'SUMMARY', 'OPTION'];
+const INTERACTIVE_ATTRS = ['onclick', 'tabindex', 'contenteditable', 'role', 'data-fsa-event', 'data-fsc'];
+
+function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100, height: 40 }, previous = null) {
     const node = {
+        nodeType: 1,
+        previousElementSibling: previous,
         tagName: tag.toUpperCase(),
         id: attrs.id || '',
         className: attrs.class || '',
@@ -41,6 +46,7 @@ function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100
             for (let n = node; n; n = n.parentElement) {
                 if (selector === 'a[href]' && n.tagName === 'A' && n.hasAttribute('href')) return n;
                 if (selector === 'form' && n.tagName === 'FORM') return n;
+                if (selector.startsWith('a[href],button') && ((n.tagName === 'A' && n.hasAttribute('href')) || INTERACTIVE_TAGS.includes(n.tagName) || INTERACTIVE_ATTRS.some((a) => n.hasAttribute(a)))) return n;
                 if (selector === '[data-fsa-event],[data-fsc]' && (n.hasAttribute('data-fsa-event') || n.hasAttribute('data-fsc'))) return n;
             }
             return null;
@@ -50,7 +56,7 @@ function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100
 }
 
 /** A page running the tracker. Timers are manual (`advance`), beacons are captured as parsed JSON batches. */
-function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, ttfb = 0, beacon = true, stub } = {}) {
+function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, ttfb = 0, beacon = true, stub, navigationApi = false } = {}) {
     const observers = {};
     let clock = 1_800_000_000_000;
     const timers = [];
@@ -58,6 +64,7 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
     const fetched = [];
     const docListeners = {};
     const winListeners = {};
+    const mutationObservers = [];
     const local = storage({ ...(consent === null ? {} : { 'fsc-consent': consent }), ...stored });
     const doc = {
         referrer,
@@ -94,12 +101,21 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
         PerformanceObserver: Object.assign(function (cb) {
             this.observe = (opts) => { (observers[opts.type] ||= []).push(cb); };
         }, { supportedEntryTypes: ['largest-contentful-paint', 'paint', 'layout-shift', 'event', 'first-input'] }),
+        MutationObserver: function (cb) {
+            this.observe = () => { mutationObservers.push(this); };
+            this.disconnect = () => { mutationObservers.splice(mutationObservers.indexOf(this), 1); };
+            this.cb = cb;
+        },
         setTimeout: (fn, ms) => { const t = { fn, at: clock + ms, once: true }; timers.push(t); return t; },
         clearTimeout: (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
         setInterval: (fn, ms) => { const t = { fn, at: clock + ms, every: ms }; timers.push(t); return t; },
         addEventListener: (type, fn) => { (winListeners[type] ||= []).push(fn); },
     };
     if (stub) win.fsa = stub;
+    const navListeners = [];
+    if (navigationApi) {
+        win.navigation = { currentEntry: { index: 3 }, addEventListener: (type, fn) => { if (type === 'navigate') navListeners.push(fn); } };
+    }
 
     const realNow = Date.now;
     Date.now = () => clock;
@@ -147,7 +163,10 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
 
     const perf = (type, entries) => run(() => (observers[type] || []).forEach((cb) => cb({ getEntries: () => entries })));
 
-    return { win, doc, local, advance, batches, events, fireDoc, fireWin, run, perf, beacons, fetched, tick: (ms) => { clock += ms; } };
+    const mutate = () => mutationObservers.slice().forEach((o) => o.cb([{}]));
+    const navigate = (event) => run(() => navListeners.forEach((fn) => fn(event)));
+
+    return { mutate, navigate, win, doc, local, advance, batches, events, fireDoc, fireWin, run, perf, beacons, fetched, tick: (ms) => { clock += ms; } };
 }
 
 test_('sends one cookieless pageview batch with the sitekey, no persistent id and only campaign parameters', async () => {
@@ -238,11 +257,11 @@ test_('SPA navigation sends a new pageview with the previous page as referrer, a
     p.advance(1000);
     const events = await p.events();
     const types = events.map((e) => e.t);
-    assert.deepEqual(types, ['pageview', 'heartbeat', 'pageview']);
+    assert.deepEqual(types, ['pageview', 'heartbeat', 'scroll_max', 'pageview']);
     assert.equal(events[1].u, 'https://studio.nl/');
     assert.ok(events[1].d >= 4000, 'engaged time in ms');
-    assert.equal(events[2].u, 'https://studio.nl/diensten?utm_source=x');
-    assert.equal(events[2].r, 'https://studio.nl/');
+    assert.equal(events[3].u, 'https://studio.nl/diensten?utm_source=x');
+    assert.equal(events[3].r, 'https://studio.nl/');
 
     // Same URL again (replaceState for state only): no second pageview.
     p.run(() => p.win.history.replaceState({ a: 1 }, ''));
@@ -269,7 +288,8 @@ test_('scroll depth marks 25/50/75/100 once each; heartbeat on hide carries the 
 
 test_('outbound links, mailto/tel without the address, downloads and declarative events', async () => {
     const p = page();
-    const click = (target) => p.fireDoc('click', { type: 'click', target, clientX: 0, clientY: 0 });
+    let spot = 0;
+    const click = (target) => p.fireDoc('click', { type: 'click', target, clientX: (spot += 100), clientY: 0 });
     click(el('span', {}, el('a', { href: 'https://partner.example/path/jan@x.nl?ref=1' })));
     click(el('a', { href: 'mailto:info@studio.nl?subject=hoi' }));
     click(el('a', { href: 'tel:+31201234567' }));
@@ -441,6 +461,211 @@ test_('a stored id is deleted on load when there is no consent (declined elsewhe
     const d = page({ consent: 'accepted', stored: { 'fsa-id': 'kept-id-0123456789abcdef' } });
     d.advance(1000);
     assert.equal((await d.batches())[0].body.pid, 'kept-id-0123456789abcdef');
+});
+
+test_('heatmap: stable selector (id, allow-listed data attribute, no text), element and page position, per-element and per-page throttle', async () => {
+    const p = page({ consent: 'accepted' });
+    p.win.scrollY = 1000;
+    p.win.innerWidth = 1280;
+    const section = el('section', { id: 'hero' });
+    const withData = el('a', { href: '/x', 'data-testid': 'buy-now', class: 'btn' }, section, { left: 100, top: 200, width: 200, height: 50 });
+    const withText = el('div', { 'data-testid': 'Buy now for jan@x.nl', 'aria-label': 'Jan Jansen', class: 'card css-9f8e7d6c5b' }, section);
+    const second = el('li', {}, el('ul', { class: 'menu' }), undefined, el('li', {}, null));
+    second.previousElementSibling.tagName = 'LI';
+    p.fireDoc('click', { type: 'click', target: withData, clientX: 200, clientY: 225, detail: 1 });
+    p.fireDoc('click', { type: 'click', target: withText, clientX: 10, clientY: 10, detail: 1 });
+    p.fireDoc('click', { type: 'click', target: second, clientX: 600, clientY: 10, detail: 1 });
+    p.advance(1000);
+    const heats = (await p.events()).filter((e) => e.t === 'heatmap');
+    assert.equal(heats[0].sel, 'a[data-testid="buy-now"]');
+    assert.deepEqual([heats[0].x, heats[0].y, heats[0].px, heats[0].py, heats[0].dh, heats[0].hk], [0.5, 0.5, 0.156, 0.306, 4000, 'click']);
+    assert.equal(heats[1].sel, 'section#hero > div.card', 'text-like data attributes and hashed classes never reach the selector');
+    assert.equal(heats[2].sel, 'ul.menu > li:nth-of-type(2)');
+    assert.ok(!JSON.stringify(heats).includes('Jansen') && !JSON.stringify(heats).includes('Buy now'));
+
+    // 10 per element, 100 per page view
+    const q = page({ consent: 'accepted' });
+    const button = el('button', { id: 'go' });
+    for (let i = 0; i < 25; i++) q.fireDoc('click', { type: 'click', target: button, clientX: i * 100, clientY: 5, detail: 1 });
+    q.advance(1000);
+    assert.equal((await q.events()).filter((e) => e.t === 'heatmap').length, 10);
+    const r = page({ consent: 'accepted' });
+    for (let i = 0; i < 130; i++) r.fireDoc('click', { type: 'click', target: el('p', { id: 'p' + String.fromCharCode(97 + (i % 26)) + String.fromCharCode(97 + Math.floor(i / 26)) }), clientX: i * 50, clientY: 5, detail: 1 });
+    r.advance(1000);
+    assert.equal((await r.events()).filter((e) => e.t === 'heatmap').length, 100);
+});
+
+test_('heatmap: keyboard and script clicks (detail 0) have no pointer position and are skipped', async () => {
+    const p = page({ consent: 'accepted' });
+    p.fireDoc('click', { type: 'click', target: el('button', { id: 'go' }), clientX: 0, clientY: 0, detail: 0 });
+    p.advance(1000);
+    assert.equal((await p.events()).some((e) => e.t === 'heatmap'), false);
+});
+
+test_('scroll map: one scroll_max per page view with the deepest point at 10%, also without consent; a short page counts as 100', async () => {
+    const p = page();
+    p.win.scrollY = 1000; // (1000 + 800) / 4000 = 45 %
+    p.fireWin('scroll', {});
+    p.win.scrollY = 0;
+    p.fireWin('scroll', {});
+    p.doc.visibilityState = 'hidden';
+    p.fireDoc('visibilitychange', {});
+    p.fireWin('pagehide', {});
+    let maxes = (await p.events()).filter((e) => e.t === 'scroll_max');
+    assert.deepEqual(maxes.map((e) => e.sd), [40], 'sent once, not again at pagehide');
+    assert.equal(maxes[0].u, 'https://studio.nl/');
+
+    const short = page();
+    short.doc.documentElement.scrollHeight = 600;
+    short.doc.body.scrollHeight = 600;
+    short.fireWin('pagehide', {});
+    maxes = (await short.events()).filter((e) => e.t === 'scroll_max');
+    assert.deepEqual(maxes.map((e) => e.sd), [100]);
+
+    const spa = page();
+    spa.win.scrollY = 3200;
+    spa.fireWin('scroll', {});
+    spa.run(() => spa.win.history.pushState({}, '', '/volgende'));
+    spa.advance(10);
+    spa.fireWin('pagehide', {});
+    maxes = (await spa.events()).filter((e) => e.t === 'scroll_max');
+    assert.deepEqual(maxes.map((e) => [e.u, e.sd]), [['https://studio.nl/', 100], ['https://studio.nl/volgende', 100]]);
+});
+
+test_('rage click: 3 clicks within 700 ms and 30 px is one frustration event, with or without consent; slow clicks are not', async () => {
+    for (const consent of [null, 'accepted']) {
+        const p = page({ consent });
+        const cta = el('a', { id: 'cta', href: '/x' });
+        for (let i = 0; i < 6; i++) { p.fireDoc('click', { type: 'click', target: cta, clientX: 50 + i, clientY: 50, detail: 1 }); p.tick(100); }
+        p.tick(5000);
+        for (let i = 0; i < 4; i++) { p.fireDoc('click', { type: 'click', target: cta, clientX: 50, clientY: 50, detail: 1 }); p.tick(800); }
+        p.advance(1000);
+        const events = await p.events();
+        assert.deepEqual(events.filter((e) => e.t === 'frustration').map((e) => [e.n, e.sel]), [['rage_click', 'a#cta']]);
+        assert.equal(events.some((e) => e.t === 'heatmap'), consent !== null);
+    }
+});
+
+test_('dead click: a click on a non-interactive element without any DOM change or navigation within 1 s', async () => {
+    const p = page();
+    const card = el('div', { class: 'card' }, el('section', { id: 'plans' }));
+    p.fireDoc('click', { type: 'click', target: card, clientX: 10, clientY: 10, detail: 1 });
+    p.advance(999);
+    assert.equal((await p.events()).some((e) => e.t === 'frustration'), false, 'not before the second is over');
+    p.advance(2);
+    p.advance(1000);
+    let events = (await p.events()).filter((e) => e.t === 'frustration');
+    assert.deepEqual(events.map((e) => [e.n, e.sel]), [['dead_click', 'section#plans > div.card']]);
+
+    // DOM change, interactive element, navigation, text selection: no dead click
+    const q = page();
+    q.fireDoc('click', { type: 'click', target: el('div', { class: 'tab' }), clientX: 10, clientY: 10, detail: 1 });
+    q.advance(300);
+    q.mutate();
+    q.fireDoc('click', { type: 'click', target: el('button', { id: 'go' }), clientX: 300, clientY: 10, detail: 1 });
+    q.fireDoc('click', { type: 'click', target: el('span', { class: 'ico' }, el('a', { href: '/x' })), clientX: 600, clientY: 10, detail: 1 });
+    q.fireDoc('click', { type: 'click', target: el('div', { class: 'go' }), clientX: 900, clientY: 10, detail: 1 });
+    q.win.location.href = 'https://studio.nl/next';
+    q.advance(2000);
+    q.advance(1000);
+    assert.equal((await q.events()).some((e) => e.t === 'frustration' && e.n === 'dead_click'), false);
+
+    const s = page();
+    s.win.getSelection = () => ({ toString: () => 'selected text' });
+    s.fireDoc('click', { type: 'click', target: el('p', {}), clientX: 10, clientY: 10, detail: 1 });
+    s.advance(3000);
+    assert.equal((await s.events()).some((e) => e.t === 'frustration'), false, 'selecting text is not frustration');
+});
+
+test_('dead click: a pointer cursor makes an element interactive', async () => {
+    const p = page();
+    p.win.getComputedStyle = (node) => ({ cursor: node.getAttribute('class') === 'clicky' ? 'pointer' : 'auto' });
+    p.fireDoc('click', { type: 'click', target: el('div', { class: 'clicky' }), clientX: 10, clientY: 10, detail: 1 });
+    p.advance(3000);
+    assert.equal((await p.events()).some((e) => e.t === 'frustration'), false);
+});
+
+test_('error click: a JS error within 1 s after a click sends the error class and a message hash, never the message or a stack', async () => {
+    const p = page();
+    const buy = el('button', { class: 'buy' }, el('form', { id: 'order' }));
+    p.fireDoc('click', { type: 'click', target: buy, clientX: 10, clientY: 10, detail: 1 });
+    p.tick(400);
+    const error = new TypeError("Cannot read properties of undefined (reading 'x') at https://studio.nl/app.js?token=abc123 for jan@x.nl");
+    p.fireWin('error', { error, message: error.message });
+    p.fireWin('error', { error, message: error.message });
+    assert.equal(p.beacons.length, 1, 'sent at once');
+    const [ev] = (await p.events()).filter((e) => e.t === 'frustration');
+    assert.deepEqual([ev.n, ev.sel, ev.p.err], ['error_click', 'form#order > button.buy', 'TypeError']);
+    assert.match(ev.p.eh, /^[0-9a-f]{8}$/);
+    assert.deepEqual(Object.keys(ev.p).sort(), ['eh', 'err']);
+    const raw = JSON.stringify(await p.batches());
+    assert.ok(!/jan@x|token=abc|Cannot read|\bat https/.test(raw), 'no message, url or stack leaves the page');
+    assert.equal((await p.events()).filter((e) => e.n === 'error_click').length, 1, 'one per click');
+
+    // the same bug with other numbers hashes the same; a different bug differs
+    const hashOf = async (message) => {
+        const q = page();
+        q.fireDoc('click', { type: 'click', target: buy, clientX: 10, clientY: 10, detail: 1 });
+        q.fireWin('unhandledrejection', { reason: new RangeError(message) });
+        return (await q.events()).find((e) => e.n === 'error_click').p;
+    };
+    const a = await hashOf('Item 12 not found');
+    const b = await hashOf('Item 99 not found');
+    const c = await hashOf('Something else');
+    assert.equal(a.eh, b.eh);
+    assert.notEqual(a.eh, c.eh);
+    assert.equal(a.err, 'RangeError');
+
+    // too late: no error click
+    const late = page();
+    late.fireDoc('click', { type: 'click', target: buy, clientX: 10, clientY: 10, detail: 1 });
+    late.tick(1500);
+    late.fireWin('error', { error: new Error('late'), message: 'late' });
+    late.advance(1000);
+    assert.equal((await late.events()).some((e) => e.n === 'error_click'), false);
+});
+
+test_('quick back: back within 5 s via the Navigation API (forward and late are not); popstate fallback without it', async () => {
+    const p = page({ navigationApi: true });
+    p.tick(3000);
+    p.navigate({ navigationType: 'traverse', destination: { index: 4 } }); // forward
+    p.navigate({ navigationType: 'push', destination: { index: 2 } });
+    assert.equal(p.beacons.length, 0);
+    p.navigate({ navigationType: 'traverse', destination: { index: 2 } });
+    assert.equal(p.beacons.length, 1, 'sent at once: the page is leaving');
+    const [qb] = (await p.events()).filter((e) => e.t === 'frustration');
+    assert.deepEqual([qb.n, qb.u, 'sel' in qb], ['quick_back', 'https://studio.nl/', false]);
+
+    const late = page({ navigationApi: true });
+    late.tick(6000);
+    late.navigate({ navigationType: 'traverse', destination: { index: 2 } });
+    late.advance(1000);
+    assert.equal((await late.events()).some((e) => e.t === 'frustration'), false);
+
+    const old = page();
+    old.run(() => old.win.history.pushState({}, '', '/tweede'));
+    old.advance(10);
+    old.tick(2000);
+    old.win.location.href = 'https://studio.nl/';
+    old.fireWin('popstate', {});
+    old.advance(1000);
+    assert.deepEqual((await old.events()).filter((e) => e.t === 'frustration').map((e) => [e.n, e.u]), [['quick_back', 'https://studio.nl/tweede']]);
+
+    const hash = page();
+    hash.win.location.href = 'https://studio.nl/#sectie';
+    hash.fireWin('popstate', {});
+    hash.advance(1000);
+    assert.equal((await hash.events()).some((e) => e.t === 'frustration'), false, 'an in-page anchor is not a back');
+});
+
+test_('frustration events are capped at 20 per page view', async () => {
+    const p = page();
+    for (let i = 0; i < 30; i++) {
+        p.fireDoc('click', { type: 'click', target: el('i', { id: 'a' + String.fromCharCode(97 + i) }), clientX: i * 100, clientY: 5, detail: 1 });
+        p.fireWin('error', { error: new Error('x' + i), message: 'x' + i });
+    }
+    p.advance(1000);
+    assert.equal((await p.events()).filter((e) => e.t === 'frustration').length, 20);
 });
 
 test_('the minified build is the current source', () => {

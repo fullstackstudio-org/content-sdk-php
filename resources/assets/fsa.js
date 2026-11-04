@@ -12,6 +12,13 @@
  *   segments (reset/share tokens, UUIDs, long hex) are replaced in paths, referrers, titles and props. Form field values are never read.
  *   No session recordings.
  * - Web Vitals (LCP, INP, CLS, FCP, TTFB) once per page load, when the page is hidden.
+ * - Heatmap clicks (consent only): the element selector (id, an allow-listed data attribute or a short tag/class path; never text, never
+ *   a field value), the position inside the element and inside the document, at most 100 per page view and 10 per element.
+ * - Scroll map (no consent needed): one `scroll_max` event per page view with the deepest point reached, rounded down to 10%.
+ * - Frustration signals (no consent needed, no personal data): `frustration` events rage_click (3+ clicks within 700 ms and 30 px),
+ *   dead_click (click on a non-interactive element, no DOM change within 1 s), error_click (a JS error within 1 s after a click: only
+ *   the error class and a hash of the normalised message, never the message or a stack) and quick_back (back within 5 s of arriving;
+ *   needs the Navigation API or a same-document popstate). At most 20 per page view.
  *
  * API: fsa.track(name, props), fsa.revenue(amount, currency, props), fsa.pageview(), fsa.setConsent(value).
  * Declarative: data-fsa-event="cta_click" (+ data-fsa-prop-<key>="value") on any clickable element; `data-fsc` / `data-fsc-prop-<key>`
@@ -41,6 +48,14 @@
     var HEARTBEAT_MS = 60000;
     var IDLE_MS = 30000;
     var MAX_HEATMAP = 100;
+    var MAX_PER_SELECTOR = 10;
+    var MAX_FRUSTRATION = 20;
+    var RAGE_MS = 700;
+    var RAGE_PX = 30;
+    var REACT_MS = 1000;
+    var QUICK_BACK_MS = 5000;
+    var DATA_ATTRS = ['data-fsa-id', 'data-fsa-event', 'data-fsc', 'data-testid', 'data-test', 'data-cy', 'data-track'];
+    var INTERACTIVE = 'a[href],button,input,select,textarea,label,summary,option,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[role=switch],[role=option],[onclick],[contenteditable],[tabindex],[data-fsa-event],[data-fsc]';
     var DOWNLOAD_RE = /\.(pdf|zip|rar|7z|gz|docx?|xlsx?|pptx?|csv|txt|rtf|odt|ods|odp|epub|dmg|exe|msi|apk|mp3|mp4|mov|avi|wav)$/i;
     var EMAIL_RE = /[a-z0-9._%+-]+(?:@|%40)[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi;
     var PHONE_RE = /(^|[^0-9+])((?:\+|00)[1-9](?:[\s().-]?\d){7,13}|0[1-9](?:[\s().-]?\d){7,9})(?=$|[^0-9])/g;
@@ -238,9 +253,15 @@
     var lastInput = now();
     var scrollMax = 0;
     var scrollSentMax = 0;
+    var scrollMaxSent = false;
     var thresholds = {};
     var heatmaps = 0;
+    var perSelector = {};
+    var frustrations = 0;
+    var deadSeen = {};
+    var pageStart = now();
     var clicks = [];
+    var lastClick = { t: 0, sel: '', done: true };
 
     function visible() { return d.visibilityState !== 'hidden'; }
 
@@ -262,7 +283,7 @@
         var next = pageUrl(loc.href);
         if (!next || next === current) return;
         var referrer = current ? href : d.referrer;
-        if (current) heartbeat();
+        if (current) { heartbeat(); sendScrollMax(true); }
         current = next;
         if (!firstUrl) firstUrl = next;
         href = loc.href;
@@ -270,19 +291,28 @@
         scrollSentMax = 0;
         thresholds = {};
         heatmaps = 0;
+        perSelector = {};
+        frustrations = 0;
+        deadSeen = {};
+        scrollMaxSent = false;
+        pageStart = now();
         engaged = 0;
         lastTick = now();
         push({ t: 'pageview', u: current, r: refUrl(referrer), ti: str(scrub(d.title || ''), 200) });
     }
 
-    function onScroll() {
-        lastInput = now();
+    /** Updates scrollMax (percent of the document seen) and returns it. */
+    function measure() {
         var root = d.documentElement || {};
         var height = Math.max(root.scrollHeight || 0, (d.body && d.body.scrollHeight) || 0);
         var seen = (w.scrollY || w.pageYOffset || 0) + (w.innerHeight || 0);
-        if (height <= 0) return;
-        var pct = Math.min(100, Math.round(seen / height * 100));
-        if (pct > scrollMax) scrollMax = pct;
+        if (height > 0) scrollMax = Math.max(scrollMax, Math.min(100, Math.round(seen / height * 100)));
+        return scrollMax;
+    }
+
+    function onScroll() {
+        lastInput = now();
+        var pct = measure();
         [25, 50, 75, 100].forEach(function (mark) {
             if (pct >= mark && !thresholds[mark]) {
                 thresholds[mark] = 1;
@@ -291,42 +321,135 @@
         });
     }
 
+    /** Scroll map: the deepest point of this page view, once, at 10% resolution (a short page that fits the screen counts as 100). */
+    function sendScrollMax(spa) {
+        if (scrollMaxSent || !current) return;
+        scrollMaxSent = true;
+        if (!spa) measure(); // after a SPA navigation the document is already the next page
+        push({ t: 'scroll_max', sd: Math.floor(Math.min(100, scrollMax) / 10) * 10 });
+    }
+
     // --- Clicks: outbound, downloads, declarative events, heatmap (consent only) -------------------------------------------------
 
     function closest(el, selector) {
         return el && el.closest ? el.closest(selector) : null;
     }
 
+    /** A stable element selector: #id, an allow-listed data attribute or a short tag.class path. Never text, never a value. */
     function selector(el) {
         var parts = [];
         for (var i = 0; el && el.tagName && i < 4; i++) {
             var part = el.tagName.toLowerCase();
-            if (el.id && /^[A-Za-z][\w-]{0,40}$/.test(el.id)) { parts.unshift(part + '#' + el.id); break; }
-            var cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).filter(function (c) { return /^[A-Za-z][\w-]{0,30}$/.test(c); }).slice(0, 2) : [];
-            parts.unshift(part + (cls.length ? '.' + cls.join('.') : ''));
+            var id = el.id;
+            if (id && /^[A-Za-z][\w-]{0,40}$/.test(id) && !/\d{4}/.test(id) && !isToken(id)) { parts.unshift(part + '#' + id); break; }
+            var attr = '';
+            for (var j = 0; j < DATA_ATTRS.length && !attr; j++) {
+                var v = el.getAttribute && el.getAttribute(DATA_ATTRS[j]);
+                if (v && /^[\w.:-]{1,40}$/.test(v) && !isToken(v)) attr = '[' + DATA_ATTRS[j] + '="' + v + '"]';
+            }
+            if (attr) { parts.unshift(part + attr); break; }
+            var cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/).filter(function (c) { return /^[A-Za-z][\w-]{0,30}$/.test(c) && !/\d{3}|[0-9a-f]{8,}/.test(c) && !isToken(c); }).slice(0, 2) : [];
+            var nth = 0;
+            if (!cls.length) for (var sib = el.previousElementSibling; sib; sib = sib.previousElementSibling) if (sib.tagName === el.tagName) nth++;
+            parts.unshift(part + (cls.length ? '.' + cls.join('.') : nth ? ':nth-of-type(' + (nth + 1) + ')' : ''));
             el = el.parentElement;
         }
         return str(scrub(parts.join(' > ')), 300);
     }
 
+    function interactive(el) {
+        if (closest(el, INTERACTIVE)) return true;
+        try {
+            for (var n = el, i = 0; n && n.nodeType === 1 && i < 4; n = n.parentElement, i++) if (w.getComputedStyle(n).cursor === 'pointer') return true;
+        } catch (e) { /* no computed style */ }
+        return false;
+    }
+
+    /** FNV-1a of a normalised error message: urls, quoted strings and numbers out, so the same bug hashes the same and nothing leaks. */
+    function hashMessage(text) {
+        var s = String(text).toLowerCase().replace(/https?:\/\/\S+/g, 'u').replace(/(["'`]).*?\1/g, 'q').replace(/\d+/g, '0').slice(0, 300);
+        var h = 2166136261;
+        for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+        return ('0000000' + h.toString(16)).slice(-8);
+    }
+
+    /** One frustration event (cookieless). `now` sends the batch at once: the page may be gone a moment later. */
+    function frustration(kind, sel, extra, now_) {
+        if (frustrations >= MAX_FRUSTRATION) return;
+        frustrations++;
+        var event = { t: 'frustration', n: kind };
+        if (sel) event.sel = sel;
+        if (extra) event.p = extra;
+        push(event);
+        if (now_) flush();
+    }
+
+    /** Dead click: no DOM change and no navigation within 1 s. */
+    function watchDead(sel) {
+        var MO = w.MutationObserver;
+        if (!MO || deadSeen[sel]) return;
+        var changed = false;
+        var href0 = loc.href;
+        var observer;
+        try {
+            observer = new MO(function () { changed = true; });
+            observer.observe(d.documentElement || d, { subtree: true, childList: true, attributes: true, characterData: true });
+        } catch (e) { return; }
+        w.setTimeout(function () {
+            observer.disconnect();
+            if (!changed && loc.href === href0 && visible()) { deadSeen[sel] = 1; frustration('dead_click', sel); }
+        }, REACT_MS);
+    }
+
     function heatmap(event) {
-        if (!consent || heatmaps >= MAX_HEATMAP || !event.target || !event.target.getBoundingClientRect) return;
         var el = event.target;
-        var rect = el.getBoundingClientRect();
-        if (!rect || rect.width <= 0 || rect.height <= 0) return;
-        var x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-        var y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+        if (!el || !el.tagName) return;
+        if (el.ownerSVGElement) el = el.ownerSVGElement;
         var t = now();
-        clicks = clicks.filter(function (c) { return t - c.t < 700; });
-        clicks.push({ t: t, x: event.clientX, y: event.clientY });
-        var near = clicks.filter(function (c) { return Math.abs(c.x - event.clientX) < 30 && Math.abs(c.y - event.clientY) < 30; });
+        var sel = selector(el);
+        lastClick = { t: t, sel: sel, done: false };
+        if (event.detail === 0) return; // keyboard or script click: no pointer position
+        var x = event.clientX;
+        var y = event.clientY;
+        clicks = clicks.filter(function (c) { return t - c.t < RAGE_MS; });
+        clicks.push({ t: t, x: x, y: y });
+        var near = clicks.filter(function (c) { return Math.abs(c.x - x) < RAGE_PX && Math.abs(c.y - y) < RAGE_PX; });
         var kind = 'click';
         if (near.length >= 3) {
             if (near.length > 3) return; // one rage marker per burst
             kind = 'rage';
+            frustration('rage_click', sel);
         }
+        var dead = kind === 'click' && !interactive(event.target) && !(w.getSelection && w.getSelection().toString());
+        if (dead) watchDead(sel);
+        if (!consent || heatmaps >= MAX_HEATMAP || !el.getBoundingClientRect || (perSelector[sel] || 0) >= MAX_PER_SELECTOR) return;
+        var rect = el.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        perSelector[sel] = (perSelector[sel] || 0) + 1;
         heatmaps++;
-        push({ t: 'heatmap', sel: selector(el), x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000, hk: kind });
+        var root = d.documentElement || {};
+        var dw = Math.max(root.scrollWidth || 0, w.innerWidth || 0, 1);
+        var dh = Math.max(root.scrollHeight || 0, (d.body && d.body.scrollHeight) || 0, 1);
+        var unit = function (v) { return Math.round(Math.max(0, Math.min(1, v)) * 1000) / 1000; };
+        push({
+            t: 'heatmap', sel: sel, hk: kind,
+            x: unit((x - rect.left) / rect.width), y: unit((y - rect.top) / rect.height),
+            px: unit((x + (w.scrollX || w.pageXOffset || 0)) / dw), py: unit((y + (w.scrollY || w.pageYOffset || 0)) / dh), dh: dh,
+        });
+    }
+
+    /** A JS error within 1 s after a click: error class and message hash only. */
+    function onError(event) {
+        if (lastClick.done || now() - lastClick.t > REACT_MS) return;
+        lastClick.done = true;
+        var err = event && (event.error || event.reason);
+        var name = err && typeof err.name === 'string' && /^[A-Za-z]{1,40}$/.test(err.name) ? err.name : 'Error';
+        frustration('error_click', lastClick.sel, { err: name, eh: hashMessage((err && err.message) || (event && event.message) || '') }, true);
+    }
+
+    /** Back within 5 s of arriving on the page. */
+    function quickBack() {
+        if (current && now() - pageStart < QUICK_BACK_MS) frustration('quick_back', '', null, true);
     }
 
     function onClick(event) {
@@ -487,7 +610,20 @@
 
     wrap('pushState');
     wrap('replaceState');
-    w.addEventListener('popstate', function () { w.setTimeout(pageview, 0); });
+    w.addEventListener('popstate', function () {
+        if (!w.navigation && pageUrl(loc.href) !== current) quickBack(); // no Navigation API: a popstate to another page within 5 s counts as back
+        w.setTimeout(pageview, 0);
+    });
+    try {
+        if (w.navigation && w.navigation.addEventListener) {
+            w.navigation.addEventListener('navigate', function (event) {
+                var entry = w.navigation.currentEntry;
+                if (event.navigationType === 'traverse' && event.destination && entry && event.destination.index < entry.index) quickBack();
+            });
+        }
+    } catch (e) { /* no Navigation API */ }
+    w.addEventListener('error', onError);
+    w.addEventListener('unhandledrejection', onError);
     w.addEventListener('scroll', onScroll, { passive: true });
     ['mousemove', 'keydown', 'touchstart', 'pointerdown'].forEach(function (type) {
         w.addEventListener(type, function () { tick(); lastInput = now(); }, { passive: true });
@@ -499,10 +635,11 @@
     d.addEventListener('visibilitychange', function () {
         if (visible()) { lastTick = now(); return; }
         heartbeat();
+        sendScrollMax();
         sendVitals();
         flush();
     });
-    w.addEventListener('pagehide', function () { heartbeat(); sendVitals(); flush(); });
+    w.addEventListener('pagehide', function () { heartbeat(); sendScrollMax(); sendVitals(); flush(); });
     w.setInterval(function () { tick(); }, 5000);
     w.setInterval(function () { if (visible()) heartbeat(); }, HEARTBEAT_MS);
 
