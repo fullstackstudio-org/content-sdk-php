@@ -198,8 +198,16 @@
         event.ts = now();
         if (!event.u) event.u = current;
         queue.push(event);
-        if (queue.length >= MAX_BATCH) flush();
-        else if (!timer) timer = w.setTimeout(flush, FLUSH_MS);
+        if (queue.length >= MAX_BATCH) {
+            flush();
+        } else if (event.t === 'pageview') {
+            // A pageview goes out at once (next tick, so events of the same tick ride along): a visitor who leaves within the batch
+            // window, or a browser that kills the page without pagehide (in-app browsers, prerender), must still count.
+            if (timer) w.clearTimeout(timer);
+            timer = w.setTimeout(flush, 0);
+        } else if (!timer) {
+            timer = w.setTimeout(flush, FLUSH_MS);
+        }
     }
 
     /** Keys [a-z0-9_.], max 30; strings scrubbed and max 200; numbers finite; booleans. Keys that name personal data are dropped. */

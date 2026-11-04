@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.10.1
+
+- `fsa.js` sends a pageview at once (next tick) instead of after the 1 s batch window, so a visit that ends within a second, or a page
+  that is killed without `pagehide`, still counts. Other events keep the 1 s batching.
+
 ## 0.10.0
 
 - Native analytics engine (Hub module `analytics`, `engine: native|both`, plan analytics-engine phase 1). `<x-content::analytics />` picks the tracker(s)

@@ -353,6 +353,17 @@ test_('falls back to fetch with keepalive and no credentials when sendBeacon is 
     assert.equal(none.win.fsa, undefined);
 });
 
+test_('the pageview leaves at once (next tick), other events wait for the batch window', async () => {
+    const p = page();
+    p.advance(0);
+    assert.deepEqual((await p.events()).map((e) => e.t), ['pageview'], 'no 1 s wait for the pageview');
+    p.run(() => p.win.fsa.track('later'));
+    p.advance(500);
+    assert.equal(p.beacons.length, 1, 'a custom event waits for the batch window');
+    p.advance(600);
+    assert.equal(p.beacons.length, 2);
+});
+
 test_('batches at most 50 events per request', async () => {
     const p = page();
     p.run(() => { for (let i = 0; i < 120; i++) p.win.fsa.track('e' + i); });

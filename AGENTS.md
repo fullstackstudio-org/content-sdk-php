@@ -575,5 +575,5 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.10.0 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+This guide: version 0.10.1 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
 Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.
