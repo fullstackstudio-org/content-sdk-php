@@ -4,8 +4,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const SOURCE = readFileSync(fileURLToPath(new URL('../../resources/assets/fsa.js', import.meta.url)), 'utf8');
+// The served file is the minified build (scripts/build-fsa.sh); every test runs against the source and the build.
+const MINIFIED = readFileSync(fileURLToPath(new URL('../../resources/assets/fsa.min.js', import.meta.url)), 'utf8');
+const CURRENT = { source: SOURCE };
+const VARIANTS = [['source', SOURCE], ['min', MINIFIED]];
+const realTest = test;
+const tests = [];
+const test_ = (name, fn) => tests.push([name, fn]);
 const KEY = 'fsa_TestSite0123456789abcd';
 
 function storage(initial = {}) {
@@ -33,7 +41,7 @@ function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100
             for (let n = node; n; n = n.parentElement) {
                 if (selector === 'a[href]' && n.tagName === 'A' && n.hasAttribute('href')) return n;
                 if (selector === 'form' && n.tagName === 'FORM') return n;
-                if (selector === '[data-fsa-event]' && n.hasAttribute('data-fsa-event')) return n;
+                if (selector === '[data-fsa-event],[data-fsc]' && (n.hasAttribute('data-fsa-event') || n.hasAttribute('data-fsc'))) return n;
             }
             return null;
         },
@@ -42,7 +50,8 @@ function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100
 }
 
 /** A page running the tracker. Timers are manual (`advance`), beacons are captured as parsed JSON batches. */
-function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, beacon = true, stub } = {}) {
+function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, ttfb = 0, beacon = true, stub } = {}) {
+    const observers = {};
     let clock = 1_800_000_000_000;
     const timers = [];
     const beacons = [];
@@ -81,7 +90,10 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
             sendBeacon: beacon ? (endpoint, blob) => { beacons.push({ endpoint, blob }); return true; } : undefined,
         },
         fetch: (endpoint, init) => { fetched.push({ endpoint, init }); return Promise.resolve({}); },
-        performance: { getEntriesByType: () => (navStatus ? [{ responseStatus: navStatus }] : []) },
+        performance: { getEntriesByType: () => (navStatus || ttfb ? [{ responseStatus: navStatus, responseStart: ttfb }] : []) },
+        PerformanceObserver: Object.assign(function (cb) {
+            this.observe = (opts) => { (observers[opts.type] ||= []).push(cb); };
+        }, { supportedEntryTypes: ['largest-contentful-paint', 'paint', 'layout-shift', 'event', 'first-input'] }),
         setTimeout: (fn, ms) => { const t = { fn, at: clock + ms, once: true }; timers.push(t); return t; },
         clearTimeout: (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); },
         setInterval: (fn, ms) => { const t = { fn, at: clock + ms, every: ms }; timers.push(t); return t; },
@@ -92,7 +104,7 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
     const realNow = Date.now;
     Date.now = () => clock;
     try {
-        new Function('window', 'document', SOURCE)(win, doc);
+        new Function('window', 'document', CURRENT.source)(win, doc);
     } finally {
         Date.now = realNow;
     }
@@ -133,10 +145,12 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
     const fireDoc = (type, event) => run(() => (docListeners[type] || []).forEach((fn) => fn(event)));
     const fireWin = (type, event) => run(() => (winListeners[type] || []).forEach((fn) => fn(event)));
 
-    return { win, doc, local, advance, batches, events, fireDoc, fireWin, run, beacons, fetched, tick: (ms) => { clock += ms; } };
+    const perf = (type, entries) => run(() => (observers[type] || []).forEach((cb) => cb({ getEntries: () => entries })));
+
+    return { win, doc, local, advance, batches, events, fireDoc, fireWin, run, perf, beacons, fetched, tick: (ms) => { clock += ms; } };
 }
 
-test('sends one cookieless pageview batch with the sitekey, no persistent id and only campaign parameters', async () => {
+test_('sends one cookieless pageview batch with the sitekey, no persistent id and only campaign parameters', async () => {
     const p = page({ url: 'https://studio.nl/prijzen?utm_source=nieuwsbrief&utm_medium=email&email=jan@x.nl&gclid=abc#top', referrer: 'https://www.google.com/search?q=studio', title: 'Prijzen' });
     assert.equal(p.beacons.length, 0, 'batched: nothing before the flush timer');
     p.advance(1000);
@@ -157,7 +171,7 @@ test('sends one cookieless pageview batch with the sitekey, no persistent id and
     assert.equal(pv.ti, 'Prijzen');
 });
 
-test('replaces e-mail addresses and phone numbers in paths, titles and props', async () => {
+test_('replaces e-mail addresses and phone numbers in paths, titles and props', async () => {
     const p = page({ url: 'https://studio.nl/afmelden/jan.jansen@example.nl?utm_campaign=bel%200612345678', title: 'Hoi jan@example.nl' });
     p.run(() => p.win.fsa.track('contact', { note: 'mail a@b.nl of bel +31 6 12345678', email: 'x@y.nl', firstName: 'Jan', plan: 'pro', qty: 2, ok: true, bad: { x: 1 }, 'Bad Key': 1 }));
     p.advance(1000);
@@ -167,7 +181,7 @@ test('replaces e-mail addresses and phone numbers in paths, titles and props', a
     assert.deepEqual(ev.p, { note: 'mail [email] of bel [tel]', plan: 'pro', qty: 2, ok: true });
 });
 
-test('with consent: a persistent id in localStorage and heatmap clicks; revoking deletes the id and stops both', async () => {
+test_('with consent: a persistent id in localStorage and heatmap clicks; revoking deletes the id and stops both', async () => {
     const p = page({ consent: 'accepted' });
     const button = el('button', { class: 'btn primary' }, el('section', { id: 'hero' }), { left: 100, top: 50, width: 200, height: 50 });
     p.fireDoc('click', { type: 'click', target: button, clientX: 150, clientY: 75 });
@@ -190,7 +204,7 @@ test('with consent: a persistent id in localStorage and heatmap clicks; revoking
     assert.equal(batch.body.e.some((e) => e.t === 'heatmap'), false, 'no heatmap without consent');
 });
 
-test('without consent no heatmap clicks; Global Privacy Control blocks the persistent id even with consent', async () => {
+test_('without consent no heatmap clicks; Global Privacy Control blocks the persistent id even with consent', async () => {
     const p = page();
     p.fireDoc('click', { type: 'click', target: el('div'), clientX: 1, clientY: 1 });
     p.advance(1000);
@@ -204,7 +218,7 @@ test('without consent no heatmap clicks; Global Privacy Control blocks the persi
     assert.equal(g.local.data['fsa-id'], undefined);
 });
 
-test('consent given later through the event or the storage key starts the id; a {categories} object is understood', async () => {
+test_('consent given later through the event or the storage key starts the id; a {categories} object is understood', async () => {
     const p = page();
     p.fireWin('fsc:consent', { detail: { categories: ['necessary', 'analytics'] } });
     p.advance(1000);
@@ -215,7 +229,7 @@ test('consent given later through the event or the storage key starts the id; a 
     assert.equal(s.run(() => s.win.fsa.hasConsent()), true);
 });
 
-test('SPA navigation sends a new pageview with the previous page as referrer, after a heartbeat with engaged time', async () => {
+test_('SPA navigation sends a new pageview with the previous page as referrer, after a heartbeat with engaged time', async () => {
     const p = page({ url: 'https://studio.nl/', referrer: 'https://www.google.com/' });
     p.fireWin('mousemove', {});
     p.tick(4000);
@@ -236,7 +250,7 @@ test('SPA navigation sends a new pageview with the previous page as referrer, af
     assert.equal((await p.events()).filter((e) => e.t === 'pageview').length, 2);
 });
 
-test('scroll depth marks 25/50/75/100 once each; heartbeat on hide carries the max depth', async () => {
+test_('scroll depth marks 25/50/75/100 once each; heartbeat on hide carries the max depth', async () => {
     const p = page();
     p.win.scrollY = 1200; // (1200 + 800) / 4000 = 50 %
     p.fireWin('scroll', {});
@@ -253,7 +267,7 @@ test('scroll depth marks 25/50/75/100 once each; heartbeat on hide carries the m
     assert.equal(p.beacons.length, 1, 'hiding the page flushes at once');
 });
 
-test('outbound links, mailto/tel without the address, downloads and declarative events', async () => {
+test_('outbound links, mailto/tel without the address, downloads and declarative events', async () => {
     const p = page();
     const click = (target) => p.fireDoc('click', { type: 'click', target, clientX: 0, clientY: 0 });
     click(el('span', {}, el('a', { href: 'https://partner.example/path/jan@x.nl?ref=1' })));
@@ -278,7 +292,7 @@ test('outbound links, mailto/tel without the address, downloads and declarative 
     assert.equal(JSON.stringify(events).includes('31201234567'), false);
 });
 
-test('form started once per form and submitted, never with field values; data-fsa-ignore opts out', async () => {
+test_('form started once per form and submitted, never with field values; data-fsa-ignore opts out', async () => {
     const p = page();
     const form = el('form', { id: 'contact', action: '/content/forms/contact' });
     const input = el('input', { name: 'email', value: 'jan@x.nl' }, form);
@@ -296,7 +310,7 @@ test('form started once per form and submitted, never with field values; data-fs
     assert.equal(JSON.stringify(await p.batches()).includes('jan@x.nl'), false);
 });
 
-test('track() validates names; revenue() needs a positive amount and an ISO currency and flushes at once', async () => {
+test_('track() validates names; revenue() needs a positive amount and an ISO currency and flushes at once', async () => {
     const p = page();
     p.run(() => {
         p.win.fsa.track('bad name!', {});
@@ -311,7 +325,7 @@ test('track() validates names; revenue() needs a positive amount and an ISO curr
     ]);
 });
 
-test('404 from data-status or the navigation timing; calls queued before load are replayed', async () => {
+test_('404 from data-status or the navigation timing; calls queued before load are replayed', async () => {
     const a = page({ dataset: { status: '404' } });
     a.advance(1000);
     assert.deepEqual((await a.events()).map((e) => [e.t, e.n]), [['pageview', undefined], ['event', 'not_found']]);
@@ -327,7 +341,7 @@ test('404 from data-status or the navigation timing; calls queued before load ar
     assert.deepEqual((await c.events()).map((e) => e.n || e.t), ['pageview', 'early', 'purchase']);
 });
 
-test('falls back to fetch with keepalive and no credentials when sendBeacon is missing; does nothing without a sitekey', async () => {
+test_('falls back to fetch with keepalive and no credentials when sendBeacon is missing; does nothing without a sitekey', async () => {
     const p = page({ beacon: false });
     p.advance(1000);
     assert.equal(p.fetched.length, 1);
@@ -339,10 +353,95 @@ test('falls back to fetch with keepalive and no credentials when sendBeacon is m
     assert.equal(none.win.fsa, undefined);
 });
 
-test('batches at most 50 events per request', async () => {
+test_('batches at most 50 events per request', async () => {
     const p = page();
     p.run(() => { for (let i = 0; i < 120; i++) p.win.fsa.track('e' + i); });
     p.advance(1000);
     const sizes = (await p.batches()).map((b) => b.body.e.length);
     assert.deepEqual(sizes, [50, 50, 21]);
 });
+
+test_('secret-looking path segments become [token] (same cases as the collector), paths are capped at 500', async () => {
+    const TOKEN_CASES = {
+        '/reset-password/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08': '/reset-password/[token]',
+        '/s/Xk3j9Qa2LmP0wZ8rT1vB': '/s/[token]',
+        '/wachtwoord/Jx7_kQ2p9Lw4Zr8tYb3N-c5': '/wachtwoord/[token]',
+        '/order/3f2504e0-4f89-41d3-9a0c-0305e82c3301/ok': '/order/[token]/ok',
+        '/blog/website-laten-maken-2026': '/blog/website-laten-maken-2026',
+        '/diensten/seo-checklist-2026-v2': '/diensten/seo-checklist-2026-v2',
+        '/cases/appelmaninfra-nl': '/cases/appelmaninfra-nl',
+        '/product/12345678901234567890': '/product/12345678901234567890',
+    };
+    for (const [path, want] of Object.entries(TOKEN_CASES)) {
+        const p = page({ url: 'https://studio.nl' + path, referrer: 'https://mail.example/s/Xk3j9Qa2LmP0wZ8rT1vB' });
+        p.advance(1000);
+        const [pv] = await p.events();
+        assert.equal(pv.u, 'https://studio.nl' + want, path);
+        assert.equal(pv.r, 'https://mail.example/s/[token]');
+    }
+    const p = page({ url: 'https://studio.nl/' + 'lang-pad/'.repeat(80) });
+    p.fireDoc('click', { type: 'click', target: el('a', { href: 'https://partner.example/s/Xk3j9Qa2LmP0wZ8rT1vB' }), clientX: 0, clientY: 0 });
+    p.advance(1000);
+    const [pv, out] = await p.events();
+    assert.equal(new URL(pv.u).pathname.length, 500);
+    assert.equal(out.p.path, '/s/[token]');
+});
+
+test_('Web Vitals are sent once per page load when the page is hidden, rated, for the first page', async () => {
+    const p = page({ url: 'https://studio.nl/prijzen', ttfb: 320.44 });
+    p.perf('largest-contentful-paint', [{ startTime: 1200, renderTime: 1850.27 }]);
+    p.perf('paint', [{ name: 'first-paint', startTime: 500 }, { name: 'first-contentful-paint', startTime: 900 }]);
+    p.perf('layout-shift', [{ value: 0.05, startTime: 1000 }, { value: 0.5, startTime: 1100, hadRecentInput: true }, { value: 0.04, startTime: 1500 }, { value: 0.3, startTime: 9000 }]);
+    p.perf('event', [{ interactionId: 1, duration: 120 }, { interactionId: 0, duration: 900 }, { interactionId: 2, duration: 260 }]);
+    p.run(() => p.win.history.pushState({}, '', '/contact'));
+    p.advance(1000);
+    p.doc.visibilityState = 'hidden';
+    p.fireDoc('visibilitychange', {});
+    p.doc.visibilityState = 'visible';
+    p.fireDoc('visibilitychange', {});
+    p.doc.visibilityState = 'hidden';
+    p.fireDoc('visibilitychange', {});
+    p.fireWin('pagehide', {});
+    const vitals = (await p.events()).filter((e) => e.t === 'vital');
+    assert.deepEqual(vitals.map((v) => [v.n, v.v, v.rt, v.u]), [
+        ['LCP', 1850.3, 'good', 'https://studio.nl/prijzen'],
+        ['INP', 260, 'needs-improvement', 'https://studio.nl/prijzen'],
+        ['CLS', 0.3, 'poor', 'https://studio.nl/prijzen'],
+        ['FCP', 900, 'good', 'https://studio.nl/prijzen'],
+        ['TTFB', 320.4, 'good', 'https://studio.nl/prijzen'],
+    ]);
+});
+
+test_('data-fsc works like data-fsa-event, with data-fsc-prop-*', async () => {
+    const p = page();
+    p.fireDoc('click', { type: 'click', target: el('span', {}, el('a', { href: '#', 'data-fsc': 'pricing_cta', 'data-fsc-prop-plan': 'pro' })), clientX: 0, clientY: 0 });
+    p.advance(1000);
+    const ev = (await p.events()).find((e) => e.t === 'event');
+    assert.deepEqual([ev.n, ev.p], ['pricing_cta', { plan: 'pro' }]);
+});
+
+test_('a stored id is deleted on load when there is no consent (declined elsewhere, or never given) and under GPC', async () => {
+    const a = page({ stored: { 'fsa-id': 'old-id-0123456789abcdef' } });
+    assert.equal(a.local.data['fsa-id'], undefined);
+    const b = page({ consent: 'declined', stored: { 'fsa-id': 'old-id-0123456789abcdef' } });
+    assert.equal(b.local.data['fsa-id'], undefined);
+    const c = page({ consent: 'accepted', gpc: true, stored: { 'fsa-id': 'old-id-0123456789abcdef' } });
+    assert.equal(c.local.data['fsa-id'], undefined);
+    const d = page({ consent: 'accepted', stored: { 'fsa-id': 'kept-id-0123456789abcdef' } });
+    d.advance(1000);
+    assert.equal((await d.batches())[0].body.pid, 'kept-id-0123456789abcdef');
+});
+
+test_('the minified build is the current source', () => {
+    const hash = createHash('sha256').update(SOURCE).digest('hex');
+    assert.ok(MINIFIED.startsWith(`/*! fsa.js sha256:${hash} */`), 'run scripts/build-fsa.sh');
+});
+
+for (const [label, source] of VARIANTS) {
+    for (const [name, fn] of tests) {
+        realTest(`[${label}] ${name}`, async () => {
+            CURRENT.source = source;
+            await fn();
+        });
+    }
+}

@@ -76,7 +76,7 @@ final class AnalyticsSettings
         }
 
         try {
-            $config = $this->client->getAnalyticsConfig(['cache' => false]);
+            $config = $this->client->getAnalyticsProxyConfig(['cache' => false]);
             $config = ($config['ready'] ?? false) === true ? $config : null;
         } catch (Throwable) {
             $config = null;

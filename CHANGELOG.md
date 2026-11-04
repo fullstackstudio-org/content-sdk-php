@@ -8,11 +8,15 @@
   from the Hub: `umami` (default, also for a Hub without the field), `native` (the new tracker `/_fsc/a/fsa.js`) or `both` (Umami and native side by side,
   for the double-measure period). `fsa.js` (no dependencies, no cookies): pageviews incl. SPA navigation, engaged time, scroll depth 25/50/75/100,
   outbound links, downloads, form start/submit, 404 (`status="404"` on the component), `fsa.track(name, props)`, `fsa.revenue(amount, currency, props)`
-  and `data-fsa-event`. A persistent visitor id (`localStorage` `fsa-id`) and heatmap clicks only after consent (same banner contract; never with Global
-  Privacy Control for the id); e-mail addresses and phone numbers are removed from paths, titles and props; only utm/click id parameters stay in URLs.
+  `data-fsa-event` / `data-fsc`, and Web Vitals (LCP, INP, CLS, FCP, TTFB; once per page load). Served minified (`fsa.min.js`, built by
+  `scripts/build-fsa.sh`). A persistent visitor id (`localStorage` `fsa-id`) and heatmap clicks only after consent (same banner contract; never with Global
+  Privacy Control for the id; deleted on load without consent); e-mail addresses, phone numbers and secret-looking path segments (`[token]`) are
+  removed from paths, referrers, titles and props; paths max 500 characters; only utm/click id parameters stay in URLs.
 - `POST /_fsc/a/e`: checks the sitekey, strips the persistent id and heatmap clicks without consent, signs the visitor IP with the per-site key from the
   Hub (`X-Fsc-Client-Ip`, `X-Fsc-Ts`, `X-Fsc-Sig`) and forwards to the in-cluster collector (`content.analytics.collector_url`,
-  `FSC_ANALYTICS_COLLECTOR_URL`; `collector_timeout_ms`). Always `202 {}` to the browser. Registered in every mode, no session, no cookies.
+  `FSC_ANALYTICS_COLLECTOR_URL`; `collector_timeout_ms`). Nothing is forwarded without a usable visitor IP (the collector refuses unsigned
+  batches). Always `202 {}` to the browser. Registered in every mode, no session, no cookies.
+- `getAnalyticsConfig()` never returns `native.signingKey`; the proxy uses the internal `getAnalyticsProxyConfig()`.
 - `Analytics::engine()`, `nativeSitekey()`, `nativeSigningKey()`, `signHeaders()`; `Analytics::csp()`/`mergeCsp()` take `$native` (direct mode adds `'self'`);
   `AnalyticsSettings::engine()`, `nativeSitekey()`, `nativeSigningKey()`, `collectorUrl()`. `window.fscAnalytics.track()`/`setConsent()` reach the native
   tracker too. With engine `native` the Umami proxy no longer forwards (no website id).

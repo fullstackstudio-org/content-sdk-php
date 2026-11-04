@@ -145,6 +145,7 @@ final class NativeAnalyticsTest extends LaravelTestCase
         $response = $this->get('/_fsc/a/fsa.js')->assertOk();
 
         self::assertStringStartsWith('text/javascript', (string) $response->headers->get('Content-Type'));
+        self::assertSame(file_get_contents(__DIR__ . '/../../resources/assets/fsa.min.js'), $response->getContent(), 'the minified build is served');
         self::assertStringContainsString('fsa-id', (string) $response->getContent());
         self::assertSame([], $response->headers->getCookies());
     }
@@ -231,6 +232,24 @@ final class NativeAnalyticsTest extends LaravelTestCase
         $this->collector->queue(new TransportException('connection refused'));
         $this->postBatch($this->batch())->assertStatus(202)->assertExactJson([]);
         self::assertCount(1, $this->collector->requests);
+    }
+
+    public function testNothingIsForwardedWithoutAUsableVisitorIp(): void
+    {
+        $this->content->always(FakeTransport::json(self::config('native')));
+
+        $this->postBatch($this->batch(), ['HTTP_CF_CONNECTING_IP' => 'not-an-ip', 'REMOTE_ADDR' => ''])->assertStatus(202);
+        self::assertCount(0, $this->collector->requests, 'unsigned batches would be refused by the collector anyway');
+    }
+
+    public function testTheSigningKeyIsOnlyInTheInternalProxyConfig(): void
+    {
+        $this->content->always(FakeTransport::json(self::config('native')));
+        $client = app(ContentClient::class);
+
+        self::assertArrayNotHasKey('signingKey', $client->getAnalyticsConfig(['cache' => false])['native']);
+        self::assertSame(self::SITEKEY, $client->getAnalyticsConfig(['cache' => false])['native']['sitekey']);
+        self::assertSame(self::SIGNING_KEY, $client->getAnalyticsProxyConfig(['cache' => false])['native']['signingKey']);
     }
 
     public function testTheRateLimitPerVisitorIp(): void

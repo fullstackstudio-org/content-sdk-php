@@ -18,7 +18,7 @@ use Throwable;
  * The native tracker routes under `content.analytics.path` (default `/_fsc/a`), registered in every mode and without the `web` group:
  * no session, no cookies, no CSRF.
  *
- * - `GET fsa.js`: the tracker (`resources/assets/fsa.js`).
+ * - `GET fsa.js`: the tracker (`resources/assets/fsa.min.js`, built from `fsa.js` by `scripts/build-fsa.sh`).
  * - `POST e`: one batch of the tracker. Checked here, then forwarded to the collector inside the cluster
  *   (`content.analytics.collector_url`) with the visitor IP signed with this site's key (`X-Fsc-Client-Ip`, `X-Fsc-Ts`, `X-Fsc-Sig`,
  *   contract `collector/internal/proxyauth`). Only this site's own sitekey is forwarded (no open relay); without consent (`c != 1`) the
@@ -37,7 +37,9 @@ final class NativeAnalyticsController
 
     public function tracker(): Response
     {
-        $source = (string) file_get_contents(__DIR__ . '/../../resources/assets/fsa.js');
+        // The minified build (scripts/build-fsa.sh); the readable source is the fallback for a checkout without it.
+        $dir = __DIR__ . '/../../resources/assets/';
+        $source = (string) file_get_contents(is_file($dir . 'fsa.min.js') ? $dir . 'fsa.min.js' : $dir . 'fsa.js');
 
         return new Response($source, 200, [
             'Content-Type' => 'text/javascript; charset=utf-8',
@@ -110,9 +112,12 @@ final class NativeAnalyticsController
             }
         }
 
-        if ($ip !== null) {
-            $headers = [...$headers, ...Analytics::signHeaders($signingKey, $ip, $forward)];
+        if ($ip === null || filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            // Unsigned batches are refused by the collector; without a visitor IP there is nothing to sign.
+            return $this->json(202);
         }
+
+        $headers = [...$headers, ...Analytics::signHeaders($signingKey, $ip, $forward)];
 
         try {
             $this->transport()->send(new UpstreamRequest('POST', $collector, $headers, $forward, null, $this->timeoutMs()));

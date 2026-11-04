@@ -574,6 +574,25 @@ final class ContentClient
      */
     public function getAnalyticsConfig(array $options = []): array
     {
+        $config = $this->getAnalyticsProxyConfig($options);
+
+        // The proxy signing key never leaves the SDK's own proxy path: not in logs, dumps, views or your code.
+        if (isset($config['native']) && is_array($config['native'])) {
+            unset($config['native']['signingKey']);
+        }
+
+        return $config;
+    }
+
+    /**
+     * @internal The analytics config INCLUDING `native.signingKey` (server token only), for the SDK's first-party proxy
+     *           (`AnalyticsSettings`, `POST /_fsc/a/e`). Do not call it from site code and never print or log what it returns.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function getAnalyticsProxyConfig(array $options = []): array
+    {
         return $this->context->get('/analytics', [Tags::ANALYTICS], null, ['ttl' => 300, ...$options])->data['analytics'] ?? [];
     }
 

@@ -425,22 +425,34 @@ worker. Direct mode needs `https://analytics.fullstackstudio.nl` in `script-src`
 **Native engine (Hub `engine: native` or `both`).** The Hub decides per project which tracker runs; the site changes nothing. `umami` (default):
 the Umami tags above. `native`: the Hub's own tracker `/_fsc/a/fsa.js` instead. `both` (the double-measure period): both, each counting on its own.
 `fsa.js` sends pageviews (also SPA navigation), engaged time, scroll depth 25/50/75/100, outbound links, downloads (mailto/tel/WhatsApp only as the kind,
-never the address), form started/submitted (never a field value), 404 (`<x-content::analytics status="404" />` on the error page) and your own events:
+never the address), form started/submitted (never a field value), 404 (`<x-content::analytics status="404" />` on the error page), Web Vitals
+(LCP, INP, CLS, FCP, TTFB, once per page load) and your own events:
 
 ```js
 window.fsa.track('signup', { plan: 'pro' });          // keys [a-z0-9_.], max 30; strings max 200; numbers; booleans
 window.fsa.revenue(49.95, 'EUR', { order: 'A-1' });  // webshops
-// or declarative: <button data-fsa-event="cta_click" data-fsa-prop-location="hero">
+// or declarative: <button data-fsa-event="cta_click" data-fsa-prop-location="hero">  (data-fsc / data-fsc-prop-* work the same)
 // window.fscAnalytics.track(name, props) reaches Umami AND the native tracker, whichever runs.
 ```
 
 No cookies. Without consent nothing is stored on the device (the collector counts with a daily rotating hash); after consent (same banner contract as
-above) a random id in `localStorage` (`fsa-id`, never with Global Privacy Control) and heatmap clicks; revoking deletes the id at once. Paths, titles and
-props lose e-mail addresses and phone numbers, URLs keep only the path and the utm/click id parameters. Events go to `POST /_fsc/a/e` on this site; the
+above) a random id in `localStorage` (`fsa-id`, never with Global Privacy Control) and heatmap clicks; without consent any stored id is deleted. Paths,
+referrers, titles and props lose e-mail addresses, phone numbers and secret-looking segments (`/reset-password/<token>` becomes `/reset-password/[token]`;
+UUIDs, long hex, long random strings); URLs keep only the path (max 500 characters) and the utm/click id parameters. Events go to `POST /_fsc/a/e` on this site; the
 SDK checks the sitekey (no open relay), strips the id and heatmap clicks again when there is no consent, signs the visitor IP with the per-site key the Hub
 gives the server token (`X-Fsc-Client-Ip`/`X-Fsc-Ts`/`X-Fsc-Sig`) and forwards to the collector inside the cluster (`FSC_ANALYTICS_COLLECTOR_URL`, default
 `http://collector.analytics.svc.cluster.local/e`, 1.5 s timeout `FSC_ANALYTICS_COLLECTOR_TIMEOUT_MS`). It always answers `202 {}`; a collector outage never
-reaches the page. Without a signing key (publishable token, or a Hub that is not set up) the native tracker is not rendered. Always first-party, also in
+reaches the page. Without a signing key (publishable token, or a Hub that is not set up) the native tracker is not rendered; the collector refuses
+every unsigned batch.
+
+- 🚨 **The signing key is a secret.** `getAnalyticsConfig()` never returns it; only the SDK's proxy reads it (`getAnalyticsProxyConfig()`, `@internal`).
+  Never call that from site code, print it, log it or put it in a view.
+- 🚨 **The visitor IP header must be trustworthy.** The proxy signs the IP from `FSC_IP_HEADER` (default `cf-connecting-ip`). That is only correct when
+  every request reaches the pod through Cloudflare and nothing else can set the header (FSS cluster: the nodes' ports 80/443 are closed, only the
+  Cloudflare tunnel and the tailnet reach Traefik). A site that can be reached directly must set `FSC_IP_HEADER` to a header its own proxy overwrites,
+  or to an empty value (then Laravel's `$request->ip()` counts).
+- `fsa.js` is served minified (`resources/assets/fsa.min.js`); after changing `resources/assets/fsa.js` run `scripts/build-fsa.sh` (bun) and commit both.
+  The JS tests run against both and fail on a stale build. Always first-party, also in
 direct mode (then `Content::analyticsCsp()` adds `'self'`). The pod needs network egress to the collector (FSS cluster: NetworkPolicy, done by the platform).
 
 **Attribution.** On the first page of a visit the helper keeps `utm_source/medium/campaign/term/content`, the ad click ids (`gclid`, `gbraid`, `wbraid`, `dclid`,

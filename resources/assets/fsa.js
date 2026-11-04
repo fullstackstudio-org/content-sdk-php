@@ -5,13 +5,17 @@
  *
  * Privacy (binding, plan analytics-engine D5):
  * - No cookies, ever. Without consent nothing is stored on the device: the collector counts visitors with a daily rotating hash.
- * - With consent (`analytics` category) a random id is kept in localStorage (`fsa-id`), so visits connect over days, and heatmap clicks
- *   are sent. Not when the browser sends Global Privacy Control. Revoking consent deletes the id at once.
- * - URLs keep only the path and utm_* / ad click id parameters; e-mail addresses and phone numbers are replaced in paths, titles and
- *   props. Form field values are never read. No session recordings.
+ * - With consent (`analytics` category) heatmap clicks are sent and a random id is kept in localStorage (`fsa-id`), so visits connect
+ *   over days. The id is never kept when the browser sends Global Privacy Control (heatmaps still follow consent). Without consent
+ *   (also: revoked, or never given) any stored id is deleted.
+ * - URLs keep only the path (max 500 characters) and utm_* / ad click id parameters; e-mail addresses, phone numbers and secret-looking
+ *   segments (reset/share tokens, UUIDs, long hex) are replaced in paths, referrers, titles and props. Form field values are never read.
+ *   No session recordings.
+ * - Web Vitals (LCP, INP, CLS, FCP, TTFB) once per page load, when the page is hidden.
  *
  * API: fsa.track(name, props), fsa.revenue(amount, currency, props), fsa.pageview(), fsa.setConsent(value).
- * Declarative: data-fsa-event="cta_click" (+ data-fsa-prop-<key>="value") on any clickable element.
+ * Declarative: data-fsa-event="cta_click" (+ data-fsa-prop-<key>="value") on any clickable element; `data-fsc` / `data-fsc-prop-<key>`
+ * work the same (plan name).
  */
 (function (w, d) {
     'use strict';
@@ -58,6 +62,26 @@
         try { return new (w.URL || URL)(href, loc.href); } catch (e) { return null; }
     }
 
+    /** Secret-looking path segments become [token]: same rule as the collector (collector/internal/ingest/pii.go, isToken). */
+    function isToken(seg) {
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg) || /^[0-9a-f]{32,}$/i.test(seg)) return true;
+        var mixed = function (s) { return /[A-Za-z]/.test(s) && /[0-9]/.test(s); };
+        if (!/^[A-Za-z0-9_-]{20,}$/.test(seg) || !mixed(seg)) return false;
+        if (seg.split(/[-_]/).some(function (part) { return part.length >= 16 && mixed(part); })) return true;
+        var switches = 0;
+        var prev = '';
+        seg.replace(/[-_]/g, '').split('').forEach(function (c) {
+            var kind = /[0-9]/.test(c) ? 'd' : 'l';
+            if (prev && kind !== prev) switches++;
+            prev = kind;
+        });
+        return switches >= 6;
+    }
+
+    function cleanPath(path) {
+        return scrub(String(path).split('/').map(function (seg) { return isToken(seg) ? '[token]' : seg; }).join('/')).slice(0, 500);
+    }
+
     function bareHost(host) { return String(host || '').toLowerCase().replace(/^www\./, ''); }
 
     /** The page URL as sent: origin + scrubbed path + only the campaign parameters. */
@@ -69,12 +93,12 @@
             var v = u.searchParams.get(p);
             if (v) keep.push(encodeURIComponent(p) + '=' + encodeURIComponent(str(scrub(v), 200)));
         });
-        return u.origin + scrub(u.pathname) + (keep.length ? '?' + keep.join('&') : '');
+        return u.origin + cleanPath(u.pathname) + (keep.length ? '?' + keep.join('&') : '');
     }
 
     function refUrl(href) {
         var u = href ? parse(href) : null;
-        return u && /^https?:$/.test(u.protocol) ? u.origin + scrub(u.pathname) : '';
+        return u && /^https?:$/.test(u.protocol) ? u.origin + cleanPath(u.pathname) : '';
     }
 
     // --- Consent (same contract as the SDK helper: localStorage key + window event) ----------------------------------------------
@@ -108,6 +132,13 @@
     try { consent = interpret(storage() && storage().getItem(CONSENT_KEY)) === true; } catch (e) { consent = false; }
     var gpc = nav.globalPrivacyControl === true;
 
+    function forgetId() {
+        try { var s = storage(); if (s) s.removeItem(ID_KEY); } catch (e) { /* storage blocked */ }
+    }
+
+    // No consent (never given, declined, revoked in another tab while this one was closed) or GPC: no id may stay on the device.
+    if (!consent || gpc) forgetId();
+
     function persistentId() {
         var s = storage();
         if (!consent || gpc || !s) return '';
@@ -128,9 +159,7 @@
         var granted = interpret(value);
         if (granted === null) return;
         consent = granted;
-        if (!granted) {
-            try { var s = storage(); if (s) s.removeItem(ID_KEY); } catch (e) { /* storage blocked */ }
-        }
+        if (!granted) forgetId();
     }
 
     w.addEventListener(CONSENT_EVENT, function (event) { setConsent(event && 'detail' in event ? event.detail : null); });
@@ -194,6 +223,7 @@
     // --- Pageviews, engagement and scroll depth ----------------------------------------------------------------------------------
 
     var current = '';
+    var firstUrl = '';
     var href = '';
     var engaged = 0;
     var lastTick = now();
@@ -226,6 +256,7 @@
         var referrer = current ? href : d.referrer;
         if (current) heartbeat();
         current = next;
+        if (!firstUrl) firstUrl = next;
         href = loc.href;
         scrollMax = 0;
         scrollSentMax = 0;
@@ -294,15 +325,15 @@
         lastInput = now();
         if (event.type === 'click') heatmap(event);
 
-        var marked = closest(event.target, '[data-fsa-event]');
+        var marked = closest(event.target, '[data-fsa-event],[data-fsc]');
         if (marked && event.type === 'click') {
             var props = {};
             var attrs = marked.attributes || [];
             for (var i = 0; i < attrs.length; i++) {
-                var m = /^data-fsa-prop-(.+)$/.exec(attrs[i].name);
+                var m = /^data-fs[ac]-prop-(.+)$/.exec(attrs[i].name);
                 if (m) props[m[1].replace(/-/g, '_')] = attrs[i].value;
             }
-            track(marked.getAttribute('data-fsa-event'), props);
+            track(marked.getAttribute('data-fsa-event') || marked.getAttribute('data-fsc'), props);
         }
 
         var link = closest(event.target, 'a[href]');
@@ -320,7 +351,7 @@
             var file = u.pathname.split('/').pop() || '';
             push({ t: 'download', p: { file: str(scrub(decodeURIComponent(file)), 200), ext: (DOWNLOAD_RE.exec(u.pathname) || ['', ''])[1].toLowerCase(), host: u.hostname.toLowerCase() } });
         } else if (bareHost(u.hostname) !== bareHost(loc.hostname)) {
-            push({ t: 'outbound', p: { kind: 'link', host: u.hostname.toLowerCase(), path: str(scrub(u.pathname), 200) } });
+            push({ t: 'outbound', p: { kind: 'link', host: u.hostname.toLowerCase(), path: str(cleanPath(u.pathname), 200) } });
         } else {
             return;
         }
@@ -364,6 +395,54 @@
         var id = formId(form);
         push({ t: 'form_submit', p: { form: id } });
         flush();
+    }
+
+    // --- Web Vitals: once per page load, sent when the page is hidden (the values are final then) ----------------------------------
+
+    var vitals = {};
+    var vitalsSent = false;
+    var LIMITS = { LCP: [2500, 4000], INP: [200, 500], CLS: [0.1, 0.25], FCP: [1800, 3000], TTFB: [800, 1800] };
+
+    function observe(type, callback, extra) {
+        try {
+            var PO = w.PerformanceObserver;
+            if (!PO || (PO.supportedEntryTypes && PO.supportedEntryTypes.indexOf(type) === -1)) return;
+            var options = { type: type, buffered: true };
+            if (extra) Object.keys(extra).forEach(function (k) { options[k] = extra[k]; });
+            new PO(function (list) { list.getEntries().forEach(callback); }).observe(options);
+        } catch (e) { /* not supported */ }
+    }
+
+    observe('largest-contentful-paint', function (e) { vitals.LCP = e.renderTime || e.startTime; });
+    observe('paint', function (e) { if (e.name === 'first-contentful-paint') vitals.FCP = e.startTime; });
+    // CLS: the largest session window (shifts < 1 s apart, window max 5 s), without shifts right after input.
+    var cls = { value: 0, first: 0, last: 0 };
+    observe('layout-shift', function (e) {
+        if (e.hadRecentInput) return;
+        if (cls.value && (e.startTime - cls.last > 1000 || e.startTime - cls.first > 5000)) cls.value = 0;
+        if (!cls.value) cls.first = e.startTime;
+        cls.value += e.value;
+        cls.last = e.startTime;
+        vitals.CLS = Math.max(vitals.CLS || 0, cls.value);
+    });
+    // INP: the slowest interaction (for the few interactions of a page view this is the p98 of the spec).
+    function interaction(e) { if (e.interactionId || e.entryType === 'first-input') vitals.INP = Math.max(vitals.INP || 0, e.duration); }
+    observe('event', interaction, { durationThreshold: 40 });
+    observe('first-input', interaction);
+
+    function sendVitals() {
+        if (vitalsSent || !firstUrl) return;
+        vitalsSent = true;
+        try {
+            var nav0 = w.performance && w.performance.getEntriesByType ? w.performance.getEntriesByType('navigation')[0] : null;
+            if (nav0 && nav0.responseStart > 0) vitals.TTFB = nav0.responseStart;
+        } catch (e) { /* no navigation timing */ }
+        Object.keys(LIMITS).forEach(function (name) {
+            var v = vitals[name];
+            if (typeof v !== 'number' || !isFinite(v) || v < 0) return;
+            var limit = LIMITS[name];
+            push({ t: 'vital', n: name, u: firstUrl, v: name === 'CLS' ? Math.round(v * 10000) / 10000 : Math.round(v * 10) / 10, rt: v <= limit[0] ? 'good' : v <= limit[1] ? 'needs-improvement' : 'poor' });
+        });
     }
 
     // --- Public API --------------------------------------------------------------------------------------------------------------
@@ -412,9 +491,10 @@
     d.addEventListener('visibilitychange', function () {
         if (visible()) { lastTick = now(); return; }
         heartbeat();
+        sendVitals();
         flush();
     });
-    w.addEventListener('pagehide', function () { heartbeat(); flush(); });
+    w.addEventListener('pagehide', function () { heartbeat(); sendVitals(); flush(); });
     w.setInterval(function () { tick(); }, 5000);
     w.setInterval(function () { if (visible()) heartbeat(); }, HEARTBEAT_MS);
 
