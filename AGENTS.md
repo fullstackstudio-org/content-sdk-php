@@ -589,10 +589,10 @@ account data. The Hub never sees the portal's login: the portal hands out an opa
    (a recognised portal login) with Intelligence `recognition` on.
 3. **Signed call.** The Hub sends `POST <url>` with `Content-Type: application/json`, `X-FSC-Signature` (the webhook scheme, `WebhookSignature`, timestamp = now),
    `X-FSC-Request-Id` (uuid v4) and `User-Agent: FullStackHub-AccountData/1`. Verify the signature over the raw bytes with a 300 s window, dedupe the request id
-   for 10 minutes, and check `projectId` against your own Hub project. Register the route outside the `web` group (no session, no CSRF) with a throttle.
+   and the signature itself for 10 minutes, and check `projectId` against your own Hub project. Register the route outside the `web` group (no session, no CSRF) with a throttle.
    A bad signature is 401 and a malformed body 400 (no detail in the body).
 4. **Request body.** `{"version":1,"projectId":"<hub project uuid>","conversation":"<first 16 hex of sha256(conversationId)>","identity":{"source":"fss",
-   "kind":"contact","ref":"portal_user:<uuid>"},"session":"<handle>","topic":"invoices","ref":null,"limit":5,"locale":"nl","sentAt":"<iso>"}`. Look the handle up,
+   "kind":"contact","ref":"portal_user:<uuid>"},"session":"<handle>","topic":"invoices","ref":null,"limit":5,"locale":"nl","sentAt":"<iso, milliseconds>","requestId":"<same uuid as X-FSC-Request-Id>"}`. Look the handle up,
    refuse when it is expired, impersonated, or when `identity.ref` is not the session's user (`identity_mismatch`), and answer for THAT user's customer only.
 5. **Answer (HTTP 200).** `{"ok":true,"topic":"invoices","items":[{"ref":"F2026-0123","title":"Factuur F2026-0123","status":"open","date":"2026-10-01",
    "amount":"EUR 121,00","open":"EUR 121,00","due":"2026-10-15","note":"..."}],"total":7,"more":true,"link":"https://portal.example.nl/facturen","hint":"..."}` or
