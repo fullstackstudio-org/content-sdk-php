@@ -115,7 +115,11 @@ return [
      */
     'intelligence' => [
         'enabled' => (bool) env('FSC_INTELLIGENCE_ENABLED', false),
-        'recognition_cookie' => env('FSC_INTELLIGENCE_RECOGNITION_COOKIE', ''),
+        // The member recognition cookie (default `fsi_rec`): set by `Laravel\MemberRecognition` from the member login answers, sent to the Hub
+        // by the proxy's identify call and the server-side slots. Empty = recognition cookie off (nothing set, nothing read).
+        'recognition_cookie' => env('FSC_INTELLIGENCE_RECOGNITION_COOKIE', 'fsi_rec'),
+        // Cookie domain of that cookie: empty = the site's own host only; `.example.nl` shares it across subdomains.
+        'recognition_cookie_domain' => env('FSC_INTELLIGENCE_RECOGNITION_COOKIE_DOMAIN', ''),
         'exclude_ips' => env('FSC_INTELLIGENCE_EXCLUDE_IPS', ''),
         'identify_ttl' => (int) env('FSC_INTELLIGENCE_IDENTIFY_TTL', 43200),
         // The staff marker cookie the admin sets at staff login on .fullstackstudio.nl: such a browser is marked `fsi_ex` and never identified.

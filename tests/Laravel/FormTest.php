@@ -131,6 +131,32 @@ final class FormTest extends LaravelTestCase
         self::assertArrayNotHasKey('extra', $body);
     }
 
+    public function testMetaHoldsThePidOnlyForAConsentingBrowser(): void
+    {
+        $pid = 'abcdefabcdefabcdef12';
+
+        foreach ([
+            'cookie' => [['Cookie' => 'a=b; fsa_pid=' . $pid], $pid],
+            'no cookie' => [[], null],
+            'global privacy control' => [['Cookie' => 'fsa_pid=' . $pid, 'Sec-GPC' => '1'], null],
+            'malformed id' => [['Cookie' => 'fsa_pid=not-a-valid id!'], null],
+            'too short' => [['Cookie' => 'fsa_pid=abc'], null],
+            'crawler' => [['Cookie' => 'fsa_pid=' . $pid, 'User-Agent' => 'Googlebot/2.1'], null],
+        ] as $label => [$headers, $expected]) {
+            $this->defaultHeaders = [];
+            $this->queueDefinition();
+            $this->http->queue(FakeTransport::json(['id' => 's1', 'successMessage' => 'ok']));
+            $this->submit([], $headers);
+
+            $meta = $this->http->lastBody()['_meta'];
+            if ($expected === null) {
+                self::assertArrayNotHasKey('pid', $meta, $label);
+            } else {
+                self::assertSame($expected, $meta['pid'], $label);
+            }
+        }
+    }
+
     public function testFirstTouchAttributionFromTheAnalyticsHelperIsSentAsMeta(): void
     {
         $this->queueDefinition();

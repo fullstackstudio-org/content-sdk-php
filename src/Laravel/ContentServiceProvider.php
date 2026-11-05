@@ -17,6 +17,7 @@ use FullStackStudio\Content\Laravel\Errors\TunnelController;
 use FullStackStudio\Content\Laravel\View\Components\Meta;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
@@ -101,6 +102,14 @@ final class ContentServiceProvider extends ServiceProvider
                 SlotDecisions::privatise($event->request, $event->response);
                 SlotDecisions::learn($event->request, $event->response);
             });
+        }
+
+        // The recognition cookie is written and read as plain text (the Hub verifies its own signature), so Laravel's cookie encryption must
+        // skip it: a site that never sets it is not affected.
+        $recognitionCookie = MemberRecognition::cookieName();
+
+        if ($recognitionCookie !== '' && class_exists(EncryptCookies::class)) {
+            EncryptCookies::except($recognitionCookie);
         }
 
         if (Devmode::enabled()) {

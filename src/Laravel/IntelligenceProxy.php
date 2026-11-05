@@ -33,6 +33,22 @@ final class IntelligenceProxy
         return (bool) config('content.intelligence.enabled', false);
     }
 
+    /**
+     * The browser id of a CONSENTING browser: the cookie `fsa_pid` that fsa.js mirrors (its presence implies consent), read from the raw
+     * `Cookie` header (so Laravel's cookie encryption never matters). Null for a crawler or prefetch, when the browser sends `Sec-GPC: 1`,
+     * when the cookie is missing, or when it is not a browser id. Shared by the member helpers and the form controller.
+     */
+    public static function pid(Request $request): ?string
+    {
+        if ($request->headers->get('Sec-GPC') === '1' || Crawler::is($request)) {
+            return null;
+        }
+
+        $pid = SlotDecisions::rawCookies($request)[SlotDecisions::COOKIE] ?? null;
+
+        return is_string($pid) && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) === 1 ? $pid : null;
+    }
+
     public static function isExcluded(?string $ip): bool
     {
         $list = array_values(array_filter(array_map('trim', explode(',', (string) config('content.intelligence.exclude_ips', '')))));

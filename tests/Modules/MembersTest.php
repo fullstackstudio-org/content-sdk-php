@@ -86,6 +86,34 @@ final class MembersTest extends ModuleTestCase
         $this->assertRequest('POST', '/members/login/totp', [], ['challengeToken' => 'ch-1', 'code' => '123456']);
     }
 
+    public function testPidTravelsInTheBodyOfLoginTotpVerifyAndRefreshOnlyWhenWellFormed(): void
+    {
+        $pid = 'abcdefabcdefabcdef12';
+        $this->http->always(FakeTransport::json(['ok' => true]));
+        $members = $this->client()->members;
+
+        $members->login(['email' => 'a@b.nl', 'password' => 'pw'], ['pid' => $pid]);
+        self::assertSame(['email' => 'a@b.nl', 'password' => 'pw', 'pid' => $pid], $this->http->lastBody());
+
+        $members->loginTotp(['challengeToken' => 'ch', 'code' => '123456'], ['pid' => $pid]);
+        self::assertSame(['challengeToken' => 'ch', 'code' => '123456', 'pid' => $pid], $this->http->lastBody());
+
+        $members->verifyEmail(['token' => 't', 'password' => 'pw'], ['pid' => $pid]);
+        self::assertSame(['token' => 't', 'password' => 'pw', 'pid' => $pid], $this->http->lastBody());
+
+        $members->refreshSession(['session' => 'S'], ['pid' => $pid]);
+        self::assertSame(['pid' => $pid], $this->http->lastBody());
+        self::assertSame('S', $this->http->last()->headers['X-FSC-Member-Session']);
+
+        // Malformed or missing: the request is exactly what it was without the feature.
+        $members->login(['email' => 'a@b.nl', 'password' => 'pw'], ['pid' => 'short']);
+        self::assertSame(['email' => 'a@b.nl', 'password' => 'pw'], $this->http->lastBody());
+        $members->login(['email' => 'a@b.nl', 'password' => 'pw'], ['pid' => null]);
+        self::assertSame(['email' => 'a@b.nl', 'password' => 'pw'], $this->http->lastBody());
+        $members->refreshSession(['session' => 'S'], ['pid' => "bad\n" . $pid]);
+        self::assertNull($this->http->last()->body);
+    }
+
     public function testRecoveryCodeWinsOverCodeAndSessionNeverLeaksIntoTheBody(): void
     {
         $this->http->always(FakeTransport::json(['recoveryCodes' => []]));

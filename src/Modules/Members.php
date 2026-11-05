@@ -42,30 +42,49 @@ final class Members
         return array_key_exists('recoveryCode', $input) ? ['recoveryCode' => $input['recoveryCode']] : ['code' => $input['code'] ?? null];
     }
 
+    /**
+     * Adds the optional `pid` of `$options` (the consenting browser's id, cookie `fsa_pid`; `Laravel\MemberRecognition::pid($request)` reads it)
+     * to a body. Only a well-formed id travels; without one the body is exactly what it was.
+     *
+     * @param array<string, mixed>|null $body
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>|null
+     */
+    private static function withPid(?array $body, array $options): ?array
+    {
+        $pid = $options['pid'] ?? null;
+
+        if (!is_string($pid) || preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) !== 1) {
+            return $body;
+        }
+
+        return [...($body ?? []), 'pid' => $pid];
+    }
+
     // --- Login and two-factor authentication (`members:auth`) -----------------------------------------------------------------
 
     /**
      * `POST /members/login`. With two-factor authentication there is no session yet: the result then holds a `challengeToken` (or a `setupToken`).
      *
      * @param array{email: string, password: string} $input
-     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * @param array{clientIp?: string, timeoutMs?: int, pid?: string|null} $options `pid`: the consenting browser's id (see {@see self::withPid()})
      * @return array<string, mixed>
      */
     public function login(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/login', ['email' => $input['email'] ?? null, 'password' => $input['password'] ?? null], null, $options);
+        return $this->call('POST', '/members/login', self::withPid(['email' => $input['email'] ?? null, 'password' => $input['password'] ?? null], $options), null, $options);
     }
 
     /**
      * The second step: `challengeToken` from `login` plus `code` or `recoveryCode`.
      *
      * @param array{challengeToken: string, code?: string, recoveryCode?: string} $input
-     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * @param array{clientIp?: string, timeoutMs?: int, pid?: string|null} $options
      * @return array<string, mixed>
      */
     public function loginTotp(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/login/totp', ['challengeToken' => $input['challengeToken'] ?? null, ...self::factor($input)], null, $options);
+        return $this->call('POST', '/members/login/totp', self::withPid(['challengeToken' => $input['challengeToken'] ?? null, ...self::factor($input)], $options), null, $options);
     }
 
     /** The two-factor state of the logged-in member. @param array{session: string} $input @param array<string, mixed> $options @return array<string, mixed> */
@@ -150,12 +169,12 @@ final class Members
      * Confirm an address with the token from the mail (a POST after a click, never on page load). The password of the registration is required.
      *
      * @param array{token: string, password?: string} $input
-     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * @param array{clientIp?: string, timeoutMs?: int, pid?: string|null} $options
      * @return array<string, mixed>
      */
     public function verifyEmail(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/verify-email', Arr::pick($input, ['token', 'password']), null, $options);
+        return $this->call('POST', '/members/verify-email', self::withPid(Arr::pick($input, ['token', 'password']), $options), null, $options);
     }
 
     /** Send the verification mail again (always `['accepted' => true]`). @param array{email: string} $input @param array<string, mixed> $options @return array{accepted: true} */
@@ -188,19 +207,26 @@ final class Members
         return $this->call('POST', '/members/me/password', ['currentPassword' => $input['currentPassword'] ?? null, 'newPassword' => $input['newPassword'] ?? null], $input['session'] ?? null, $options);
     }
 
-    /** Extends the session (never past its absolute end). @param array{session: string} $input @param array<string, mixed> $options @return array{session: array{expiresAt: string, idleExpiresAt: string}} */
+    /**
+     * Extends the session (never past its absolute end). With FullStack Intelligence recognition on, the answer may carry `recognition` again
+     * (see `Laravel\MemberRecognition`).
+     *
+     * @param array{session: string} $input
+     * @param array{clientIp?: string, timeoutMs?: int, pid?: string|null} $options
+     * @return array{session: array{expiresAt: string, idleExpiresAt: string}, recognition?: array<string, mixed>|null}
+     */
     public function refreshSession(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/session/refresh', null, $input['session'] ?? null, $options);
+        return $this->call('POST', '/members/session/refresh', self::withPid(null, $options), $input['session'] ?? null, $options);
     }
 
-    /** @param array{session: string} $input @param array<string, mixed> $options @return array{loggedOut: true} */
+    /** With recognition on, the answer holds `recognition: null` (remove the cookie, see `Laravel\MemberRecognition`). @param array{session: string} $input @param array<string, mixed> $options @return array{loggedOut: true, recognition?: null} */
     public function logout(array $input, array $options = []): array
     {
         return $this->call('POST', '/members/logout', null, $input['session'] ?? null, $options);
     }
 
-    /** @param array{session: string} $input @param array<string, mixed> $options @return array{revokedSessions: int} */
+    /** Like `logout`: `recognition: null` when recognition is on. @param array{session: string} $input @param array<string, mixed> $options @return array{revokedSessions: int, recognition?: null} */
     public function logoutAll(array $input, array $options = []): array
     {
         return $this->call('POST', '/members/logout-all', null, $input['session'] ?? null, $options);

@@ -502,6 +502,26 @@ Do nothing unless FullStack Studio switched Intelligence on for the site. Then, 
 A site form that should link the submission to the visitor may send `window.fsa.pid()` along (null without consent). Never show the visitor
 what is known about them ("you viewed SMS 3 times").
 
+#### Member recognition and form linking (0.18.0)
+
+The cookie name `content.intelligence.recognition_cookie` now defaults to `fsi_rec` (empty = off; `FSC_INTELLIGENCE_RECOGNITION_COOKIE_DOMAIN` for a shared
+domain). When the Hub project has Intelligence on with the `recognition` opt-in (the site owner switches it on in the Hub), a logged-in member is recognised on
+every later visit with a consenting browser. Two things to do in the login code of the site, nothing else:
+
+```php
+use FullStackStudio\Content\Laravel\MemberRecognition;
+
+$answer = $content->members->login($credentials, ['clientIp' => $request->ip(), 'pid' => MemberRecognition::pid($request)]);   // pid: also for loginTotp, verifyEmail, refreshSession
+MemberRecognition::queue($answer, $request);   // after login, loginTotp, refreshSession, logout and logoutAll: sets or removes the cookie
+```
+
+`MemberRecognition::pid($request)` reads the consented `fsa_pid` cookie (null without consent, under `Sec-GPC: 1`, for crawlers); `queue()` sets the cookie from
+`recognition: {cookie, value, maxAge}` (HttpOnly, Secure on https, SameSite=Lax, site domain) or removes it when the answer holds `recognition: null` (logout), and does
+nothing when the answer has no `recognition` (module or opt-in off) or for a crawler. Never throws. The package exempts the cookie from Laravel's cookie encryption itself.
+Forms built with `<x-content::form>` send `_meta.pid` the same way (consenting browsers only), so a submission links the visitor to the e-mail address with no code.
+The site's privacy statement must name this: "if you log in, we recognise you on later visits (cookie `fsi_rec`, 6 months) to show relevant content", and it only runs
+with analytics consent for the pid part. Never show the visitor what is known about them.
+
 #### Personalisation slots (0.13.0, server-side decision 0.14.0): OFF by default
 
 Wrap a part of a page that FullStack Intelligence may personalise. Write the DEFAULT content as always; it stays in the HTML for everyone

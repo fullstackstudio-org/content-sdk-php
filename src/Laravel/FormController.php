@@ -209,6 +209,14 @@ final class FormController
             }
         }
 
+        // The consenting browser's id (cookie `fsa_pid`, never under Sec-GPC, never a crawler): the Hub links it to the e-mail address of the
+        // submission when the Intelligence module and its recognition opt-in are on. Without the cookie there is no `pid` key at all.
+        $pid = IntelligenceProxy::pid($request);
+
+        if ($pid !== null) {
+            $meta['pid'] = $pid;
+        }
+
         // First-touch attribution from the analytics helper (utm_*, ad click ids, landing URL, external referrer) wins over the query of
         // the form page: it is where the visit came from.
         $meta = [...$meta, ...Forms::attributionMeta($request->input('_fsc_attribution'))];
