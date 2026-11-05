@@ -12,6 +12,8 @@
  *   while in view. The check is synchronous (swap, measure, undo before any paint), so a refused swap is never visible.
  * - A decision that arrives after `data-deadline` ms is not applied. Refused or late visits are measured as `fallback` in both the
  *   personalised and the control group (the control group runs the same check on the variant it does not get), so the comparison stays fair.
+ * - Crawlers, bots, headless browsers (`navigator.webdriver`) never get personalised content: such a visit asks for nothing and measures nothing
+ *   (the server applies the same rule, `Crawler::PATTERN`).
  * - Consent (D5): the tracker's browser id is sent only when the tracker says there is consent; without it the site only sends the current
  *   and the previous page on this site. Nothing is stored on the device. The visitor never sees why a variant was chosen.
  * - Measurement through the tracker (`fsa.track`): `fsi_slot_view` once per slot when half of it is in view, `fsi_slot_click` for a click
@@ -32,7 +34,10 @@
 
     var script = d.currentScript;
     var endpoint = (script && script.getAttribute('data-endpoint')) || '/_fsc/i/decide';
-    var clientDecide = !script || script.getAttribute('data-client') !== '0';
+    var BOT = /bot|crawl|spider|slurp|googlebot|google-inspectiontool|googleother|storebot-google|adsbot|mediapartners|apis-google|feedfetcher|bingpreview|duckduckbot|baiduspider|yandex|applebot|petalbot|ahrefs|semrush|mj12bot|dotbot|rogerbot|screaming frog|facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|discordbot|whatsapp|telegrambot|embedly|pinterest|headlesschrome|lighthouse|pagespeed|gptbot|chatgpt-user|oai-searchbot|claudebot|claude-web|anthropic-ai|perplexitybot|ccbot|bytespider|amazonbot|python-requests|curl|wget|go-http-client|java\//i;
+    var nav = w.navigator || {};
+    var isBot = nav.webdriver === true || BOT.test(String(nav.userAgent));
+    var clientDecide = !isBot && (!script || script.getAttribute('data-client') !== '0');
     var deadline = parseInt((script && script.getAttribute('data-deadline')) || '1500', 10) || 1500;
     var now = function () { return w.performance && w.performance.now ? w.performance.now() : Date.now(); };
     var started = now();
@@ -62,7 +67,7 @@
     }
 
     function track(event, slot) {
-        if (!slot.result) return;
+        if (!slot.result || isBot) return;
         var props = { fsi_slot: slot.name, fsi_variant: slot.result.variant, fsi_group: slot.result.group };
         if (w.fsa && w.fsa.__loaded && typeof w.fsa.track === 'function') {
             w.fsa.track(event, props);

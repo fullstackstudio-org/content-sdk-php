@@ -75,7 +75,10 @@ final class SlotServerRenderTest extends LaravelTestCase
     /** @param array<string, string> $headers */
     private function visit(array $headers = [], string $path = '/page'): \Illuminate\Testing\TestResponse
     {
-        return $this->withHeaders(['CF-Connecting-IP' => '203.0.113.9', 'User-Agent' => 'Mozilla/5.0 Test'] + $headers)->get($path);
+        // withHeaders() is sticky for the rest of the test: start every visit clean.
+        $this->defaultHeaders = [];
+
+        return $this->withHeaders($headers + ['CF-Connecting-IP' => '203.0.113.9', 'User-Agent' => 'Mozilla/5.0 Test'])->get($path);
     }
 
     public function testWithoutASignalTheDefaultRendersNoHubCallAndTheHeadersStay(): void
@@ -340,5 +343,43 @@ final class SlotServerRenderTest extends LaravelTestCase
         self::assertTrue($this->app['cache']->has('fsi:decide:breaker'));
         $this->visit(['Referer' => 'http://localhost/voip']);
         self::assertCount(3, $this->hubCalls());
+    }
+
+    public function testCrawlersBotsPrefetchesAndEmptyAgentsNeverGetAVariantOrAHubCall(): void
+    {
+        $signal = ['Cookie' => 'fsa_pid=' . self::PID, 'Referer' => 'http://localhost/voip'];
+        $plain = (string) $this->visit()->getContent();
+
+        foreach ([
+            ['User-Agent' => 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'],
+            ['User-Agent' => 'Mozilla/5.0 AppleWebKit/537.36 (compatible; GPTBot/1.1)'],
+            ['User-Agent' => 'curl/8.4.0'],
+            ['User-Agent' => 'Mozilla/5.0 HeadlessChrome/120.0'],
+            ['User-Agent' => ''],
+            ['Sec-Purpose' => 'prefetch;prerender'],
+            ['Purpose' => 'prefetch'],
+        ] as $extra) {
+            $response = $this->visit($signal + $extra);
+            self::assertSame($plain, (string) $response->getContent(), json_encode($extra));
+            self::assertStringContainsString('s-maxage=300', (string) $response->headers->get('Cache-Control'));
+            self::assertStringNotContainsString('private', (string) $response->headers->get('Cache-Control'));
+        }
+
+        self::assertCount(0, $this->hubCalls());
+
+        // The site can add its own pattern; a broken one is ignored.
+        config(['content.intelligence.crawler_pattern' => 'acmemonitor']);
+        $this->visit($signal + ['User-Agent' => 'AcmeMonitor/1.0']);
+        config(['content.intelligence.crawler_pattern' => '(unclosed']);
+        $this->visit($signal);
+        self::assertCount(1, $this->hubCalls(), 'only the normal browser was decided');
+    }
+
+    public function testTheBrowserRouteAnswersABotWithTheDefault(): void
+    {
+        $answer = $this->call('POST', '/_fsc/i/decide', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_USER_AGENT' => 'Googlebot/2.1'], (string) json_encode(['s' => ['home-hero'], 'p' => '/', 'c' => 0]));
+        self::assertSame(['d' => []], json_decode((string) $answer->getContent(), true));
+        self::assertCount(0, $this->hubCalls());
+
     }
 }

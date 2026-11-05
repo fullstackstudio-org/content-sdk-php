@@ -173,6 +173,11 @@ final class SlotDecisions
             return $this->signal;
         }
 
+        // Crawlers, bots and prefetches never get a variant (and never cost a Hub call): no signal.
+        if (Crawler::is($this->request)) {
+            return $this->signal = false;
+        }
+
         $cookies = self::rawCookies($this->request);
         $pid = $cookies[self::COOKIE] ?? null;
         $pid = is_string($pid) && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) === 1 && $this->request->headers->get('Sec-GPC') !== '1' ? $pid : null;

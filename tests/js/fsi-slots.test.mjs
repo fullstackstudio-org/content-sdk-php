@@ -80,7 +80,7 @@ const h = (tag, attrs = {}, ...children) => { const n = new Node(1, tag, attrs);
 const template = (variant, ...children) => { const t = h('template', { 'data-fsi-variant': variant }); children.forEach((c) => t.content.appendChild(c)); return t; };
 
 /** A page with the given slots, a fetch that answers `answer` (or fails), a tracker with or without consent, and a manual clock. */
-function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoaded = true, referrer = '', hash = '', delay = 0, viewport = 800, lang = '', client = '1' }) {
+function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoaded = true, referrer = '', hash = '', delay = 0, viewport = 800, lang = '', client = '1', navigator = undefined }) {
     let clock = 0;
     const tracked = [];
     const requests = [];
@@ -113,6 +113,7 @@ function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoa
         },
         CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
         URL,
+        navigator,
     };
     if (fsaLoaded) {
         window.fsa = { __loaded: true, hasConsent: () => consent, pid: () => (consent ? 'browser-id-1234567890' : null), track: (name, props) => tracked.push([name, props]) };
@@ -331,4 +332,25 @@ test('a slot the server already decided is never asked for or swapped; it is onl
     assert.equal(q.window.fsiSlots.get('home-hero').group, 'personal');
     assert.equal(q.window.fsiSlots.get('footer-cta').group, 'personal');
     assert.equal(decided.querySelectorAll('[data-fsi-field]')[0].textContent, 'Bellen');
+});
+
+test('a webdriver browser or a bot user agent asks for nothing, swaps nothing and measures nothing', async () => {
+    const answer = { d: { 'home-hero': { v: 'voip', g: 'personal', f: { title: 'Bellen' } } } };
+    const decided = h('div', { 'data-fsi-slot': 'cta', top: 300, 'data-fsi-variant': 'voip', 'data-fsi-group': 'personal' }, h('a', { href: '/x' }, 'x'));
+
+    for (const navigator of [{ webdriver: true, userAgent: 'Mozilla/5.0' }, { userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1)' }, { userAgent: 'Mozilla/5.0 HeadlessChrome/120' }, { userAgent: 'Lighthouse' }]) {
+        const slot = hero(100);
+        const p = page({ slots: [slot, decided], answer, navigator });
+        await p.settle();
+        assert.equal(p.requests.length, 0, JSON.stringify(navigator));
+        assert.equal(slot.querySelectorAll('[data-fsi-field]')[0].textContent, 'Websites die werken');
+        p.seeAll();
+        assert.deepEqual(p.tracked, []);
+    }
+
+    // A normal browser still works.
+    const slot = hero(100);
+    const p = page({ slots: [slot], answer, navigator: { webdriver: false, userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/605 Safari/605' } });
+    await p.settle();
+    assert.equal(p.requests.length, 1);
 });

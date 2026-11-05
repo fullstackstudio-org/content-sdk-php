@@ -140,6 +140,9 @@ return [
         // The old browser path (slots.js asks POST /decide after load and swaps when the page cannot move). Off by default; switch it on
         // only for a site whose HTML is cached at the edge (a server-rendered decision would then never reach the visitor).
         'client_decide' => (bool) env('FSC_INTELLIGENCE_CLIENT_DECIDE', false),
+        // Crawlers, bots, headless browsers, prefetches and requests without a User-Agent never get a variant (SEO, no cloaking). The built-in
+        // list is `Crawler::PATTERN`; this regex fragment is appended to it (for example `acmemonitor|uptime-check`).
+        'crawler_pattern' => env('FSC_INTELLIGENCE_CRAWLER_PATTERN', ''),
     ],
 
     /*

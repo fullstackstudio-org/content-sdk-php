@@ -76,6 +76,11 @@ final class PersonalizationController
             return self::json($empty, 404);
         }
 
+        // A crawler, bot or prefetch gets the default: nothing is asked, nothing is decided.
+        if (Crawler::is($request)) {
+            return self::json($empty, 200);
+        }
+
         $length = (int) $request->headers->get('Content-Length', '0');
         $raw = (string) $request->getContent();
 

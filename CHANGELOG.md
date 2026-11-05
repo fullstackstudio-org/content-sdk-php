@@ -32,6 +32,10 @@
     are not cached; nested `<template x-if/x-for>` inside a variant is kept intact; `fsa_pid` is ignored under `Sec-GPC: 1`; Hub answers slower than
     150 ms count toward the breaker; the header is `private, no-cache` (keeps bfcache); optional middleware `PrivatiseSlotResponses` for streamed
     responses and server-side response caches.
+  - No cloaking: crawlers, bots (Googlebot, Bing, link previews, AI crawlers, Lighthouse, curl and the like), headless browsers, requests without a
+    User-Agent and prefetch/prerender requests (`Sec-Purpose` / `Purpose`) are never personalised, on the server (`Crawler`: no Hub call, default HTML,
+    headers untouched, also the `/decide` route) and in the browser (`navigator.webdriver` or a bot user agent: no ask, no swap, no measurement).
+    A site appends its own regex fragment with `content.intelligence.crawler_pattern` (env `FSC_INTELLIGENCE_CRAWLER_PATTERN`).
 - `content.intelligence.decide_timeout_ms` default 50 -> 400 (50 ms was shorter than a real round trip, every request fell back).
   `swap_deadline_ms` stays 1500 and only matters for the browser path.
 
