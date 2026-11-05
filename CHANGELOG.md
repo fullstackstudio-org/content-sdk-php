@@ -4,6 +4,10 @@
 
 - Devmode switch: the redirect after `?fsc_devmode=1|0` is relative (path + remaining query), so a site behind a proxy or CDN that sees the request as http never downgrades to http; the cookie is Secure when the request is secure or `app.url` is https.
 
+## 0.17.1
+
+- Devmode switch: the redirect after `?fsc_devmode=1|0` is relative (path plus the remaining query), so a site behind a proxy or CDN that sees the request as http never downgrades to http; the cookie is Secure when the request is secure or `app.url` is https.
+
 ## 0.17.0
 
 - Dev panel for every site, OFF for everybody until a browser asks for it. `?fsc_devmode=1` on any GET page sets the cookie `fsc_devmode=1` (a year,
