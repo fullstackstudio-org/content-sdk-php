@@ -243,6 +243,11 @@ final class NativeAnalyticsTest extends LaravelTestCase
         self::assertSame('POST', $identify()[0]->method);
         self::assertSame(['pid' => 'abcdefabcdefabcdef', 'recognition' => 'v1.cookie'], json_decode((string) $identify()[0]->body, true));
         self::assertSame('Bearer fsc_srv_laraveltoken', $identify()[0]->headers['Authorization']);
+
+        // A staff browser (admin marker cookie): marked, never identified, also with consent and outside the office.
+        $send(['c' => 1, 'pid' => 'staffstaffstaffstaff', 'e' => [['t' => 'pageview', 'u' => 'https://studio.nl/']]], '203.0.113.50', ['fsi_staff' => '1', 'fsi_rec' => 'v1.cookie']);
+        self::assertSame(['fsi_ex' => '1'], json_decode((string) $this->collector->last()->body, true)['e'][0]['p']);
+        self::assertCount(1, $identify());
     }
 
     public function testScrollMapAndFrustrationSignalsAreCookielessAndPassWithoutConsent(): void

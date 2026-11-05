@@ -14,11 +14,12 @@ use Throwable;
  * The FullStack Intelligence half of the native proxy (`POST {analytics.path}/e`), see `content.intelligence`. OFF unless
  * `content.intelligence.enabled` is true; then:
  *
- * - {@see markExcluded()}: a batch from an excluded IP (office, staff) gets the property `fsi_ex = "1"` on every event that may carry
- *   properties, so the Hub's scorer skips the visit. Analytics still counts it.
+ * - {@see markExcluded()}: a batch from an excluded IP (office) or from a browser with the staff marker cookie (`staff_cookie`, set by the
+ *   admin at staff login on `.fullstackstudio.nl`) gets the property `fsi_ex = "1"` on every event that may carry properties, so the Hub's
+ *   scorer skips the visit. Analytics still counts it.
  * - {@see identifyLater()}: after the response, for a batch WITH consent and a `pid` only, one server-to-server call to the Hub
  *   (`identifyVisitor`) with the portal recognition cookie when configured. Cached per browser (and cookie) for `identify_ttl` seconds,
- *   so a visit makes one call, not one per batch. Excluded IPs are never identified. A failure is silent: tracking never breaks.
+ *   so a visit makes one call, not one per batch. Excluded IPs and staff browsers are never identified (no profile, no recognition). A failure is silent: tracking never breaks.
  */
 final class IntelligenceProxy
 {
@@ -39,9 +40,17 @@ final class IntelligenceProxy
         return $ip !== null && $list !== [] && IpUtils::checkIp($ip, $list);
     }
 
-    public static function markExcluded(stdClass $batch, ?string $ip): void
+    /** A staff browser: the admin's marker cookie is present (its value does not matter; a visitor setting it only opts out). */
+    public static function isStaff(Request $request): bool
     {
-        if (!self::enabled() || !self::isExcluded($ip)) {
+        $name = (string) config('content.intelligence.staff_cookie', 'fsi_staff');
+
+        return $name !== '' && $request->cookies->has($name);
+    }
+
+    public static function markExcluded(stdClass $batch, ?string $ip, ?Request $request = null): void
+    {
+        if (!self::enabled() || (!self::isExcluded($ip) && ($request === null || !self::isStaff($request)))) {
             return;
         }
 
@@ -56,7 +65,7 @@ final class IntelligenceProxy
 
     public static function identifyLater(Request $request, stdClass $batch, ?string $ip): void
     {
-        if (!self::enabled() || ($batch->c ?? 0) !== 1 || !is_string($batch->pid ?? null) || preg_match('/^[A-Za-z0-9-]{16,64}$/D', $batch->pid) !== 1 || self::isExcluded($ip)) {
+        if (!self::enabled() || ($batch->c ?? 0) !== 1 || !is_string($batch->pid ?? null) || preg_match('/^[A-Za-z0-9-]{16,64}$/D', $batch->pid) !== 1 || self::isExcluded($ip) || self::isStaff($request)) {
             return;
         }
 

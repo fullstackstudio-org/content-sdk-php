@@ -101,8 +101,8 @@ final class NativeAnalyticsController
             return $this->json(202);
         }
 
-        // FullStack Intelligence (off unless content.intelligence.enabled): office traffic is marked so it never builds a profile.
-        IntelligenceProxy::markExcluded($batch, $ip);
+        // FullStack Intelligence (off unless content.intelligence.enabled): office and staff traffic is marked so it never builds a profile.
+        IntelligenceProxy::markExcluded($batch, $ip, $request);
 
         $forward = (string) json_encode($batch, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $headers = ['Content-Type' => 'text/plain; charset=utf-8', 'User-Agent' => $this->header($request, 'user-agent', 512)];
