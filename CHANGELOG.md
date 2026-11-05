@@ -6,6 +6,7 @@
   `<x-content::begin-checkout :items :value />` (event `begin_checkout`, checkout page), `<x-content::appointment-booked :service :reference page />` (event `appointment_booked`, after a successful booking; `page` is the booking page path, sent as `booking_path`, default the current path) and `<x-content::purchase :order />` (revenue event `purchase` with the order number, from `Orders::get` or `number`, `total-cents`, `currency`; nothing is printed for a zero total). A reference (booking id, order number) makes the event once per browser session too, so a reload of the confirmation or thank-you page does not count twice. Nothing happens while the analytics module is off.
 - `fsc.js`: `window.fscAnalytics.revenue(amount, currency, props)` (native `fsa.revenue`, and on Umami `track(name, {revenue, currency})`), `window.fscAnalytics.scan()` (fires markers added later) and the marker scan itself; a marker waits for a tracker that loads late.
 - `Laravel\ConversionMarker`: builds the marker; props pass a safe-key and no-`@` filter (names, e-mail, phone, address and note keys are refused). Documented for custom sites in `AGENTS.md` and `docs/client-integration.md`.
+- Webhook event types `intelligence.visitor.warm` and `intelligence.visitor.signal` in `Webhooks\Events::ALL` (FullStack Intelligence for automations; data: `profileRef`, `warmth`, `stage`, `topic`, `signal`, `count`, `windowDays`, `known`, `strength` and the identity kind/source/ref of a verified recognition; never personal data).
 
 ## 0.18.0
 
