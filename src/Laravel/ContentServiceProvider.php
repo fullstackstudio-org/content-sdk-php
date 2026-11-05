@@ -86,6 +86,10 @@ final class ContentServiceProvider extends ServiceProvider
             self::registerAnalyticsRoutes();
         }
 
+        if (PersonalizationController::enabled()) {
+            self::registerIntelligenceRoutes();
+        }
+
         if ($this->app['config']->get('content.address.enabled', true)) {
             self::registerAddressRoutes();
         }
@@ -130,6 +134,19 @@ final class ContentServiceProvider extends ServiceProvider
         Route::get($prefix . '/api/websites/{id}/recorder', [AnalyticsController::class, 'recorderConfig'])
             ->where('id', '[0-9a-f-]{36}')
             ->name('content.analytics.recorder-config');
+    }
+
+    /**
+     * The personalisation routes of FullStack Intelligence under `content.intelligence.path` (default `_fsc/i`): `GET slots.js` and
+     * `POST decide`. Only while `content.intelligence.enabled` and `content.intelligence.personalization` are on (called for you then).
+     * No middleware group: no session, cookies or CSRF.
+     */
+    public static function registerIntelligenceRoutes(): void
+    {
+        $prefix = trim((string) app('config')->get('content.intelligence.path', '_fsc/i'), '/') ?: '_fsc/i';
+
+        Route::get($prefix . '/slots.js', [PersonalizationController::class, 'script'])->name('content.intelligence.slots-script');
+        Route::post($prefix . '/decide', [PersonalizationController::class, 'decide'])->name('content.intelligence.decide');
     }
 
     /**

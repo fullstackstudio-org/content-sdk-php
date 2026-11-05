@@ -159,7 +159,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.12.0" }
+    "require": { "fullstackstudio/content": "^0.13.0" }
 }
 ```
 
@@ -493,7 +493,7 @@ Checklist "analytics correct ingericht":
 10. Native engine (`engine` native/both): `GET /_fsc/a/fsa.js` and `GET /_fsc/a/overlay.js` return JavaScript, `POST /_fsc/a/e` answers 202 on a page view, `getAnalyticsConfig()['native']`
     has `ready: true` and a `signingKey` (server token), and the pod reaches the collector.
 
-### FullStack Intelligence (module `intelligence`, paid add-on, 0.12.0): OFF by default
+### FullStack Intelligence (module `intelligence`, paid add-on, 0.12.0, slots 0.13.0): OFF by default
 
 Do nothing unless FullStack Studio switched Intelligence on for the site. Then, in `.env`: `FSC_INTELLIGENCE_ENABLED=true`, optionally
 `FSC_INTELLIGENCE_EXCLUDE_IPS=<office IPs/CIDRs>` (their visits are marked `fsi_ex` and never build a profile) and, on fullstackstudio.nl only,
@@ -501,6 +501,31 @@ Do nothing unless FullStack Studio switched Intelligence on for the site. Then, 
 (`ContentClient::identifyVisitor`, after the response, once per browser per 12 h). Without consent: no identify, no cookie read, nothing on the device.
 A site form that should link the submission to the visitor may send `window.fsa.pid()` along (null without consent). Never show the visitor
 what is known about them ("you viewed SMS 3 times").
+
+#### Personalisation slots (0.13.0): OFF by default
+
+Wrap a part of a page that FullStack Intelligence may personalise. Write the DEFAULT content as always; it stays in the HTML for everyone
+(search engines, the edge cache, visitors without JavaScript), so a slot never changes SEO or caching:
+
+```blade
+<x-content::slot name="home-hero" as="div" class="hero__copy">
+    <h1 data-fsi-field="title">Websites die werken</h1>
+    <a href="/contact" data-fsi-href="cta_url" data-fsi-field="cta_label">Plan een kennismaking</a>
+    <x-content::variant key="voip">{{-- optional own markup for the variant "voip" --}}</x-content::variant>
+</x-content::slot>
+<x-content::slot name="chat-opening" :data="true" />   {{-- no visible content: read window.fsiSlots.get('chat-opening') --}}
+```
+
+- `name` = the slot key in the Hub (portal: Intelligence, Personalisatie); `as` + other attributes go on the element itself, so the slot can BE the
+  existing element (no extra wrapper). Keep the element; do not put the slot around layout grid items that must stay direct children.
+- A variant replaces the text of `data-fsi-field="<field>"` elements and the `href` of `data-fsi-href="<field>"` elements (plain text and safe links
+  only), or uses its `<x-content::variant key="…">` markup when the site has one. `hide` hides the slot (logged-in customers: no "word klant").
+- Off (default): the slot is exactly its element with the default content, no attributes, templates, script or route. On: `FSC_INTELLIGENCE_ENABLED=true`
+  and `FSC_INTELLIGENCE_PERSONALIZATION=true` in `.env`, plus the switches in the Hub (global, module setting `personalization`, each slot).
+- The browser step (`/_fsc/i/slots.js`, loaded once) swaps only when the page cannot move (no CLS) and within `FSC_INTELLIGENCE_SWAP_DEADLINE_MS`
+  (1500); a 10% control group keeps the default. It measures `fsi_slot_view` / `fsi_slot_click` through the tracker; the Hub reports uplift per variant.
+- Variant content in the Hub must never tell the visitor what we saw (the Hub refuses obvious phrases). Give images in a variant fixed dimensions.
+- JS: `fsiSlots.ready(fn)`, `fsiSlots.get(name)` -> `{variant, group, fields}` or null, `fsiSlots.view(name)` (data slots: report when shown).
 
 ### Cache and webhook invalidation
 

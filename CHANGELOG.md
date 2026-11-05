@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.13.0
+
+- FullStack Intelligence personalisation (plan analytics-engine B.7, phase 7), OFF by default (`content.intelligence.personalization`, env
+  `FSC_INTELLIGENCE_PERSONALIZATION`, on top of `FSC_INTELLIGENCE_ENABLED`). With it off nothing changes: a slot renders exactly its element with
+  the default content, without attributes, templates, script or route.
+  - `<x-content::slot name="…" as="div" :data="false">` and `<x-content::variant key="…">`: the default content always stays in the HTML (SEO, edge
+    cache, no layout shift); variants are inert `<template>`s; `data-fsi-field` / `data-fsi-href` take the plain-text fields of a variant.
+  - `GET /_fsc/i/slots.js` (new, `resources/assets/fsi-slots.js`): asks the site after the page loaded and swaps only when the page cannot move
+    (a slot below the viewport may change height; in or above it only keep or lose height, the lost height stays reserved) and only within
+    `swap_deadline_ms` (1500). Late or refused swaps are measured as `fallback` in the personalised and the control group alike. Measures
+    `fsi_slot_view` / `fsi_slot_click` through `fsa.track` (queued until the tracker is there). API `window.fsiSlots` and event `fsi:slots`.
+    Nothing runs in heatmap overlay mode. CSP-safe (CSSOM, textContent, no innerHTML).
+  - `POST /_fsc/i/decide` (new, no session/cookies/CSRF): asks the Hub (`ContentClient::decideSlots()`, `POST /api/v1/intelligence/decide`) within
+    `decide_timeout_ms` (50), caches the answer `decide_ttl` (60 s), applies the control group with a stable bucket (with consent from the
+    tracker's browser id; without consent from a keyed daily hash of IP and user agent, nothing stored) and never holds back the functional
+    customer variant. The browser id is forwarded only with consent; the portal recognition cookie always (the Hub uses it only as "is a
+    logged-in customer"). Any problem answers `{d: {}}`: the default stays. 120 requests per minute per visitor IP. `Cache-Control: no-store`.
+  - Needs Hub routes of Intelligence phase 7; an older Hub answers 404, which keeps the default.
+
 ## 0.12.0
 
 - FullStack Intelligence (plan analytics-engine part B, phase 6), OFF by default (`content.intelligence.enabled`, env `FSC_INTELLIGENCE_ENABLED`):

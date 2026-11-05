@@ -45,7 +45,7 @@ use FullStackStudio\Content\Modules\Tickets;
  */
 final class ContentClient
 {
-    public const VERSION = '0.12.0';
+    public const VERSION = '0.13.0';
 
     /** Total size of the files of one submission (the API's limit). */
     private const MAX_FORM_FILES_BYTES = 50 * 1024 * 1024;
@@ -744,6 +744,40 @@ final class ContentClient
         return $this->context->execute([
             'method' => 'POST',
             'path' => '/intelligence/identify',
+            'body' => $body,
+            'options' => $options,
+        ])->data;
+    }
+
+    /**
+     * FullStack Intelligence personalisation (phase 7): which variant of each slot fits this visitor (`POST /api/v1/intelligence/decide`,
+     * server token). `pid` counts only with `$consent`; the recognition cookie (portal) only answers "is a logged-in customer". Answers
+     * `{active, controlPercent, decisions: {slot: {variant, fields, hide, functional} | null}}`; `active: false` while anything is off.
+     * Never cached here (the SDK route caches briefly); pass a small `timeoutMs`.
+     *
+     * @param list<string> $slots
+     * @param array{timeoutMs?: int} $options
+     * @return array{active?: bool, controlPercent?: int, decisions?: array<string, array{variant: string, fields: array<string, string>, hide: bool, functional: bool}|null>}
+     */
+    public function decideSlots(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $recognition = null, array $options = []): array
+    {
+        $body = ['slots' => array_values($slots), 'path' => $path, 'consent' => $consent];
+
+        if ($referrer !== null && $referrer !== '') {
+            $body['referrer'] = $referrer;
+        }
+
+        if ($consent && $pid !== null && $pid !== '') {
+            $body['pid'] = $pid;
+        }
+
+        if ($recognition !== null && $recognition !== '') {
+            $body['recognition'] = substr($recognition, 0, 200);
+        }
+
+        return $this->context->execute([
+            'method' => 'POST',
+            'path' => '/intelligence/decide',
             'body' => $body,
             'options' => $options,
         ])->data;

@@ -116,6 +116,21 @@ return [
         'identify_ttl' => (int) env('FSC_INTELLIGENCE_IDENTIFY_TTL', 43200),
         // The staff marker cookie the admin sets at staff login on .fullstackstudio.nl: such a browser is marked `fsi_ex` and never identified.
         'staff_cookie' => env('FSC_INTELLIGENCE_STAFF_COOKIE', 'fsi_staff'),
+
+        /*
+         * Personalisation (phase 7): `<x-content::slot>` with `<x-content::variant>`. OFF by default: with it off a slot renders exactly its
+         * default content and nothing else (no attributes, no templates, no script, no route). With it on (and `enabled` above on), the HTML
+         * still holds the default content (SEO, edge cache, no layout shift); after the page loaded `/{path}/slots.js` asks this site's own
+         * `POST /{path}/decide`, which asks the Hub within `decide_timeout_ms` (any error or timeout = the default stays) and caches the
+         * answer `decide_ttl` seconds. The control group is applied here with a stable bucket: with consent from the tracker's browser id,
+         * without consent from a daily hash of IP and user agent keyed with the app key (nothing stored, nothing on the device).
+         * `swap_deadline_ms`: a decision that arrives later in the browser is not applied (the default stays, measured as `fallback`).
+         */
+        'personalization' => (bool) env('FSC_INTELLIGENCE_PERSONALIZATION', false),
+        'path' => env('FSC_INTELLIGENCE_PATH', '_fsc/i'),
+        'decide_timeout_ms' => (int) env('FSC_INTELLIGENCE_DECIDE_TIMEOUT_MS', 50),
+        'decide_ttl' => (int) env('FSC_INTELLIGENCE_DECIDE_TTL', 60),
+        'swap_deadline_ms' => (int) env('FSC_INTELLIGENCE_SWAP_DEADLINE_MS', 1500),
     ],
 
     /*
