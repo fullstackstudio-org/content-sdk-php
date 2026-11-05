@@ -43,6 +43,7 @@ final class Analytics extends Component
                     'helperSrc' => $base . '/fsc.js',
                     'native' => $settings->nativeSitekey() !== null && $settings->collectorUrl() !== null,
                     'status' => is_numeric($this->status) ? (int) $this->status : null,
+                    'pidCookieDomain' => config('content.analytics.pid_cookie_domain'),
                 ]);
             }
         } catch (Throwable) {

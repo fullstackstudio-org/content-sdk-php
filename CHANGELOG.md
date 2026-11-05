@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.16.0
+
+- `fsa.js`: the consented browser-id cookie `fsa_pid` can live on a parent domain: config `content.analytics.pid_cookie_domain`
+  (env `FSC_PID_COOKIE_DOMAIN`, e.g. `.fullstackstudio.nl`), rendered as `data-pid-domain` on the tracker script. Default empty = host-only,
+  exactly as before. The domain is only used when the page's host lies under it (else host-only); a malformed value is ignored. Revoking
+  consent, Global Privacy Control or removing the id deletes the cookie with the same domain AND a host-only copy (left over from before the
+  domain was set); setting it with a domain drops that host-only copy first. Purpose: a sibling host (FullStack Studio's customer portal) reads
+  the id at registration or login so the earlier FullStack Intelligence profile is linked to the account at once. A site that sets it says so
+  in its privacy statement. `fsa.min.js` rebuilt.
 ## 0.15.0
 
 - `ContentClient::intelligenceMe(?string $pid, ?string $recognition = null)`: the visitor's own FullStack Intelligence profile

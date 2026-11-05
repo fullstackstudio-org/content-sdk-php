@@ -93,6 +93,10 @@ return [
         // The localStorage key and window event your cookie banner uses (see AGENTS.md).
         'consent_key' => env('FSC_CONSENT_KEY', 'fsc-consent'),
         'consent_event' => env('FSC_CONSENT_EVENT', 'fsc:consent'),
+        // Cookie domain of the consented browser-id cookie `fsa_pid` (native engine). Empty = host-only (default). A parent domain such as
+        // `.example.nl` lets a sibling host of the same organisation (FullStack Studio's customer portal) read it at registration or login,
+        // so the earlier FullStack Intelligence profile of that browser is linked to the account at once. Mention it in the privacy text.
+        'pid_cookie_domain' => env('FSC_PID_COOKIE_DOMAIN', ''),
         // Native engine (Hub `engine: native|both`): the collector inside the cluster that `POST {path}/e` forwards to, signed with the
         // per-site key the Hub hands to the server token. No public collector route exists.
         'collector_url' => env('FSC_ANALYTICS_COLLECTOR_URL', 'http://collector.analytics.svc.cluster.local/e'),

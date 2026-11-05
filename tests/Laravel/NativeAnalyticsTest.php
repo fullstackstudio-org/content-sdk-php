@@ -119,6 +119,20 @@ final class NativeAnalyticsTest extends LaravelTestCase
         self::assertStringContainsString('<script defer src="/_fsc/a/fsc.js"', $html);
     }
 
+    public function testThePidCookieDomainIsRenderedOnlyWhenConfiguredAndWellFormed(): void
+    {
+        $this->content->always(FakeTransport::json(self::config('native')));
+        self::assertStringNotContainsString('data-pid-domain', Blade::render('<x-content::analytics />'), 'host-only by default');
+
+        config(['content.analytics.pid_cookie_domain' => '.Example.nl']);
+        self::assertStringContainsString('data-params="utm_source,gclid" data-pid-domain=".example.nl"></script>', Blade::render('<x-content::analytics />'));
+
+        foreach (['nl', '"><script>', 'example.nl; Secure', ' '] as $bad) {
+            config(['content.analytics.pid_cookie_domain' => $bad]);
+            self::assertStringNotContainsString('data-pid-domain', Blade::render('<x-content::analytics />'), $bad);
+        }
+    }
+
     public function testUmamiOnlyForAnOlderHubAndNoNativeTrackerWithoutASigningKey(): void
     {
         $old = self::config('umami');

@@ -105,6 +105,7 @@ final class Analytics
                 . ' data-consent-event="' . self::e($consentEvent) . '"'
                 . ' data-params="' . self::e(implode(',', $params)) . '"'
                 . ($status !== null ? ' data-status="' . $status . '"' : '')
+                . (self::cookieDomain($options['pidCookieDomain'] ?? null) !== null ? ' data-pid-domain="' . self::e((string) self::cookieDomain($options['pidCookieDomain'])) . '"' : '')
                 . $nonce . '></script>';
         }
 
@@ -117,6 +118,17 @@ final class Analytics
             . $nonce . '></script>';
 
         return implode("\n", $html);
+    }
+
+    /**
+     * A cookie domain for the consented browser-id cookie `fsa_pid` (e.g. `.example.nl`, so a sibling host such as the customer portal can
+     * read it), or null for host-only. At least two labels; anything else is ignored.
+     */
+    public static function cookieDomain(mixed $value): ?string
+    {
+        $domain = is_string($value) ? strtolower(trim($value)) : '';
+
+        return preg_match('/^\.?[a-z0-9-]+(\.[a-z0-9-]+)+$/D', $domain) === 1 && strlen($domain) <= 253 ? $domain : null;
     }
 
     /** The engine of a Hub config: `umami` when the Hub predates the field or sends something unknown. @param array<string, mixed> $config */

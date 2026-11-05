@@ -529,6 +529,9 @@ Wrap a part of a page that FullStack Intelligence may personalise. Write the DEF
   decide). Slot names are learned per page: the first signal view of a new page decides what it already knows.
 - Since 0.15.0 `POST /_fsc/i/me` (while `FSC_INTELLIGENCE_ENABLED` is on) answers `{consent, profile, recognized}` for the visitor's own consented browser id (`fsa_pid`) and
   recognition cookie, for a dev panel (`devmode()`); `ContentClient::intelligenceMe()`. Never cached.
+- Since 0.16.0 `FSC_PID_COOKIE_DOMAIN` (e.g. `.fullstackstudio.nl`, default empty = host-only) puts the `fsa_pid` cookie on a parent domain so a
+  sibling host of the same organisation can read it (FullStack Studio's portal links the earlier profile to the account at registration/login).
+  Only set it when such a host exists, and mention it in the site's privacy statement.
 - Crawlers, bots, headless browsers, prefetches and requests without a User-Agent never get a variant (default HTML, no Hub call, headers untouched); extend with `FSC_INTELLIGENCE_CRAWLER_PATTERN`.
 - Privacy and limits: the `fsa_pid` cookie is ignored under `Sec-GPC: 1`; a referrer only counts when it maps to a real route of the site (answers
   with a referrer are never cached); the decision shares the 120/min per visitor IP limit of `/decide` (over it = default, no Hub call); Hub answers

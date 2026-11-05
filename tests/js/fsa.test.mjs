@@ -787,6 +787,29 @@ test_('with consent the browser id is mirrored into a first-party cookie; revoki
     assert.equal(old.doc.cookies.find((c) => c.startsWith('fsa_pid=kept')), 'fsa_pid=kept-id-0123456789abcdef; Max-Age=34128000; Path=/; SameSite=Lax');
 });
 
+test_('a configured pid cookie domain is used for setting and removing, only when the page lies under it', async () => {
+    const p = page({ consent: 'accepted', url: 'https://www.studio.nl/', dataset: { pidDomain: '.studio.nl' } });
+    const set = p.doc.cookies.filter((c) => /^fsa_pid=[^;]/.test(c));
+    assert.equal(set.length, 1);
+    assert.equal(set[0], 'fsa_pid=11111111-2222-4333-8444-555555555555; Max-Age=34128000; Path=/; Domain=.studio.nl; SameSite=Lax; Secure');
+    assert.ok(p.doc.cookies.includes('fsa_pid=; Max-Age=0; Path=/; SameSite=Lax; Secure'), 'a host-only copy from before is dropped');
+
+    p.fireWin('fsc:consent', { detail: 'declined' });
+    const last = p.doc.cookies.slice(-2);
+    assert.deepEqual(last, ['fsa_pid=; Max-Age=0; Path=/; SameSite=Lax; Secure', 'fsa_pid=; Max-Age=0; Path=/; Domain=.studio.nl; SameSite=Lax; Secure'], 'revoking removes both copies');
+
+    const gpc = page({ consent: 'accepted', gpc: true, url: 'https://studio.nl/', dataset: { pidDomain: 'studio.nl' }, stored: { 'fsa-id': 'kept-id-0123456789abcdef' } });
+    assert.ok(gpc.doc.cookies.includes('fsa_pid=; Max-Age=0; Path=/; Domain=studio.nl; SameSite=Lax; Secure'), 'GPC removes the domain cookie');
+    assert.equal(gpc.doc.cookies.some((c) => /^fsa_pid=[^;]/.test(c)), false);
+
+    // Another host or a malformed value: host-only, as before.
+    for (const pidDomain of ['.other.nl', 'studio.nl; Secure', 'nl', '']) {
+        const q = page({ consent: 'accepted', url: 'https://studio.nl/', dataset: { pidDomain } });
+        assert.equal(q.doc.cookies.find((c) => /^fsa_pid=[^;]/.test(c)), 'fsa_pid=11111111-2222-4333-8444-555555555555; Max-Age=34128000; Path=/; SameSite=Lax; Secure', pidDomain);
+        assert.equal(q.doc.cookies.some((c) => c.includes('Domain=')), false, pidDomain);
+    }
+});
+
 for (const [label, source] of VARIANTS) {
     for (const [name, fn] of tests) {
         realTest(`[${label}] ${name}`, async () => {

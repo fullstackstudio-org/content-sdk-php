@@ -183,19 +183,41 @@
     // personalisation decision (FullStack Intelligence slots), so the variant is already in the HTML. Same life as the localStorage id:
     // removed at once when consent is revoked, the id is removed or GPC is on. Readable by script (the page's own JS can read the id anyway).
     var PID_COOKIE = 'fsa_pid';
+    // Optional cookie domain (`data-pid-domain`, e.g. `.fullstackstudio.nl`) so a sibling host of the same site (the customer portal) can
+    // read the id at registration or login and link the earlier profile to the account. Only used when the page's own host lies under it
+    // (else a browser drops the cookie); default host-only.
+    var PID_DOMAIN = pidDomain(data.pidDomain);
     var mirrored = '';
+
+    function pidDomain(value) {
+        var domain = String(value || '').toLowerCase();
+        var host = String((loc && loc.hostname) || '').toLowerCase();
+        if (!/^\.?[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return '';
+        var bare = domain.replace(/^\./, '');
+        return host === bare || host.slice(-(bare.length + 1)) === '.' + bare ? '; Domain=' + domain : '';
+    }
+
+    function pidCookie(value, maxAge, domain) {
+        return PID_COOKIE + '=' + value + '; Max-Age=' + maxAge + '; Path=/' + domain + '; SameSite=Lax' + (loc && loc.protocol === 'https:' ? '; Secure' : '');
+    }
 
     function mirrorId(id) {
         if (mirrored === id) return;
         try {
-            d.cookie = PID_COOKIE + '=' + id + '; Max-Age=34128000; Path=/; SameSite=Lax' + (loc && loc.protocol === 'https:' ? '; Secure' : '');
+            // A host-only copy from before the domain was configured would shadow nothing but linger: drop it first.
+            if (PID_DOMAIN) d.cookie = pidCookie('', 0, '');
+            d.cookie = pidCookie(id, 34128000, PID_DOMAIN);
             mirrored = id;
         } catch (e) { /* cookies blocked */ }
     }
 
     function forgetCookie() {
         mirrored = '';
-        try { d.cookie = PID_COOKIE + '=; Max-Age=0; Path=/; SameSite=Lax' + (loc && loc.protocol === 'https:' ? '; Secure' : ''); } catch (e) { /* cookies blocked */ }
+        // Removed with the same domain it was set with, and host-only too (a copy from before the domain was configured).
+        try {
+            d.cookie = pidCookie('', 0, '');
+            if (PID_DOMAIN) d.cookie = pidCookie('', 0, PID_DOMAIN);
+        } catch (e) { /* cookies blocked */ }
     }
 
     function forgetId() {
