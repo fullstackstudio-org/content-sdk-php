@@ -575,6 +575,20 @@ Without `open-url` (or on a site without the route) the widget opens at the Hub 
 unlocks a member's own data in the chat (orders, appointments, requests, invoices): that still takes the member session (`FscChat.init({ memberSession })`).
 The privacy statement text above covers it.
 
+#### Newsletter click links (Unreleased)
+
+The Hub's newsletter rewrites links in every campaign mail to a short redirect (`/n/l/<token>`, on by default per project; the Hub switch is
+`clickTracking`). A click counts in the campaign stats (per send and link; the stats show totals only). For a link to THIS site the redirect adds `?fscn=<token>`; with
+`content.intelligence.enabled` on, the package then links a consenting browser (the `fsa_pid` cookie; never under `Sec-GPC: 1`, never for crawlers,
+staff or `exclude_ips`) to the subscriber's address: one server-side `POST /intelligence/link {pid, newsletterToken}` after the response, once per
+browser and token (global middleware `NewsletterClickLink`, `ContentClient::linkNewsletterClick()`). fsa.js and fsc.js remove `fscn` from the address bar
+before the first pageview. ZERO code: never read, store, forward or print `fscn` yourself, and do not strip it in your own redirects before the page
+renders. The Hub only links with Intelligence `recognition` on, as a claim (a forwarded mail can be clicked by someone else), and never creates a profile.
+
+The site's privacy statement must name this, e.g.: "Klik je op een link in onze nieuwsbrief, dan registreren we welke link in welke verzending is aangeklikt, om te zien
+welke onderwerpen aanslaan. Heb je op deze site toestemming gegeven voor statistieken, dan koppelen we je bezoek ook aan je inschrijving voor de
+nieuwsbrief, zodat we je relevantere inhoud kunnen tonen." (Dutch sites; translate for others.)
+
 #### Personalisation slots (0.13.0, server-side decision 0.14.0): OFF by default
 
 Wrap a part of a page that FullStack Intelligence may personalise. Write the DEFAULT content as always; it stays in the HTML for everyone

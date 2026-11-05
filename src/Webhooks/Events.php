@@ -81,6 +81,7 @@ final class Events
         'newsletter.subscriber.complained',
         'newsletter.campaign.paused',
         'newsletter.campaign.sent',
+        'newsletter.link.clicked',
         'invoice.finalized',
         'invoice.paid',
         'invoice.credited',

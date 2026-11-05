@@ -113,6 +113,9 @@ final class ContentServiceProvider extends ServiceProvider
             EncryptCookies::except($recognitionCookie);
         }
 
+        // Newsletter click links (`?fscn=`): a no-op unless `content.intelligence.enabled` is on and the parameter is present.
+        $this->app->make(HttpKernel::class)->pushMiddleware(NewsletterClickLink::class);
+
         if (Devmode::enabled()) {
             self::registerDevmodeRoutes();
             $this->app->make(HttpKernel::class)->pushMiddleware(DevmodeSwitch::class);

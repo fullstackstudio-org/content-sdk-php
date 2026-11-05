@@ -760,6 +760,20 @@ test_('a page opened with an overlay token is not measured, drops the token from
     assert.equal(q.win.fsaOverlayMode, undefined);
 });
 
+test_('a newsletter click token (fscn) leaves the address bar before the first pageview; other parameters and the fragment stay', async () => {
+    const token = 'AQ' + 'k'.repeat(66);
+    const p = page({ url: 'https://studio.nl/aanbod?utm_source=nieuwsbrief&fscn=' + token + '&x=1#top' });
+    assert.equal(p.win.location.href, 'https://studio.nl/aanbod?utm_source=nieuwsbrief&x=1#top');
+    p.advance(1000);
+    const events = await p.events();
+    assert.equal(events.filter((e) => e.t === 'pageview').length, 1, 'one pageview, not a second one for the cleanup');
+    assert.equal(JSON.stringify(events).includes(token), false, 'the token is never sent');
+    const only = page({ url: 'https://studio.nl/?fscn=' + token });
+    assert.equal(only.win.location.href, 'https://studio.nl/');
+    const none = page({ url: 'https://studio.nl/?xfscn=1' });
+    assert.equal(none.win.location.href, 'https://studio.nl/?xfscn=1');
+});
+
 test_('the minified build is the current source', () => {
     const hash = createHash('sha256').update(SOURCE).digest('hex');
     assert.ok(MINIFIED.startsWith(`/*! fsa.js sha256:${hash} */`), 'run scripts/build-fsa.sh');

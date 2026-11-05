@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Newsletter click links (plan ootb-integrations D9). A page view with `?fscn=<token>` (added by the Hub's newsletter redirect `/n/l/<token>` to links to the project's own site) links a CONSENTING browser to the newsletter subscriber: new global middleware `Laravel\NewsletterClickLink` (registered by the provider, a no-op unless `content.intelligence.enabled` is on and the parameter is present) calls `IntelligenceProxy::newsletterClickLater()`, which after the response makes one `ContentClient::linkNewsletterClick($pid, $token)` (`POST /intelligence/link {pid, newsletterToken}`, server token) per browser and token (cached 30 days). Only with the `fsa_pid` cookie; never under `Sec-GPC: 1`, for crawlers and prefetches, staff browsers or `exclude_ips`; silent on failure. The Hub stores a claimed link with source `newsletter` only with Intelligence `recognition` on and never creates a profile.
+- `fsa.js` (rebuilt `fsa.min.js`) and `fsc.js` remove `fscn` from the address bar with `history.replaceState` at load, before the first pageview and before the landing URL is kept for attribution; other parameters and the fragment stay.
+- Webhook event type `newsletter.link.clicked` in `Webhooks\Events::ALL` (data: `campaignId`, `linkHash`; anonymous).
+- AGENTS.md: section "Newsletter click links" with the privacy statement text site owners must add.
+
 ## 0.20.0
 
 - Chat and FullStack Intelligence (plan ootb-integrations D4/D5). `Chat::open` takes optional `pid` (the consented `fsa_pid` browser id) and `recognition` (the recognition cookie value) in its input; the Hub links the conversation to the visitor's profile and VERIFIED identity (module intelligence with `recognition`; a bad value is ignored, never an error).
