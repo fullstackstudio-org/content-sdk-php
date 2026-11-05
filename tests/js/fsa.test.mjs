@@ -725,8 +725,12 @@ test_('selectors that do not follow the grammar are never sent (no heatmap click
     for (const sel of sels) assert.ok(sel.split(' > ').length <= 4 && sel.length <= 300);
 });
 
-test_('a page opened with an overlay token is not measured and loads the overlay script instead', async () => {
-    const p = page({ url: 'https://studio.nl/prijzen#fsa_overlay=v1.abc.def', consent: 'accepted' });
+test_('a page opened with an overlay token is not measured, drops the token from the URL at once and loads the overlay script', async () => {
+    const token = 'v1.' + 'A'.repeat(30) + '.' + 's'.repeat(43);
+    const p = page({ url: 'https://studio.nl/prijzen?x=1#top&fsa_overlay=' + token, consent: 'accepted' });
+    assert.equal(p.win.location.href, 'https://studio.nl/prijzen?x=1#top', 'synchronously out of the address bar');
+    assert.equal(p.win.__fsaOverlayToken, token, 'handed to overlay.js in memory');
+    assert.equal(p.win.fsaOverlayMode, true, 'fsc.js and the Umami tracker stand down');
     p.run(() => { p.win.fsa.track('x'); p.win.fsa.pageview(); });
     p.fireDoc('click', { type: 'click', target: el('button', { id: 'buy' }), clientX: 5, clientY: 5, detail: 1 });
     p.advance(70_000);
@@ -738,6 +742,7 @@ test_('a page opened with an overlay token is not measured and loads the overlay
     q.advance(1000);
     assert.equal((await q.events())[0].t, 'pageview');
     assert.equal(q.doc.appended.length, 0);
+    assert.equal(q.win.fsaOverlayMode, undefined);
 });
 
 test_('the minified build is the current source', () => {

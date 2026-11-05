@@ -34,22 +34,33 @@
     var me = d.currentScript;
     var data = (me && me.dataset) || {};
     var KEY = data.sitekey || '';
-    if (!KEY) return;
-
-    var ENDPOINT = data.endpoint || '/_fsc/a/e';
-
-    // Heatmap overlay (plan analytics-engine, phase 4): the portal opened this page with #fsa_overlay=<short-lived token>. Staff looking
-    // at a heatmap is no visitor, so this view is not measured at all; overlay.js (same origin) draws the heatmap. The token stays in the
-    // fragment: it never reaches a server log or a Referer.
-    if (/(?:^#|&)fsa_overlay=/.test(String((w.location || {}).hash || ''))) {
+    // Heatmap overlay (plan analytics-engine, phase 4): the portal opened this page with #fsa_overlay=<short-lived, single-use token>.
+    // Staff looking at a heatmap is no visitor, so this view is not measured at all, and `fsaOverlayMode` tells fsc.js and the first-party
+    // Umami tracker and recorder to stand down too. The token leaves the address bar at once (before any other script can read or report
+    // the URL) and goes to overlay.js (same origin) in memory only; it never reaches a server log or a Referer.
+    var overlayMatch = /(?:^#|&)fsa_overlay=([A-Za-z0-9._-]{20,1200})/.exec(String((w.location || {}).hash || ''));
+    if (overlayMatch || w.fsaOverlayMode) {
+        w.fsaOverlayMode = true;
+        if (overlayMatch) {
+            w.__fsaOverlayToken = overlayMatch[1];
+            try {
+                var rest = String(w.location.hash).replace(/^#/, '').split('&').filter(function (part) { return part.indexOf('fsa_overlay=') !== 0; }).join('&');
+                w.history.replaceState(w.history.state, '', w.location.pathname + w.location.search + (rest ? '#' + rest : ''));
+            } catch (e) { /* not fatal: overlay.js tries again */ }
+        }
         var overlay = d.createElement('script');
-        overlay.src = ENDPOINT.replace(/\/e$/, '') + '/overlay.js';
+        overlay.src = (data.endpoint || '/_fsc/a/e').replace(/\/e$/, '') + '/overlay.js';
         overlay.async = true;
         (d.head || d.documentElement).appendChild(overlay);
         var noop = function () {};
         w.fsa = { __loaded: true, track: noop, revenue: noop, pageview: noop, setConsent: noop };
         return;
     }
+
+    if (!KEY) return;
+
+    var ENDPOINT = data.endpoint || '/_fsc/a/e';
+
     var CONSENT_KEY = data.consentKey || 'fsc-consent';
     var CONSENT_EVENT = data.consentEvent || 'fsc:consent';
     var ID_KEY = 'fsa-id';

@@ -69,6 +69,13 @@ final class NativeAnalyticsController
 
     public function overlay(Request $request): Response
     {
+        // A declared body larger than a token is refused before it is read into memory.
+        $declared = $request->headers->get('content-length');
+
+        if ($declared !== null && (!ctype_digit($declared) || (int) $declared > 2048)) {
+            return $this->overlayJson(['error' => 'invalid'], 400);
+        }
+
         $body = (string) $request->getContent();
 
         if ($body === '' || strlen($body) > 2048) {

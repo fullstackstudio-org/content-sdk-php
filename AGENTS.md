@@ -453,8 +453,9 @@ every unsigned batch.
   Cloudflare tunnel and the tailnet reach Traefik). A site that can be reached directly must set `FSC_IP_HEADER` to a header its own proxy overwrites,
   or to an empty value (then Laravel's `$request->ip()` counts).
 - **Heatmap overlay** (0.11.0): the portal opens a page in a window of the right width with `#fsa_overlay=<token>` (a 10-minute token from the Hub
-  for one page of this project). `fsa.js` then does not measure that view and loads `/_fsc/a/overlay.js`, which removes the token from the address bar,
-  posts it to `POST /_fsc/a/overlay` (body, never a URL) and draws the heat over the current box of each element. The SDK forwards the token with the
+  for one page of this project, single use). `fsa.js` then takes the token out of the address bar at once, does not measure that view, sets
+  `window.fsaOverlayMode` (so `fsc.js` and the first-party Umami tracker and recorder stand down too: no count, no replay) and loads
+  `/_fsc/a/overlay.js`, which posts the token to `POST /_fsc/a/overlay` (body, never a URL) and draws the heat over the current box of each element. The SDK forwards the token with the
   server token to the Hub (`getAnalyticsOverlay()`, `@internal`); the Hub only answers for a token of this project. Nothing to configure: same-origin
   script and fetch, styles through the CSSOM only, so `script-src 'self'`, `connect-src 'self'` and `frame-ancestors 'self'` stay as they are (the
   overlay runs in its own window, never in an iframe). Needs a server token (`fsc_srv_`).

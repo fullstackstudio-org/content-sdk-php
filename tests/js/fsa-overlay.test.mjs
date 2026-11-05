@@ -36,7 +36,7 @@ function all(n, tag) {
     return [...(n.tagName === tag ? [n] : []), ...n.children.flatMap((c) => all(c, tag))];
 }
 
-async function setup({ hash = `#fsa_overlay=${TOKEN}`, status = 200, result, width = 1280, path = '/prijzen' } = {}) {
+async function setup({ hash = `#fsa_overlay=${TOKEN}`, status = 200, result, width = 1280, path = '/prijzen', handed } = {}) {
     const body = node('body');
     const elements = {
         'button#offerte': { getBoundingClientRect: () => ({ left: 100, top: 50, width: 200, height: 40 }) },
@@ -63,6 +63,7 @@ async function setup({ hash = `#fsa_overlay=${TOKEN}`, status = 200, result, wid
         clearTimeout() {},
         addEventListener() {},
         removeEventListener() {},
+        __fsaOverlayToken: handed,
         fetch: (url, init) => {
             fetched.push({ url, init });
             return Promise.resolve({ status, json: () => Promise.resolve(status === 200 ? { result } : { error: 'forbidden' }) });
@@ -71,7 +72,7 @@ async function setup({ hash = `#fsa_overlay=${TOKEN}`, status = 200, result, wid
     new Function('window', 'document', SOURCE)(win, doc);
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
-    return { body, replaced, fetched };
+    return { body, replaced, fetched, win };
 }
 
 const RESULT = {
@@ -132,4 +133,12 @@ test('does nothing without a token in the fragment', async () => {
     const { fetched, body } = await setup({ hash: '#fsa_overlay=kort', result: RESULT });
     assert.equal(fetched.length, 0);
     assert.equal(body.children.length, 0);
+});
+
+test('takes the token fsa.js handed over in memory, and forgets it', async () => {
+    const { fetched, replaced, win } = await setup({ hash: '', handed: TOKEN, result: RESULT });
+    assert.deepEqual(JSON.parse(fetched[0].init.body), { t: TOKEN });
+    assert.deepEqual(replaced, [], 'the URL was already clean');
+    assert.equal(win.__fsaOverlayToken, undefined);
+    assert.equal(win.fsaOverlayMode, true);
 });

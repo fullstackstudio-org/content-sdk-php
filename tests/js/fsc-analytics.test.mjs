@@ -41,7 +41,7 @@ function element(tag, doc) {
 }
 
 /** A page with the tracker tag, the helper running, and optional stored consent / URL / referrer. */
-function page({ consent = null, search = '', referrer = '', session = {}, consentKey } = {}) {
+function page({ consent = null, search = '', referrer = '', session = {}, consentKey, hash = '', overlayMode } = {}) {
     const doc = { ids: {}, referrer, listeners: {} };
     doc.head = element('head', doc);
     doc.createElement = (tag) => element(tag, doc);
@@ -63,7 +63,8 @@ function page({ consent = null, search = '', referrer = '', session = {}, consen
     const win = {
         localStorage: local,
         sessionStorage: storage(session),
-        location: { pathname: '/', search, origin: 'https://studio.nl' },
+        location: { pathname: '/', search, hash, origin: 'https://studio.nl' },
+        fsaOverlayMode: overlayMode,
         Response,
         fetch: (input) => { fetched.push(String(input)); return Promise.resolve(new Response('{"real":true}')); },
         addEventListener: (type, fn) => { (winListeners[type] ||= []).push(fn); },
@@ -174,4 +175,17 @@ test('SDK forms and opted-in forms get the attribution as a hidden field', () =>
     const other = element('form', p.doc);
     p.doc.listeners.submit.forEach((fn) => fn({ target: other }));
     assert.equal(other.children.length, 0, 'other forms are left alone');
+});
+
+test('in heatmap overlay mode (flag from fsa.js, or the fragment) no recorder, no replay and no attribution, the API stays', () => {
+    for (const opts of [{ overlayMode: true }, { hash: '#fsa_overlay=v1.abc' }]) {
+        const p = page({ consent: 'accepted', search: '?utm_source=nieuwsbrief', ...opts });
+        p.win.umami = { track: () => { throw new Error('no counting'); } };
+        p.tracker.fire('load');
+        assert.equal(p.recorder(), null);
+        assert.equal(p.win.fscAnalytics.overlay, true);
+        assert.equal(p.win.fscAnalytics.track('x'), undefined);
+        assert.equal(p.win.fscAnalytics.hasConsent(), false);
+        assert.equal(p.win.sessionStorage.getItem('fsc-attribution'), null);
+    }
 });

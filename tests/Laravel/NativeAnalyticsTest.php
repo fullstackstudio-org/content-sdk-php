@@ -350,6 +350,9 @@ final class NativeAnalyticsTest extends LaravelTestCase
             $this->postOverlay($body)->assertStatus(400);
         }
 
+        // A declared body larger than a token is refused before it is read.
+        $this->call('POST', '/_fsc/a/overlay', [], [], [], ['CONTENT_TYPE' => 'application/json', 'CONTENT_LENGTH' => '999999', 'HTTP_CF_CONNECTING_IP' => '203.0.113.9'], '{"t":"x"}')->assertStatus(400);
+
         self::assertCount(0, $this->content->requests);
     }
 

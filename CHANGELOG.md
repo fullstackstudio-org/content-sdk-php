@@ -15,6 +15,12 @@
   - `POST /_fsc/a/overlay` (new, no session/cookies/CSRF): checks the token shape, 30 requests per visitor IP per minute, forwards it with the server token to the
     Hub (`ContentClient::getAnalyticsOverlay()`, `@internal`, header `X-Fsa-Overlay`, never cached) and returns the aggregates (elements with 2+ visits,
     clicks per cell of a 10 × 10 grid over each element, scroll reach), 403 when the Hub refuses the token, 502 on an outage. `Cache-Control: no-store`.
+  - The token leaves the address bar synchronously in `fsa.js` (before any other script can read the URL) and reaches `overlay.js` in memory
+    only. `fsa.js` sets `window.fsaOverlayMode`; `fsc.js` then loads no recorder, keeps no attribution and counts nothing (its API stays as no-ops),
+    and the first-party Umami `script.js` and `recorder.js` are served wrapped in a guard that also checks the fragment (that tag runs before
+    `fsa.js`): the staff view is counted nowhere and never replayed. In `direct` mode Umami cannot be wrapped (the overlay is a native-engine feature).
+  - The token is single use and lives 10 minutes; open the heatmap again from the portal for a new one.
+  - `POST /_fsc/a/overlay` refuses a declared `Content-Length` above 2 KB before reading the body.
   - Needs Hub routes of analytics phase 4 (`GET /api/v1/analytics/overlay`); an older Hub answers 404, which the overlay shows as an expired link.
 
 ## 0.10.2

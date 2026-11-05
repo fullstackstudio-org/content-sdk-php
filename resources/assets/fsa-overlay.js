@@ -17,12 +17,16 @@
     if (w.__fsaOverlay) return;
     w.__fsaOverlay = true;
 
-    var match = /(?:^#|&)fsa_overlay=([A-Za-z0-9._-]{20,1200})/.exec(String(w.location.hash || ''));
-    if (!match) return;
-    var token = match[1];
+    // fsa.js already took the token out of the URL and left it here (in memory only); the fragment is the fallback.
+    var handed = typeof w.__fsaOverlayToken === 'string' && /^[A-Za-z0-9._-]{20,1200}$/.test(w.__fsaOverlayToken) ? w.__fsaOverlayToken : null;
+    try { delete w.__fsaOverlayToken; } catch (e) { w.__fsaOverlayToken = undefined; }
+    var match = handed ? null : /(?:^#|&)fsa_overlay=([A-Za-z0-9._-]{20,1200})/.exec(String(w.location.hash || ''));
+    if (!handed && !match) return;
+    var token = handed || match[1];
+    w.fsaOverlayMode = true;
 
-    // Out of the address bar (no copy-paste, bookmark or history entry with the token); it stays in memory only.
-    try {
+    // Out of the address bar (no copy-paste, bookmark or history entry with the token); it stays in memory only. Normally fsa.js did this.
+    if (match) try {
         var rest = String(w.location.hash).replace(/^#/, '').split('&').filter(function (part) { return part.indexOf('fsa_overlay=') !== 0; }).join('&');
         w.history.replaceState(w.history.state, '', w.location.pathname + w.location.search + (rest ? '#' + rest : ''));
     } catch (e) { /* not fatal */ }

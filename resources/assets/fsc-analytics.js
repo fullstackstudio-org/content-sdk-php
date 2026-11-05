@@ -32,6 +32,15 @@
         return;
     }
 
+    // Heatmap overlay (plan analytics-engine, phase 4): the portal opened this page for staff (fsa.js sets fsaOverlayMode and takes the
+    // token out of the URL; the hash check covers a page without fsa.js). Staff looking at a heatmap is no visitor: no recorder, no
+    // replay, no attribution, no counting. The API stays, as no-ops, so site code keeps working.
+    if (w.fsaOverlayMode || /(?:^#|&)fsa_overlay=/.test(String((w.location || {}).hash || ''))) {
+        var none = function () {};
+        w.fscAnalytics = { __loaded: true, overlay: true, setConsent: none, hasConsent: function () { return false; }, attribution: function () { return null; }, track: none };
+        return;
+    }
+
     function clean(value, max) {
         return String(value == null ? '' : value).replace(/[\u0000-\u001F\u007F]/g, '').slice(0, max);
     }
