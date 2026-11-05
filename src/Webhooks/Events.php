@@ -118,6 +118,8 @@ final class Events
         'legal.accepted',
         'chat.budget_warning',
         'chat.conversation.handover',
+        'intelligence.visitor.warm',
+        'intelligence.visitor.signal',
         'webhook.test',
     ];
 }
