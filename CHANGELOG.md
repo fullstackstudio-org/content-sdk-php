@@ -6,17 +6,20 @@
 
 - `fsa.js` (plan analytics-engine, phase 4 ingest): scroll map, frustration signals and richer heatmap clicks. Needs the matching collector release
   (schema `0008_heatmap_frustration.sql`); an older collector drops the new event types as invalid and keeps counting everything else.
-  - `scroll_max`: one event per page view with the deepest point reached, rounded down to 10% (sent when the page is hidden or on SPA navigation; cookieless).
-    A page that fits the screen counts as 100. The 25/50/75/100 `scroll` marks and the heartbeat depth stay.
-  - `frustration` (cookieless, no personal data), name `rage_click` (3+ clicks within 700 ms and 30 px), `dead_click` (click on a non-interactive element,
-    no DOM change or navigation within 1 s; not while text is selected), `error_click` (a JS error within 1 s after a click: only the error class and an
-    8-character hash of the normalised message, never the message, URL or stack) and `quick_back` (back within 5 s, via the Navigation API; without it a
-    popstate to another page). Max 20 per page view; `sel` is the element selector.
+  - `scroll_max`: one event per page view with the deepest point reached, rounded down to 10% (sent at `pagehide` and on SPA navigation, not when the tab is
+    merely hidden; a bfcache restore starts a new measurement; cookieless). A page that fits the screen counts as 100. The 25/50/75/100 `scroll` marks and the
+    heartbeat depth stay.
+  - `frustration` (cookieless), name `rage_click` (3+ clicks within 700 ms and 30 px), `dead_click` (click on a non-interactive element, no DOM change or
+    navigation within 1 s; not while text is selected), `error_click` (a JS error within 1 s after a click) and `quick_back` (back within 5 s, via the Navigation
+    API; without it a popstate to another page). Max 20 per page view. **Without consent a signal is its name only**; with consent it also carries `sel` (the
+    element selector) and, for `error_click`, `p.err` (error class) and `p.eh` (8-character hash of the message before its first `:`, personal data removed, mixed
+    with the sitekey; never the message, URL or stack; residual risk: a guessable 32-bit hash of a generic message).
   - Heatmap clicks (still consent only) carry the position in the document (`px`, `py` as 0..1) and its height (`dh`), at most 10 per element and 100 per
     page view, keyboard/script clicks are skipped; rage bursts are `hk: rage`, dead clicks `hk: dead`. Rage and dead detection run without consent too (as `frustration` events).
     Selectors prefer `#id`, then an allow-listed data attribute (`data-fsa-id`, `data-testid`, ...), then a short tag.class path with `:nth-of-type`;
     hashed class names are skipped. No element text, ever.
-  - `POST /_fsc/a/e` still strips heatmap clicks without consent; `scroll_max` and `frustration` pass (they are cookieless).
+  - `POST /_fsc/a/e` still strips heatmap clicks without consent, and removes `sel` and `p` from frustration signals; `scroll_max` passes (cookieless).
+  - Selectors follow a fixed grammar (tag, `#id`, `.class`, allow-listed `[data-x="v"]`, `:nth-of-type(n)`, joined by ` > `, max 4 parts); the tracker and the collector both reject anything else.
   - Minified tracker grew about 1.2 kB gzipped (6.2 kB).
 
 ## 0.10.1

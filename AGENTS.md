@@ -427,7 +427,7 @@ the Umami tags above. `native`: the Hub's own tracker `/_fsc/a/fsa.js` instead. 
 `fsa.js` sends pageviews (also SPA navigation), engaged time, scroll depth 25/50/75/100, outbound links, downloads (mailto/tel/WhatsApp only as the kind,
 never the address), form started/submitted (never a field value), 404 (`<x-content::analytics status="404" />` on the error page), Web Vitals
 (LCP, INP, CLS, FCP, TTFB, once per page load), the deepest scroll point per page view (`scroll_max`, 10% steps), frustration signals (`frustration`: rage, dead
-and error clicks, quick back; an element selector and for errors only the error class and a hash, never text, values, messages or stacks) and your own events:
+and error clicks, quick back; the name only, and after consent also an element selector and for errors the error class and a hash; never text, values, messages or stacks) and your own events:
 
 ```js
 window.fsa.track('signup', { plan: 'pro' });          // keys [a-z0-9_.], max 30; strings max 200; numbers; booleans

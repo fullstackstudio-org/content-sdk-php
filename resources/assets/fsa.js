@@ -55,6 +55,8 @@
     var REACT_MS = 1000;
     var QUICK_BACK_MS = 5000;
     var DATA_ATTRS = ['data-fsa-id', 'data-fsa-event', 'data-fsc', 'data-testid', 'data-test', 'data-cy', 'data-track'];
+    // The selector grammar the collector accepts (collector/internal/ingest/pii.go, selectorPartRe): anything else is not sent.
+    var SELECTOR_PART = /^[a-z][a-z0-9-]{0,30}(?:#[A-Za-z][\w-]{0,40}|\[data-(?:fsa-id|fsa-event|fsc|testid|test|cy|track)="[\w.:-]{1,40}"\]|(?:\.[A-Za-z][\w-]{0,30}){0,2}(?::nth-of-type\(\d{1,3}\))?)$/;
     var INTERACTIVE = 'a[href],button,input,select,textarea,label,summary,option,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[role=switch],[role=option],[onclick],[contenteditable],[tabindex],[data-fsa-event],[data-fsc]';
     var DOWNLOAD_RE = /\.(pdf|zip|rar|7z|gz|docx?|xlsx?|pptx?|csv|txt|rtf|odt|ods|odp|epub|dmg|exe|msi|apk|mp3|mp4|mov|avi|wav)$/i;
     var EMAIL_RE = /[a-z0-9._%+-]+(?:@|%40)[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi;
@@ -354,7 +356,8 @@
             parts.unshift(part + (cls.length ? '.' + cls.join('.') : nth ? ':nth-of-type(' + (nth + 1) + ')' : ''));
             el = el.parentElement;
         }
-        return str(scrub(parts.join(' > ')), 300);
+        var out = parts.join(' > ');
+        return out.length <= 300 && parts.every(function (part) { return SELECTOR_PART.test(part); }) && scrub(out) === out ? out : '';
     }
 
     function interactive(el) {
@@ -365,9 +368,14 @@
         return false;
     }
 
-    /** FNV-1a of a normalised error message: urls, quoted strings and numbers out, so the same bug hashes the same and nothing leaks. */
+    /**
+     * FNV-1a of a normalised error message: personal data, urls, quoted strings and numbers out and only the part before the first ':'
+     * (where messages carry free text), so the same bug hashes the same. The sitekey is mixed in so hashes of different sites differ.
+     * It is not a secret (it is in the page), so the residual risk is a guessable 32-bit hash of a generic message: no personal data.
+     */
     function hashMessage(text) {
-        var s = String(text).toLowerCase().replace(/https?:\/\/\S+/g, 'u').replace(/(["'`]).*?\1/g, 'q').replace(/\d+/g, '0').slice(0, 300);
+        var s = scrub(String(text)).split(':')[0].toLowerCase().replace(/(["'`]).*?\1/g, 'q').replace(/\d+/g, '0').slice(0, 300);
+        s = KEY + '|' + s;
         var h = 2166136261;
         for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
         return ('0000000' + h.toString(16)).slice(-8);
@@ -378,8 +386,11 @@
         if (frustrations >= MAX_FRUSTRATION) return;
         frustrations++;
         var event = { t: 'frustration', n: kind };
-        if (sel) event.sel = sel;
-        if (extra) event.p = extra;
+        // D5: without consent the signal is its name only (no element, no error class or hash).
+        if (consent) {
+            if (sel) event.sel = sel;
+            if (extra) event.p = extra;
+        }
         push(event);
         if (now_) flush();
     }
@@ -422,7 +433,7 @@
         }
         var dead = kind === 'click' && !interactive(event.target) && !(w.getSelection && w.getSelection().toString());
         if (dead) watchDead(sel);
-        if (!consent || heatmaps >= MAX_HEATMAP || !el.getBoundingClientRect || (perSelector[sel] || 0) >= MAX_PER_SELECTOR) return;
+        if (!consent || heatmaps >= MAX_HEATMAP || !sel || !el.getBoundingClientRect || (perSelector[sel] || 0) >= MAX_PER_SELECTOR) return;
         var rect = el.getBoundingClientRect();
         if (!rect || rect.width <= 0 || rect.height <= 0) return;
         perSelector[sel] = (perSelector[sel] || 0) + 1;
@@ -635,11 +646,21 @@
     d.addEventListener('visibilitychange', function () {
         if (visible()) { lastTick = now(); return; }
         heartbeat();
-        sendScrollMax();
         sendVitals();
         flush();
     });
+    // The scroll map leaves at pagehide (and on SPA navigation), not when the tab is merely hidden: scrolling can continue after that.
     w.addEventListener('pagehide', function () { heartbeat(); sendScrollMax(); sendVitals(); flush(); });
+    // Restored from the back/forward cache: a new measurement for the same page.
+    w.addEventListener('pageshow', function (event) {
+        if (!event || !event.persisted) return;
+        scrollMax = 0;
+        scrollSentMax = 0;
+        scrollMaxSent = false;
+        thresholds = {};
+        pageStart = now();
+        lastTick = now();
+    });
     w.setInterval(function () { tick(); }, 5000);
     w.setInterval(function () { if (visible()) heartbeat(); }, HEARTBEAT_MS);
 

@@ -510,10 +510,23 @@ test_('scroll map: one scroll_max per page view with the deepest point at 10%, a
     p.fireWin('scroll', {});
     p.doc.visibilityState = 'hidden';
     p.fireDoc('visibilitychange', {});
+    assert.equal((await p.events()).some((e) => e.t === 'scroll_max'), false, 'hiding the tab is not the end of the page view');
+    p.doc.visibilityState = 'visible';
+    p.win.scrollY = 2400; // (2400 + 800) / 4000 = 80 %
+    p.fireWin('scroll', {});
+    p.fireWin('pagehide', {});
     p.fireWin('pagehide', {});
     let maxes = (await p.events()).filter((e) => e.t === 'scroll_max');
-    assert.deepEqual(maxes.map((e) => e.sd), [40], 'sent once, not again at pagehide');
+    assert.deepEqual(maxes.map((e) => e.sd), [80], 'sent once, at pagehide');
     assert.equal(maxes[0].u, 'https://studio.nl/');
+
+    // Restored from the back/forward cache: a new measurement
+    p.win.scrollY = 400; // 30 %
+    p.fireWin('pageshow', { persisted: true });
+    p.fireWin('scroll', {});
+    p.fireWin('pagehide', {});
+    maxes = (await p.events()).filter((e) => e.t === 'scroll_max');
+    assert.deepEqual(maxes.map((e) => e.sd), [80, 30]);
 
     const short = page();
     short.doc.documentElement.scrollHeight = 600;
@@ -541,13 +554,13 @@ test_('rage click: 3 clicks within 700 ms and 30 px is one frustration event, wi
         for (let i = 0; i < 4; i++) { p.fireDoc('click', { type: 'click', target: cta, clientX: 50, clientY: 50, detail: 1 }); p.tick(800); }
         p.advance(1000);
         const events = await p.events();
-        assert.deepEqual(events.filter((e) => e.t === 'frustration').map((e) => [e.n, e.sel]), [['rage_click', 'a#cta']]);
+        assert.deepEqual(events.filter((e) => e.t === 'frustration').map((e) => [e.n, e.sel]), [['rage_click', consent === null ? undefined : 'a#cta']], 'no selector without consent');
         assert.equal(events.some((e) => e.t === 'heatmap'), consent !== null);
     }
 });
 
 test_('dead click: a click on a non-interactive element without any DOM change or navigation within 1 s', async () => {
-    const p = page();
+    const p = page({ consent: 'accepted' });
     const card = el('div', { class: 'card' }, el('section', { id: 'plans' }));
     p.fireDoc('click', { type: 'click', target: card, clientX: 10, clientY: 10, detail: 1 });
     p.advance(999);
@@ -556,6 +569,14 @@ test_('dead click: a click on a non-interactive element without any DOM change o
     p.advance(1000);
     let events = (await p.events()).filter((e) => e.t === 'frustration');
     assert.deepEqual(events.map((e) => [e.n, e.sel]), [['dead_click', 'section#plans > div.card']]);
+
+    // Without consent the signal counts but names no element.
+    const anon = page();
+    anon.fireDoc('click', { type: 'click', target: card, clientX: 10, clientY: 10, detail: 1 });
+    anon.advance(1100);
+    anon.advance(1000);
+    const [dead] = (await anon.events()).filter((e) => e.t === 'frustration');
+    assert.deepEqual([dead.n, 'sel' in dead, 'p' in dead], ['dead_click', false, false]);
 
     // DOM change, interactive element, navigation, text selection: no dead click
     const q = page();
@@ -586,7 +607,7 @@ test_('dead click: a pointer cursor makes an element interactive', async () => {
 });
 
 test_('error click: a JS error within 1 s after a click sends the error class and a message hash, never the message or a stack', async () => {
-    const p = page();
+    const p = page({ consent: 'accepted' });
     const buy = el('button', { class: 'buy' }, el('form', { id: 'order' }));
     p.fireDoc('click', { type: 'click', target: buy, clientX: 10, clientY: 10, detail: 1 });
     p.tick(400);
@@ -604,7 +625,7 @@ test_('error click: a JS error within 1 s after a click sends the error class an
 
     // the same bug with other numbers hashes the same; a different bug differs
     const hashOf = async (message) => {
-        const q = page();
+        const q = page({ consent: 'accepted' });
         q.fireDoc('click', { type: 'click', target: buy, clientX: 10, clientY: 10, detail: 1 });
         q.fireWin('unhandledrejection', { reason: new RangeError(message) });
         return (await q.events()).find((e) => e.n === 'error_click').p;
@@ -615,6 +636,24 @@ test_('error click: a JS error within 1 s after a click sends the error class an
     assert.equal(a.eh, b.eh);
     assert.notEqual(a.eh, c.eh);
     assert.equal(a.err, 'RangeError');
+
+    // Without consent: the signal only, no element, class or hash.
+    const anon = page();
+    anon.fireDoc('click', { type: 'click', target: buy, clientX: 10, clientY: 10, detail: 1 });
+    anon.fireWin('error', { error: new TypeError('boom'), message: 'boom' });
+    const [anonymous] = (await anon.events()).filter((e) => e.t === 'frustration');
+    assert.deepEqual(Object.keys(anonymous).filter((k) => !['t', 'n', 'ts', 'u'].includes(k)), [], 'name only');
+    assert.equal(anonymous.n, 'error_click');
+
+    // The hash ignores everything after the first colon and personal data; it differs per site key.
+    const hashFor = async (message, dataset) => {
+        const q = page({ consent: 'accepted', dataset });
+        q.fireDoc('click', { type: 'click', target: buy, clientX: 10, clientY: 10, detail: 1 });
+        q.fireWin('error', { error: new Error(message), message });
+        return (await q.events()).find((e) => e.n === 'error_click').p.eh;
+    };
+    assert.equal(await hashFor('Failed: jan@x.nl 06-12345678'), await hashFor('Failed: other thing'));
+    assert.notEqual(await hashFor('Failed: x'), await hashFor('Failed: x', { sitekey: 'fsa_OtherSite0123456789abc' }));
 
     // too late: no error click
     const late = page();
@@ -666,6 +705,21 @@ test_('frustration events are capped at 20 per page view', async () => {
     }
     p.advance(1000);
     assert.equal((await p.events()).filter((e) => e.t === 'frustration').length, 20);
+});
+
+test_('selectors that do not follow the grammar are never sent (no heatmap click, no selector on a signal)', async () => {
+    const p = page({ consent: 'accepted' });
+    const click = (target, x) => p.fireDoc('click', { type: 'click', target, clientX: x, clientY: 5, detail: 1 });
+    let deep = null;
+    for (let i = 0; i < 7; i++) deep = el('div', { class: 'level' + 'abcdefg'[i] }, deep);
+    click(deep, 10); // longer than 4 parts: the path is cut at 4, still valid
+    click(el('Custom_Tag', { id: 'x' }), 200); // underscore in the tag: not in the grammar
+    click(el('a', { 'data-testid': 'ok', id: 'jan-0612345678-x' }), 400); // id with a phone-like number is skipped, the data attribute wins
+    click(el('a', { 'data-testid': 'Buy now', 'data-fsa-id': 'jan@x.nl' }), 600); // text-like values: plain tag
+    p.advance(1000);
+    const sels = (await p.events()).filter((e) => e.t === 'heatmap').map((e) => e.sel);
+    assert.deepEqual(sels, ['div.leveld > div.levele > div.levelf > div.levelg', 'a[data-testid="ok"]', 'a']);
+    for (const sel of sels) assert.ok(sel.split(' > ').length <= 4 && sel.length <= 300);
 });
 
 test_('the minified build is the current source', () => {

@@ -129,7 +129,8 @@ final class NativeAnalyticsController
     }
 
     /**
-     * D5: without consent no persistent id and no heatmap clicks leave this site, whatever the browser sent. The collector enforces
+     * D5: without consent no persistent id and no heatmap clicks leave this site, whatever the browser sent, and a frustration signal
+     * keeps only its name (no element selector `sel`, no `p` with the error class `err` or message hash `eh`). The collector enforces
      * the same; this is the site-side half, so a manipulated tracker cannot even make the request.
      */
     public static function enforceConsent(stdClass $batch): void
@@ -141,6 +142,12 @@ final class NativeAnalyticsController
         unset($batch->pid);
         $batch->c = 0;
         $batch->e = array_values(array_filter($batch->e, fn (mixed $event) => !($event instanceof stdClass && ($event->t ?? null) === 'heatmap')));
+
+        foreach ($batch->e as $event) {
+            if ($event instanceof stdClass && ($event->t ?? null) === 'frustration') {
+                unset($event->sel, $event->p);
+            }
+        }
     }
 
     private function visitorIp(Request $request): ?string

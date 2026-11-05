@@ -216,12 +216,17 @@ final class NativeAnalyticsTest extends LaravelTestCase
         $forwarded = json_decode((string) $this->collector->last()->body, true);
         self::assertArrayNotHasKey('pid', $forwarded);
         self::assertSame(['scroll_max', 'frustration', 'frustration', 'frustration'], array_column($forwarded['e'], 't'), 'heatmap is stripped, the cookieless signals stay');
-        self::assertSame(['TypeError', '9f3a01bc'], [$forwarded['e'][2]['p']['err'], $forwarded['e'][2]['p']['eh']]);
+        foreach (array_slice($forwarded['e'], 1) as $event) {
+            self::assertSame(['t', 'n', 'u'], array_keys($event), 'no sel without consent: a frustration signal is its name only');
+        }
+        self::assertStringNotContainsString('TypeError', (string) $this->collector->last()->body);
+        self::assertStringNotContainsString('9f3a01bc', (string) $this->collector->last()->body);
 
         // With consent the heatmap click (with page position) passes unchanged too.
-        $this->postBatch($this->batch(['c' => 1, 'pid' => 'abcdefabcdefabcdef', 'e' => [$heat, $scroll]]))->assertStatus(202);
+        $this->postBatch($this->batch(['c' => 1, 'pid' => 'abcdefabcdefabcdef', 'e' => [$heat, $scroll, $error]]))->assertStatus(202);
         $forwarded = json_decode((string) $this->collector->last()->body, true);
-        self::assertSame(['heatmap', 'scroll_max'], array_column($forwarded['e'], 't'));
+        self::assertSame(['heatmap', 'scroll_max', 'frustration'], array_column($forwarded['e'], 't'));
+        self::assertSame(['button.buy', 'TypeError', '9f3a01bc'], [$forwarded['e'][2]['sel'], $forwarded['e'][2]['p']['err'], $forwarded['e'][2]['p']['eh']], 'with consent the element and error pass');
         self::assertSame([0.4, 0.1, 5000, 'dead'], [$forwarded['e'][0]['px'], $forwarded['e'][0]['py'], $forwarded['e'][0]['dh'], $forwarded['e'][0]['hk']]);
     }
 
