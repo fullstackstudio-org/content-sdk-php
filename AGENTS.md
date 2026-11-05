@@ -560,6 +560,21 @@ Forms built with `<x-content::form>` send `_meta.pid` the same way (consenting b
 The site's privacy statement must name this: "if you log in, we recognise you on later visits (cookie `fsi_rec`, 6 months) to show relevant content", and it only runs
 with analytics consent for the pid part. Never show the visitor what is known about them.
 
+#### Chat widget with recognition (0.20.0)
+
+With `content.intelligence.enabled` on, the package serves `POST /_fsc/i/chat`. Add `open-url` to the widget and the chat is linked to the visitor's
+Intelligence profile and, for a logged-in or recognised visitor, to who they are (Direct shows it beside the conversation; the Hub needs Intelligence with
+`recognition`). The site adds the consented browser id and the HttpOnly `fsi_rec` cookie server-side, so never print either value into the page:
+
+```blade
+<script src="https://content.fullstackstudio.nl/widget/chat.v1.js" defer></script>
+<fsc-chat token="fsc_pub_…" lang="nl" open-url="/_fsc/i/chat"></fsc-chat>
+```
+
+Without `open-url` (or on a site without the route) the widget opens at the Hub as before. The cookie only tells the Hub WHO the visitor is; it never
+unlocks a member's own data in the chat (orders, appointments, requests, invoices): that still takes the member session (`FscChat.init({ memberSession })`).
+The privacy statement text above covers it.
+
 #### Personalisation slots (0.13.0, server-side decision 0.14.0): OFF by default
 
 Wrap a part of a page that FullStack Intelligence may personalise. Write the DEFAULT content as always; it stays in the HTML for everyone
