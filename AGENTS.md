@@ -585,6 +585,9 @@ browser and token (global middleware `NewsletterClickLink`, `ContentClient::link
 before the first pageview. ZERO code: never read, store, forward or print `fscn` yourself, and do not strip it in your own redirects before the page
 renders. The Hub only links with Intelligence `recognition` on, as a claim (a forwarded mail can be clicked by someone else), and never creates a profile.
 
+Rules: load `<x-content::analytics />` (fsa.js) before any other analytics or tag script, so `fscn` is gone before they read the URL; and never
+use the full request URL (with its query) for `canonical`, `og:url`, share links or anything stored: build those from the route or the path.
+
 The site's privacy statement must name this, e.g.: "Klik je op een link in onze nieuwsbrief, dan registreren we welke link in welke verzending is aangeklikt, om te zien
 welke onderwerpen aanslaan. Heb je op deze site toestemming gegeven voor statistieken, dan koppelen we je bezoek ook aan je inschrijving voor de
 nieuwsbrief, zodat we je relevantere inhoud kunnen tonen." (Dutch sites; translate for others.)

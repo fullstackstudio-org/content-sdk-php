@@ -146,7 +146,7 @@ final class IntelligenceProxy
 
                 app(ContentClient::class)->linkNewsletterClick($pid, $token, ['timeoutMs' => 1500]);
             } catch (Throwable) {
-                // The Hub is away or the module is off: the click still counted anonymously. Never visible to the visitor.
+                // The Hub is away or the module is off: the Hub still counted the click. Never visible to the visitor.
             }
         });
     }
