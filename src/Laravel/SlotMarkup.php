@@ -23,12 +23,7 @@ final class SlotMarkup
      */
     public static function render(string $inner, array $decision): string
     {
-        $templates = [];
-        $default = (string) preg_replace_callback('#<template\s+data-fsi-variant="([a-z0-9-]+)">(.*?)</template>#s', function (array $m) use (&$templates): string {
-            $templates[$m[1]] = $m[2];
-
-            return '';
-        }, $inner);
+        [$default, $templates] = self::extractTemplates($inner);
 
         $group = $decision['g'] ?? 'none';
 
@@ -44,6 +39,36 @@ final class SlotMarkup
         $fields = is_array($decision['f'] ?? null) ? $decision['f'] : [];
 
         return self::applyFields(array_key_exists($variant, $templates) ? $templates[$variant] : $default, $fields);
+    }
+
+    /**
+     * Splits the variant `<template data-fsi-variant>` blocks off the default content. The end of a block is found by counting depth, so a
+     * nested `<template x-if>` / `<template x-for>` (Alpine) inside a variant stays intact.
+     *
+     * @return array{0: string, 1: array<string, string>} [default HTML, variant => inner HTML]
+     */
+    public static function extractTemplates(string $inner): array
+    {
+        $templates = [];
+        $default = '';
+        $offset = 0;
+
+        while (preg_match('#<template\s+data-fsi-variant="([a-z0-9-]+)">#', $inner, $m, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            $start = $m[0][1];
+            $bodyStart = $start + strlen($m[0][0]);
+            $close = self::closeOffset($inner, 'template', $bodyStart);
+
+            if ($close === null) {
+                break; // unbalanced: leave the rest as it is
+            }
+
+            $default .= substr($inner, $offset, $start - $offset);
+            $templates[$m[1][0]] = substr($inner, $bodyStart, $close - $bodyStart);
+            $end = strpos($inner, '>', $close);
+            $offset = $end === false ? strlen($inner) : $end + 1;
+        }
+
+        return [$default . substr($inner, $offset), $templates];
     }
 
     /** @param array<array-key, mixed> $fields */

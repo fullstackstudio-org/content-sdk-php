@@ -17,7 +17,7 @@
   - A server-decided slot is marked `data-fsi-variant`, `data-fsi-group` (`personal`, `control`, `customer`, `none`) and, for an applied variant,
     `data-fsi-fields`. `slots.js` never asks for nor swaps such a slot, it only exposes it (`fsiSlots.get`) and measures `fsi_slot_view` /
     `fsi_slot_click` with the server's variant and group.
-  - 🚨 Caching: a response that used a signal gets `Cache-Control: private, no-store` (set after the whole middleware stack through the
+  - 🚨 Caching: a response that used a signal gets `Cache-Control: private, no-cache` (set after the whole middleware stack through the
     `RequestHandled` event, over the site's own `public, s-maxage`; `Expires`, `Surrogate-Control` and `CDN-Cache-Control` are removed). Default
     responses keep their headers. The HTML must therefore NOT be cached at the edge for personalisation to reach visitors; a site that does cache HTML
     sets `FSC_INTELLIGENCE_CLIENT_DECIDE=true` (config `client_decide`, default off) to keep the old browser path for slots the server did not decide,
@@ -27,6 +27,11 @@
     reads it only as the `pid` of a decision (its presence implies consent); the Hub contract is unchanged. `fsa.min.js` rebuilt. The cookie is read
     from the raw `Cookie` header, so Laravel's cookie encryption does not get in the way. Sites list cookies for the privacy statement: `fsa_pid` is
     an analytics cookie, set only after analytics consent.
+  - Hardening: learned slot lists are stored per route pattern after a 2xx response only (404s write nothing; renamed slots drop out); the server
+    path shares the `/decide` rate limit (120/min per IP, over it = default); a referrer only counts when it maps to a real route and such answers
+    are not cached; nested `<template x-if/x-for>` inside a variant is kept intact; `fsa_pid` is ignored under `Sec-GPC: 1`; Hub answers slower than
+    150 ms count toward the breaker; the header is `private, no-cache` (keeps bfcache); optional middleware `PrivatiseSlotResponses` for streamed
+    responses and server-side response caches.
 - `content.intelligence.decide_timeout_ms` default 50 -> 400 (50 ms was shorter than a real round trip, every request fell back).
   `swap_deadline_ms` stays 1500 and only matters for the browser path.
 

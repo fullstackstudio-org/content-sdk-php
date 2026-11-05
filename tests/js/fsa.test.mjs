@@ -779,6 +779,9 @@ test_('with consent the browser id is mirrored into a first-party cookie; revoki
     const gpc = page({ consent: 'accepted', gpc: true });
     assert.equal(gpc.doc.cookies.some((c) => /^fsa_pid=[^;]/.test(c)), false, 'never set under Global Privacy Control');
 
+    const stale = page({ consent: 'accepted', gpc: true, stored: { 'fsa-id': 'kept-id-0123456789abcdef' } });
+    assert.match(stale.doc.cookies.at(-1), /^fsa_pid=; Max-Age=0; Path=\//, 'GPC clears an existing mirror cookie');
+
     // The cookie follows a removed id: an existing id is mirrored too, and plain http gets no Secure flag.
     const old = page({ consent: 'accepted', url: 'http://localhost/', stored: { 'fsa-id': 'kept-id-0123456789abcdef' } });
     assert.equal(old.doc.cookies.find((c) => c.startsWith('fsa_pid=kept')), 'fsa_pid=kept-id-0123456789abcdef; Max-Age=34128000; Path=/; SameSite=Lax');

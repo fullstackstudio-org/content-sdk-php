@@ -524,9 +524,16 @@ Wrap a part of a page that FullStack Intelligence may personalise. Write the DEF
   and `FSC_INTELLIGENCE_PERSONALIZATION=true` in `.env`, plus the switches in the Hub (global, module setting `personalization`, each slot).
 - Since 0.14.0 the decision is rendered on the SERVER: with a signal (same-site Referer on another path, the recognition cookie, or the consented
   `fsa_pid` cookie that fsa.js sets) the slot asks the Hub once per request (`FSC_INTELLIGENCE_SSR_TIMEOUT_MS`, 250) and the variant is in the HTML,
-  marked `data-fsi-variant` / `data-fsi-group`; no signal = no Hub call. Such a response is sent `private, no-store`, so do NOT cache the HTML of
+  marked `data-fsi-variant` / `data-fsi-group`; no signal = no Hub call. Such a response is sent `private, no-cache`, so do NOT cache the HTML of
   personalised pages at the edge. A site that edge-caches HTML sets `FSC_INTELLIGENCE_CLIENT_DECIDE=true` (browser path for slots the server did not
   decide). Slot names are learned per page: the first signal view of a new page decides what it already knows.
+- Privacy and limits: the `fsa_pid` cookie is ignored under `Sec-GPC: 1`; a referrer only counts when it maps to a real route of the site (answers
+  with a referrer are never cached); the decision shares the 120/min per visitor IP limit of `/decide` (over it = default, no Hub call); Hub answers
+  slower than 150 ms count toward the 10 s breaker (three within 30 s). Learned slot lists are stored per ROUTE after a 2xx response only.
+- Two gaps of the `private, no-cache` header: it is set by an event after the middleware stack, so (1) a view rendered INSIDE a streamed
+  response (`response()->stream`, `streamView`) is sent before it can be set, and (2) a server-side response cache middleware (e.g. spatie
+  responsecache) stores the page before the header exists. For both, put `FullStackStudio\Content\Laravel\PrivatiseSlotResponses` as the
+  OUTERMOST middleware of those routes (same effect, applied while the response travels back), or do not cache/stream pages with slots.
 - The browser step (`/_fsc/i/slots.js`, loaded once) only measures server-decided slots. Its own path (client_decide) swaps only when the page cannot move (no CLS) and within `FSC_INTELLIGENCE_SWAP_DEADLINE_MS`
   (1500); a 10% control group keeps the default. It measures `fsi_slot_view` / `fsi_slot_click` through the tracker; the Hub reports uplift per variant.
 - Variant content in the Hub must never tell the visitor what we saw (the Hub refuses obvious phrases). Give images in a variant fixed dimensions.

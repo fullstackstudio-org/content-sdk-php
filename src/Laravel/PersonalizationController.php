@@ -49,6 +49,8 @@ final class PersonalizationController
 
     public const BREAKER_KEY = 'fsi:decide:breaker';
 
+    public const SLOW_KEY = 'fsi:decide:slow';
+
     public static function enabled(): bool
     {
         return IntelligenceProxy::enabled() && (bool) config('content.intelligence.personalization', false);
@@ -183,7 +185,7 @@ final class PersonalizationController
      * @param list<string> $slots
      * @return array<string, mixed>
      */
-    public static function ask(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $cookie, ?string $locale, ?int $timeoutMs = null): array
+    public static function ask(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $cookie, ?string $locale, ?int $timeoutMs = null, bool $shareable = true, ?int $slowMs = null): array
     {
         try {
             $cache = app('cache')->store();
@@ -192,7 +194,8 @@ final class PersonalizationController
         }
 
         // Only anonymous answers are shared: the same for every visitor on these pages, so nobody can fill the cache per visitor.
-        $anonymous = $pid === null && $cookie === null;
+        // `$shareable` false (server-side rendering with a referrer) never writes: arbitrary referrer paths must not fill the cache.
+        $anonymous = $pid === null && $cookie === null && $shareable;
         $key = 'fsi:decide:' . hash('sha256', implode(',', $slots) . "\0" . $path . "\0" . ($referrer ?? '') . "\0" . ($locale ?? '') . "\0" . ($consent ? '1' : '0'));
 
         try {
@@ -207,6 +210,8 @@ final class PersonalizationController
             return [];
         }
 
+        $startedAt = hrtime(true);
+
         try {
             $answer = app(ContentClient::class)->decideSlots($slots, $path, $referrer, $pid, $consent, $cookie, $locale, ['timeoutMs' => max(20, min(2000, $timeoutMs ?? (int) config('content.intelligence.decide_timeout_ms', 400)))]);
         } catch (Throwable) {
@@ -218,6 +223,22 @@ final class PersonalizationController
             }
 
             return [];
+        }
+
+        // Slow answers count toward the breaker (`$slowMs`, server-side rendering: the pod has few PHP workers): three slower than the limit
+        // within 30 s open it like a failure would.
+        if ($slowMs !== null && (hrtime(true) - $startedAt) / 1_000_000 > $slowMs) {
+            try {
+                $cache->add(self::SLOW_KEY, 0, 30);
+                $slow = $cache->increment(self::SLOW_KEY);
+
+                if (is_int($slow) && $slow >= 3) {
+                    $cache->put(self::BREAKER_KEY, 1, self::BREAKER_SECONDS);
+                    $cache->forget(self::SLOW_KEY);
+                }
+            } catch (Throwable) {
+                // No cache: no breaker.
+            }
         }
 
         if ($anonymous) {

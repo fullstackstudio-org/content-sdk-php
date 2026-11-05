@@ -9,6 +9,7 @@ use FullStackStudio\Content\Laravel\PersonalizationController;
 use FullStackStudio\Content\Laravel\SlotMarkup;
 use FullStackStudio\Content\Tests\Support\FakeTransport;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -87,7 +88,7 @@ final class SlotServerRenderTest extends LaravelTestCase
         self::assertStringNotContainsString('data-fsi-group', $html);
         self::assertCount(0, $this->hubCalls());
         self::assertStringContainsString('s-maxage=300', (string) $response->headers->get('Cache-Control'));
-        self::assertStringNotContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        self::assertStringNotContainsString('no-cache', (string) $response->headers->get('Cache-Control'));
         // The browser step is still there but will not ask: nothing was decided and the browser path is off.
         self::assertStringContainsString('data-client="0"', $html);
     }
@@ -116,7 +117,7 @@ final class SlotServerRenderTest extends LaravelTestCase
         self::assertStringContainsString('Hoi, zoek je VoIP?', html_entity_decode($html));
         // No variant fits the visitor: the default, measured as group none.
         self::assertStringContainsString('<div data-fsi-slot="cta" data-fsi-variant="default" data-fsi-group="none"><a href="/contact" data-fsi-href="cta_url">Plan</a></div>', $html);
-        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        self::assertSame('no-cache, private', $response->headers->get('Cache-Control'));
     }
 
     public function testFieldVariantsChangeTextAndLinksInPlaceEscapedAndOnlySafeLinks(): void
@@ -124,7 +125,7 @@ final class SlotServerRenderTest extends LaravelTestCase
         $this->useHub(self::answer(['variant' => 'veld', 'fields' => ['title' => 'Bellen & <b>meer</b>', 'cta_label' => 'Bel ons', 'cta_url' => '/voip'], 'hide' => false, 'functional' => false]));
         $page = '<x-content::slot name="home-hero"><h1 data-fsi-field="title">Oud <em>titel</em></h1><a class="btn" href="/contact" data-fsi-href="cta_url" data-fsi-field="cta_label">Contact</a></x-content::slot>';
         Route::get('/field', fn () => response(Blade::render($page)));
-        $html = (string) $this->visit(['Referer' => 'http://localhost/diensten'], '/field')->getContent();
+        $html = (string) $this->visit(['Referer' => 'http://localhost/voip'], '/field')->getContent();
 
         self::assertStringContainsString('<h1 data-fsi-field="title">Bellen &amp; &lt;b&gt;meer&lt;/b&gt;</h1>', $html);
         self::assertStringContainsString('<a class="btn" href="/voip" data-fsi-href="cta_url" data-fsi-field="cta_label">Bel ons</a>', $html);
@@ -146,8 +147,8 @@ final class SlotServerRenderTest extends LaravelTestCase
 
         $this->hub->requests = [];
         $this->app['cache']->flush();
-        $this->visit(['Referer' => 'http://localhost/diensten?x=1#y']);
-        self::assertSame('/diensten', $this->hubCalls()[0]['referrer']);
+        $this->visit(['Referer' => 'http://localhost/voip?x=1#y']);
+        self::assertSame('/voip', $this->hubCalls()[0]['referrer']);
     }
 
     public function testOtherSitesAndTheSamePageAreNoSignalAndABadCookieIsIgnored(): void
@@ -165,7 +166,7 @@ final class SlotServerRenderTest extends LaravelTestCase
 
         self::assertStringContainsString('Websites die werken', (string) $response->getContent());
         self::assertStringNotContainsString('data-fsi-group', (string) $response->getContent());
-        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        self::assertSame('no-cache, private', $response->headers->get('Cache-Control'));
 
         $this->visit(['Cookie' => 'fsa_pid=' . self::PID]);
         self::assertCount(1, $this->hubCalls(), 'the breaker spares the Hub');
@@ -225,5 +226,119 @@ final class SlotServerRenderTest extends LaravelTestCase
         self::assertStringNotContainsString('data-fsi-slot', (string) $response->getContent());
         self::assertStringNotContainsString('data-fsi-group', (string) $response->getContent());
         self::assertStringContainsString('s-maxage=300', (string) $response->headers->get('Cache-Control'));
+    }
+
+    private function learnedKey(string $uri): string
+    {
+        return 'fsi:slots:' . hash('sha256', $uri . '|' . strtolower((string) app()->getLocale()));
+    }
+
+    public function testOnlyA2xxResponseOfAMatchedRouteLearnsSlotsAndAStaleNameDropsOut(): void
+    {
+        Route::get('/gone', fn () => response(Blade::render(self::PAGE), 404));
+        $this->visit(['Cookie' => 'fsa_pid=' . self::PID], '/gone');
+        $this->visit(['Cookie' => 'fsa_pid=' . self::PID], '/does/not/exist');
+        self::assertNull($this->app['cache']->get($this->learnedKey('gone')), 'a 404 writes nothing');
+        self::assertNull($this->app['cache']->get('fsi:slots:' . hash('sha256', '/does/not/exist')), 'an unknown path writes nothing');
+
+        $this->visit(['Cookie' => 'fsa_pid=' . self::PID]);
+        self::assertEqualsCanonicalizing(['home-hero', 'cta', 'chat-opening'], $this->app['cache']->get($this->learnedKey('page')));
+
+        // The page renamed a slot: the list is rebuilt from what it rendered now.
+        $this->app['cache']->put($this->learnedKey('renamed'), ['old-slot', 'cta'], 60);
+        Route::get('/renamed', fn () => Blade::render('<x-content::slot name="new-slot">x</x-content::slot>'));
+        $this->visit(['Cookie' => 'fsa_pid=' . self::PID], '/renamed');
+        self::assertSame(['new-slot'], $this->app['cache']->get($this->learnedKey('renamed')));
+    }
+
+    public function testOverTheRateLimitThereIsNoHubCallAndTheDefaultRenders(): void
+    {
+        for ($i = 0; $i < 120; $i++) {
+            RateLimiter::hit('fsi-decide:203.0.113.9', 60);
+        }
+
+        $response = $this->visit(['Cookie' => 'fsa_pid=' . self::PID]);
+
+        self::assertCount(0, $this->hubCalls());
+        self::assertStringContainsString('Websites die werken', (string) $response->getContent());
+        self::assertStringContainsString('s-maxage=300', (string) $response->headers->get('Cache-Control'));
+    }
+
+    public function testOnlyAReferrerThatMapsToARealRouteCountsAndItsAnswersAreNeverCached(): void
+    {
+        $this->visit(['Referer' => 'http://localhost/random-' . uniqid()]);
+        self::assertCount(0, $this->hubCalls(), 'an unknown referrer path is no signal');
+
+        $this->visit(['Referer' => 'http://localhost/voip']);
+        $this->visit(['Referer' => 'http://localhost/voip']);
+        self::assertCount(2, $this->hubCalls(), 'answers with a referrer are not shared through the cache');
+    }
+
+    public function testGlobalPrivacyControlIgnoresTheCookie(): void
+    {
+        $this->visit(['Cookie' => 'fsa_pid=' . self::PID, 'Sec-GPC' => '1']);
+        self::assertCount(0, $this->hubCalls());
+    }
+
+    public function testANestedAlpineTemplateInAVariantStaysIntact(): void
+    {
+        $page = '<x-content::slot name="home-hero"><h1 data-fsi-field="title">Oud</h1><x-content::variant key="voip"><div x-data="{open:true}"><template x-if="open"><p>Binnen</p></template><template x-for="i in 3"><i x-text="i"></i></template></div></x-content::variant><template x-if="x"><b>default</b></template></x-content::slot>';
+        Route::get('/alpine', fn () => response(Blade::render($page)));
+        $html = (string) $this->visit(['Referer' => 'http://localhost/voip'], '/alpine')->getContent();
+
+        self::assertStringContainsString('<div x-data="{open:true}"><template x-if="open"><p>Binnen</p></template><template x-for="i in 3"><i x-text="i"></i></template></div>', $html);
+        self::assertStringNotContainsString('</template></template>', $html);
+        self::assertStringNotContainsString('default', $html);
+
+        [$default, $templates] = SlotMarkup::extractTemplates('<b>a</b><template data-fsi-variant="v"><template x-if="1"><i>n</i></template>tail</template><template x-if="d">keep</template>');
+        self::assertSame('<b>a</b><template x-if="d">keep</template>', $default);
+        self::assertSame(['v' => '<template x-if="1"><i>n</i></template>tail'], $templates);
+    }
+
+    public function testAResponseThatErroredAfterADecisionIsStillPrivate(): void
+    {
+        Route::get('/boom', function () {
+            Blade::render(self::PAGE);
+            abort(404);
+        });
+        Route::get('/fail', fn () => response(Blade::render(self::PAGE), 500)->header('Cache-Control', 'public, s-maxage=300'));
+
+        $a = $this->visit(['Cookie' => 'fsa_pid=' . self::PID], '/boom');
+        self::assertStringContainsString('private', (string) $a->headers->get('Cache-Control'));
+        self::assertStringNotContainsString('public', (string) $a->headers->get('Cache-Control'));
+
+        $this->app['cache']->forget('fsi:decide:breaker');
+        $b = $this->visit(['Cookie' => 'fsa_pid=' . self::PID], '/fail');
+        self::assertSame('no-cache, private', $b->headers->get('Cache-Control'));
+    }
+
+    public function testWithoutASignalTheHtmlIsTheSameAsWithServerRenderingOff(): void
+    {
+        $on = (string) $this->visit()->getContent();
+        config(['content.intelligence.ssr' => false]);
+        $off = (string) $this->visit()->getContent();
+
+        self::assertSame(str_replace('data-client="1"', 'data-client="0"', $off), $on);
+        self::assertCount(0, $this->hubCalls());
+    }
+
+    public function testSlowHubAnswersOpenTheBreaker(): void
+    {
+        $slow = new FakeTransport();
+        $respond = function (): \FullStackStudio\Content\Http\Response {
+            usleep(170_000);
+
+            return FakeTransport::json(['active' => false, 'controlPercent' => 0, 'decisions' => []]);
+        };
+        $slow->queue($respond, $respond, $respond);
+        $this->useHub($slow);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->visit(['Referer' => 'http://localhost/voip']);
+        }
+
+        self::assertTrue($this->app['cache']->has('fsi:decide:breaker'));
+        $this->visit(['Referer' => 'http://localhost/voip']);
+        self::assertCount(3, $this->hubCalls());
     }
 }

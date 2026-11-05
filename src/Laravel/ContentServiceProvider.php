@@ -90,10 +90,11 @@ final class ContentServiceProvider extends ServiceProvider
         if (PersonalizationController::enabled()) {
             self::registerIntelligenceRoutes();
 
-            // A response that used a visitor signal for a server-side slot decision must never be shared: private, no-store, over whatever
+            // A response that used a visitor signal for a server-side slot decision must never be shared: private, no-cache, over whatever
             // the site set (`public, s-maxage`). RequestHandled fires after the whole middleware stack, so it is the last word.
             $this->app['events']->listen(RequestHandled::class, function (RequestHandled $event): void {
                 SlotDecisions::privatise($event->request, $event->response);
+                SlotDecisions::learn($event->request, $event->response);
             });
         }
 

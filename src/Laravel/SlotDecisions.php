@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
 
 /**
@@ -15,13 +16,15 @@ use Throwable;
  * {@see self::COOKIE} that fsa.js mirrors (its presence implies consent; fsa.js removes it on revoke). Without a signal there is no Hub
  * call and the default renders, with zero added latency.
  *
- * ONE Hub call per request covers every slot of the page. A slot cannot know the slots that come after it, so the names are learned: each
- * rendered slot is remembered per page path in the cache ({@see self::remember()}); the first signal-carrying view of a page that has never
- * been rendered before decides only the slots it already saw, the next view all of them. A slot that was not part of the call renders its
- * default. The call uses its own short timeout (`ssr_timeout_ms`), the same breaker, answer cache, control-group bucket and `present()` as
- * the browser path ({@see PersonalizationController}), so the groups are identical.
+ * ONE Hub call per request covers every slot of the page. A slot cannot know the slots that come after it, so the names are learned: after a
+ * successful (2xx) response of a MATCHED, non-fallback route the slots it rendered are stored in the cache under the route pattern
+ * ({@see self::learn()}, replacing the old list, so renamed slots drop out); a 404 or an unknown path writes nothing. The first
+ * signal-carrying view of a page that has never been rendered before decides only the slots it already saw, the next view all of them. A slot that was not part of the call renders its
+ * default. The call uses its own short timeout (`ssr_timeout_ms`), the same rate limit (120 per minute per visitor IP, over it = no signal),
+ * breaker (slow answers count too), anonymous answer cache (never written for a request with a referrer), control-group bucket and
+ * `present()` as the browser path ({@see PersonalizationController}), so the groups are identical.
  *
- * When a signal was used the request is flagged `fsi.private`; {@see self::privatise()} then sends `Cache-Control: private, no-store`.
+ * When a signal was used the request is flagged `fsi.private`; {@see self::privatise()} then sends `Cache-Control: private, no-cache`.
  */
 final class SlotDecisions
 {
@@ -31,8 +34,15 @@ final class SlotDecisions
 
     public const PRIVATE_ATTRIBUTE = 'fsi.private';
 
-    /** @var list<string>|null the slots of this page remembered from earlier views */
+    /** @var list<string> the slots rendered by this request */
+    private array $rendered = [];
+
+    /** @var list<string>|null the slots of this page learned from earlier views */
     private ?array $known = null;
+
+    private bool $limited = false;
+
+    private bool $shareable = true;
 
     /** @var array<string, mixed>|null the answer of the one Hub call of this request; null = not asked yet */
     private ?array $answer = null;
@@ -78,10 +88,10 @@ final class SlotDecisions
     public function decisionFor(string $slot): ?array
     {
         try {
-            $this->remember($slot);
+            $this->rendered[] = $slot;
             $signal = $this->signal();
 
-            if ($signal === false) {
+            if ($signal === false || $this->limited) {
                 return null;
             }
 
@@ -89,7 +99,7 @@ final class SlotDecisions
                 $this->ask($slot, $signal);
             }
 
-            if (!in_array($slot, $this->asked, true) || ($this->answer['active'] ?? false) !== true) {
+            if ($this->limited || !in_array($slot, $this->asked, true) || ($this->answer['active'] ?? false) !== true) {
                 return null;
             }
 
@@ -109,14 +119,15 @@ final class SlotDecisions
         }
     }
 
-    /** `Cache-Control: private, no-store` on a response that used a signal (also over the site's own `public, s-maxage`). */
+    /** `Cache-Control: private, no-cache` on a response that used a signal (also over the site's own `public, s-maxage`). */
     public static function privatise(Request $request, object $response): void
     {
         if ($request->attributes->get(self::PRIVATE_ATTRIBUTE) !== true || !isset($response->headers)) {
             return;
         }
 
-        $response->headers->set('Cache-Control', 'private, no-store');
+        // Never shared, but not `no-store`: the browser may still keep the page for back/forward (bfcache).
+        $response->headers->set('Cache-Control', 'private, no-cache');
         $response->headers->remove('Expires');
         $response->headers->remove('Surrogate-Control');
         $response->headers->remove('CDN-Cache-Control');
@@ -128,17 +139,29 @@ final class SlotDecisions
      */
     private function ask(string $slot, array $signal): void
     {
-        $this->request->attributes->set(self::PRIVATE_ATTRIBUTE, true);
         [$referrer, $pid, $recognition] = $signal;
+        $ip = PersonalizationController::visitorIp($this->request);
+        $limiterKey = 'fsi-decide:' . ($ip ?? 'none');
 
-        $slots = array_slice(array_values(array_unique([$slot, ...($this->known ?? [])])), 0, PersonalizationController::MAX_SLOTS);
+        // The same limit as the browser route; over it the request counts as having no signal: the default renders, no Hub call.
+        if (RateLimiter::tooManyAttempts($limiterKey, 120)) {
+            $this->limited = true;
+            $this->answer = [];
+
+            return;
+        }
+
+        RateLimiter::hit($limiterKey, 60);
+        $this->request->attributes->set(self::PRIVATE_ATTRIBUTE, true);
+        $this->known ??= $this->loadKnown();
+        $slots = array_slice(array_values(array_unique([$slot, ...$this->known])), 0, PersonalizationController::MAX_SLOTS);
         $locale = strtolower(str_replace('_', '-', (string) app()->getLocale()));
         $locale = preg_match(PersonalizationController::LOCALE, $locale) === 1 ? $locale : null;
         $path = PersonalizationController::path($this->request->getPathInfo()) ?? '/';
         $consent = $pid !== null;
 
         $this->asked = $slots;
-        $answer = PersonalizationController::ask($slots, $path, $referrer, $pid, $consent, $recognition, $locale, (int) config('content.intelligence.ssr_timeout_ms', 250));
+        $answer = PersonalizationController::ask($slots, $path, $referrer, $pid, $consent, $recognition, $locale, (int) config('content.intelligence.ssr_timeout_ms', 250), $referrer === null, 150);
         $this->answer = $answer;
         $this->control = max(0, min(50, (int) ($answer['controlPercent'] ?? 10)));
     }
@@ -152,7 +175,7 @@ final class SlotDecisions
 
         $cookies = self::rawCookies($this->request);
         $pid = $cookies[self::COOKIE] ?? null;
-        $pid = is_string($pid) && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) === 1 ? $pid : null;
+        $pid = is_string($pid) && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) === 1 && $this->request->headers->get('Sec-GPC') !== '1' ? $pid : null;
 
         $name = (string) config('content.intelligence.recognition_cookie', '');
         $recognition = $name !== '' ? ($cookies[$name] ?? null) : null;
@@ -180,7 +203,8 @@ final class SlotDecisions
 
         $path = PersonalizationController::path(($parts['path'] ?? '/') === '' ? '/' : ($parts['path'] ?? '/'));
 
-        return $path !== null && $path !== $this->request->getPathInfo() ? $path : null;
+        // Only a referrer that maps to a real (non-fallback) route of this site counts, so arbitrary paths never reach the Hub.
+        return $path !== null && $path !== $this->request->getPathInfo() && self::knownRoute($path) ? $path : null;
     }
 
     /**
@@ -204,20 +228,70 @@ final class SlotDecisions
         return $out;
     }
 
-    /** Remembers the slot per page path (cache, 7 days), so the next view can decide the whole page with one call. */
-    private function remember(string $slot): void
+    private static function knownRoute(string $path): bool
     {
         try {
-            $key = 'fsi:slots:' . hash('sha256', $this->request->getPathInfo());
-            $cache = app('cache')->store();
-            $this->known ??= array_values(array_filter((array) $cache->get($key, []), 'is_string'));
+            $route = app('router')->getRoutes()->match(Request::create($path, 'GET'));
 
-            if (!in_array($slot, $this->known, true) && count($this->known) < PersonalizationController::MAX_SLOTS) {
-                $this->known[] = $slot;
-                $cache->put($key, $this->known, 7 * 86400);
+            return !$route->isFallback;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * The cache key of the learned slot list of the route this request matched; null for no route or a fallback route. A route with
+     * parameters (a catch-all page route) keys on the path as well, but only a 2xx response ever writes ({@see self::learn()}).
+     */
+    private static function key(Request $request): ?string
+    {
+        $route = $request->route();
+
+        if (!is_object($route) || !method_exists($route, 'uri') || (property_exists($route, 'isFallback') && $route->isFallback)) {
+            return null;
+        }
+
+        $parametric = str_contains((string) $route->uri(), '{');
+        $locale = strtolower((string) app()->getLocale());
+
+        return 'fsi:slots:' . hash('sha256', $route->uri() . '|' . $locale . ($parametric ? '|' . $request->getPathInfo() : ''));
+    }
+
+    /** @return list<string> */
+    private function loadKnown(): array
+    {
+        try {
+            $key = self::key($this->request);
+
+            return $key === null ? [] : array_values(array_filter((array) app('cache')->store()->get($key, []), 'is_string'));
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * Called after the response: stores the slots this request rendered as the learned list of its route, but only for a matched,
+     * non-fallback route with a 2xx answer, and only when the list changed (a renamed slot drops out). A 404 or unknown path writes nothing.
+     */
+    public static function learn(Request $request, object $response): void
+    {
+        try {
+            $instance = $request->attributes->get(self::ATTRIBUTE);
+            $key = self::key($request);
+
+            if (!$instance instanceof self || $key === null || $instance->rendered === [] || !method_exists($response, 'isSuccessful') || !$response->isSuccessful()) {
+                return;
+            }
+
+            $names = array_slice(array_values(array_unique($instance->rendered)), 0, PersonalizationController::MAX_SLOTS);
+            $cache = app('cache')->store();
+            $current = array_values(array_filter((array) $cache->get($key, []), 'is_string'));
+
+            if ($current !== $names) {
+                $cache->put($key, $names, 7 * 86400);
             }
         } catch (Throwable) {
-            $this->known ??= [];
+            // Learning never breaks a response.
         }
     }
 }
