@@ -45,7 +45,7 @@ use FullStackStudio\Content\Modules\Tickets;
  */
 final class ContentClient
 {
-    public const VERSION = '0.14.0';
+    public const VERSION = '0.15.0';
 
     /** Total size of the files of one submission (the API's limit). */
     private const MAX_FORM_FILES_BYTES = 50 * 1024 * 1024;
@@ -783,6 +783,34 @@ final class ContentClient
         return $this->context->execute([
             'method' => 'POST',
             'path' => '/intelligence/decide',
+            'body' => $body,
+            'options' => $options,
+        ])->data;
+    }
+
+    /**
+     * The visitor's own FullStack Intelligence profile (`POST /intelligence/me`), for the site's dev panel. Read-only: nothing is written.
+     * `$pid` is the consented browser id (`fsa_pid` cookie), `$recognition` the portal recognition cookie; both optional. The Hub never
+     * returns the persistent id. Inactive module or no consent = `consent: false, profile: null`.
+     *
+     * @param array{timeoutMs?: int} $options
+     * @return array{consent?: bool, profile?: array{ref: string, alias: string, warmth: mixed, stage: string, hotTopics: list<array{key: string, label: string}>, visits: int, firstSeenAt: string, lastSeenAt: string}|null, recognized?: bool}
+     */
+    public function intelligenceMe(?string $pid, ?string $recognition = null, array $options = []): array
+    {
+        $body = [];
+
+        if ($pid !== null && $pid !== '') {
+            $body['pid'] = $pid;
+        }
+
+        if ($recognition !== null && $recognition !== '') {
+            $body['recognition'] = substr($recognition, 0, 200);
+        }
+
+        return $this->context->execute([
+            'method' => 'POST',
+            'path' => '/intelligence/me',
             'body' => $body,
             'options' => $options,
         ])->data;

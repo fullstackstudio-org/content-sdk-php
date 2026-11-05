@@ -30,6 +30,7 @@ final class PersonalizationOffTest extends LaravelTestCase
 
         $this->post('/_fsc/i/decide', ['s' => ['home-hero'], 'p' => '/'])->assertNotFound();
         $this->get('/_fsc/i/slots.js')->assertNotFound();
+        $this->post('/_fsc/i/me')->assertNotFound();
         self::assertSame([], $content->requests);
     }
 }

@@ -217,7 +217,7 @@ final class SlotDecisions
      *
      * @return array<string, string>
      */
-    private static function rawCookies(Request $request): array
+    public static function rawCookies(Request $request): array
     {
         $out = [];
 

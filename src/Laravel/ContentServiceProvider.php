@@ -87,6 +87,10 @@ final class ContentServiceProvider extends ServiceProvider
             self::registerAnalyticsRoutes();
         }
 
+        if (IntelligenceProxy::enabled()) {
+            self::registerIntelligenceMeRoute();
+        }
+
         if (PersonalizationController::enabled()) {
             self::registerIntelligenceRoutes();
 
@@ -155,6 +159,17 @@ final class ContentServiceProvider extends ServiceProvider
 
         Route::get($prefix . '/slots.js', [PersonalizationController::class, 'script'])->name('content.intelligence.slots-script');
         Route::post($prefix . '/decide', [PersonalizationController::class, 'decide'])->name('content.intelligence.decide');
+    }
+
+    /**
+     * `POST _fsc/i/me` (default prefix `content.intelligence.path`): the visitor's own profile for the site's dev panel. Only while
+     * `content.intelligence.enabled` is on (called for you then). No middleware group: no session, cookies or CSRF.
+     */
+    public static function registerIntelligenceMeRoute(): void
+    {
+        $prefix = trim((string) app('config')->get('content.intelligence.path', '_fsc/i'), '/') ?: '_fsc/i';
+
+        Route::post($prefix . '/me', [PersonalizationController::class, 'me'])->name('content.intelligence.me');
     }
 
     /**

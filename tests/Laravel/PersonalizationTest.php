@@ -221,4 +221,47 @@ final class PersonalizationTest extends LaravelTestCase
         $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0, 'l' => 'bad lang']);
         self::assertCount(7, $this->hubCalls());
     }
+
+    /** @param array<string, string> $cookies */
+    private function me(array $cookies = [], array $server = []): \Illuminate\Testing\TestResponse
+    {
+        return $this->call('POST', '/_fsc/i/me', [], $cookies, [], $server + ['HTTP_USER_AGENT' => 'Mozilla/5.0 Test', 'HTTP_CF_CONNECTING_IP' => '203.0.113.9']);
+    }
+
+    public function testMeAsksTheHubWithTheConsentedCookiesOnlyAndNeverCaches(): void
+    {
+        $profile = ['ref' => '9b1c', 'alias' => 'Bezoeker 3F9A2', 'warmth' => 42, 'stage' => 'overweging', 'hotTopics' => [['key' => 'voip', 'label' => 'VoIP']], 'visits' => 3, 'firstSeenAt' => '2026-11-01T10:00:00Z', 'lastSeenAt' => '2026-11-05T10:00:00Z'];
+        $this->content = (new FakeTransport())->always(FakeTransport::json(['consent' => true, 'profile' => $profile, 'recognized' => true]));
+        $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' => 'fsc_srv_laraveltoken', 'baseUrl' => 'https://content.test', 'transport' => $this->content]));
+
+        $response = $this->me([], ['HTTP_COOKIE' => 'fsa_pid=abcdefabcdefabcdef; fsi_rec=v1.cookie']);
+        $response->assertOk();
+        self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        self::assertSame(['consent' => true, 'profile' => $profile, 'recognized' => true], json_decode((string) $response->getContent(), true));
+        $call = json_decode((string) $this->content->requests[0]->body, true);
+        self::assertSame(['pid' => 'abcdefabcdefabcdef', 'recognition' => 'v1.cookie'], $call);
+        self::assertStringContainsString('/api/v1/intelligence/me', $this->content->requests[0]->url);
+        self::assertSame('Bearer fsc_srv_laraveltoken', $this->content->requests[0]->headers['Authorization']);
+
+        // Under Global Privacy Control the browser id is not forwarded; no cookies at all sends an empty object.
+        $this->me([], ['HTTP_COOKIE' => 'fsa_pid=abcdefabcdefabcdef', 'HTTP_SEC_GPC' => '1']);
+        $this->me();
+        self::assertSame('{}', (string) $this->content->requests[1]->body);
+        self::assertSame('{}', (string) $this->content->requests[2]->body);
+        // Every call goes to the Hub: nothing is cached on the site.
+        self::assertCount(3, $this->content->requests);
+    }
+
+    public function testMeGivesTheEmptyAnswerForCrawlersAndWhenTheHubCannotAnswer(): void
+    {
+        $this->content = (new FakeTransport())->always(FakeTransport::json(['consent' => true, 'profile' => null, 'recognized' => false]));
+        $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' => 'fsc_srv_laraveltoken', 'baseUrl' => 'https://content.test', 'transport' => $this->content]));
+
+        $this->me([], ['HTTP_USER_AGENT' => 'Googlebot/2.1'])->assertOk()->assertExactJson(['consent' => false, 'profile' => null, 'recognized' => false]);
+        self::assertSame([], $this->content->requests);
+
+        $this->content = (new FakeTransport())->always(FakeTransport::json(['error' => ['code' => 'not_found']], 404));
+        $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' => 'fsc_srv_laraveltoken', 'baseUrl' => 'https://content.test', 'transport' => $this->content]));
+        $this->me()->assertOk()->assertExactJson(['consent' => false, 'profile' => null, 'recognized' => false, 'unavailable' => true]);
+    }
 }

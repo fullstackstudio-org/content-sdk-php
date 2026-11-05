@@ -159,7 +159,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.14.0" }
+    "require": { "fullstackstudio/content": "^0.15.0" }
 }
 ```
 
@@ -527,6 +527,8 @@ Wrap a part of a page that FullStack Intelligence may personalise. Write the DEF
   marked `data-fsi-variant` / `data-fsi-group`; no signal = no Hub call. Such a response is sent `private, no-cache`, so do NOT cache the HTML of
   personalised pages at the edge. A site that edge-caches HTML sets `FSC_INTELLIGENCE_CLIENT_DECIDE=true` (browser path for slots the server did not
   decide). Slot names are learned per page: the first signal view of a new page decides what it already knows.
+- Since 0.15.0 `POST /_fsc/i/me` (while `FSC_INTELLIGENCE_ENABLED` is on) answers `{consent, profile, recognized}` for the visitor's own consented browser id (`fsa_pid`) and
+  recognition cookie, for a dev panel (`devmode()`); `ContentClient::intelligenceMe()`. Never cached.
 - Crawlers, bots, headless browsers, prefetches and requests without a User-Agent never get a variant (default HTML, no Hub call, headers untouched); extend with `FSC_INTELLIGENCE_CRAWLER_PATTERN`.
 - Privacy and limits: the `fsa_pid` cookie is ignored under `Sec-GPC: 1`; a referrer only counts when it maps to a real route of the site (answers
   with a referrer are never cached); the decision shares the 120/min per visitor IP limit of `/decide` (over it = default, no Hub call); Hub answers

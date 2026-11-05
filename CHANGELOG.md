@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.15.0
+
+- `ContentClient::intelligenceMe(?string $pid, ?string $recognition = null)`: the visitor's own FullStack Intelligence profile
+  (`POST /api/v1/intelligence/me` on the Hub, server token, read-only, never returns the persistent id).
+- `POST /_fsc/i/me` (new, registered while `content.intelligence.enabled` is on, same prefix and no-middleware setup as `/_fsc/i/decide`): reads the
+  browser id from the consented `fsa_pid` cookie (never under Sec-GPC) and the recognition cookie, asks the Hub and answers
+  `{ consent, profile, recognized }` (+ `unavailable: true` when the Hub could not answer). Crawlers get the empty answer. `Cache-Control: no-store`.
+  Meant for a site's dev panel (`devmode()`); a visitor only ever sees their own profile.
+
 ## 0.14.0
 
 - FullStack Intelligence slots are now decided ON THE SERVER, so a visitor never sees the default jump to a variant (the browser path swapped after paint

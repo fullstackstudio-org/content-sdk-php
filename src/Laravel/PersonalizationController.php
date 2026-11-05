@@ -288,6 +288,51 @@ final class PersonalizationController
         return $out;
     }
 
+    /**
+     * `POST me` (no body): the visitor's own profile for the site's dev panel (`devmode()`). The browser id comes from the consented `fsa_pid`
+     * cookie only (never under Global Privacy Control), the recognition cookie from its configured name. Answers
+     * `{ consent, profile, recognized }`; any problem, a crawler or a Hub without this route answers the empty form with the matching status
+     * (`unavailable: true` when the Hub could not answer). Never cached, nothing is stored.
+     */
+    public function me(Request $request): Response
+    {
+        $empty = ['consent' => false, 'profile' => null, 'recognized' => false];
+
+        if (!IntelligenceProxy::enabled()) {
+            return self::json($empty + ['unavailable' => true], 404);
+        }
+
+        if (Crawler::is($request)) {
+            return self::json($empty, 200);
+        }
+
+        $ip = self::visitorIp($request);
+
+        if (RateLimiter::tooManyAttempts('fsi-me:' . ($ip ?? 'none'), 30)) {
+            return self::json($empty + ['unavailable' => true], 429);
+        }
+
+        RateLimiter::hit('fsi-me:' . ($ip ?? 'none'), 60);
+        $cookies = SlotDecisions::rawCookies($request);
+        $pid = $cookies[SlotDecisions::COOKIE] ?? null;
+        $pid = is_string($pid) && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) === 1 && $request->headers->get('Sec-GPC') !== '1' ? $pid : null;
+        $name = (string) config('content.intelligence.recognition_cookie', '');
+        $recognition = $name !== '' ? ($cookies[$name] ?? null) : null;
+        $recognition = is_string($recognition) && $recognition !== '' && strlen($recognition) <= 200 ? $recognition : null;
+
+        try {
+            $answer = app(ContentClient::class)->intelligenceMe($pid, $recognition, ['timeoutMs' => 1500]);
+        } catch (Throwable) {
+            return self::json($empty + ['unavailable' => true], 200);
+        }
+
+        return self::json([
+            'consent' => ($answer['consent'] ?? false) === true,
+            'profile' => is_array($answer['profile'] ?? null) ? $answer['profile'] : null,
+            'recognized' => ($answer['recognized'] ?? false) === true,
+        ], 200);
+    }
+
     public static function visitorIp(Request $request): ?string
     {
         $header = config('content.analytics.ip_header');
