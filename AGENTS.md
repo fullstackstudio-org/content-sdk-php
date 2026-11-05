@@ -486,6 +486,15 @@ Checklist "analytics correct ingericht":
 10. Native engine (`engine` native/both): `GET /_fsc/a/fsa.js` returns JavaScript, `POST /_fsc/a/e` answers 202 on a page view, `getAnalyticsConfig()['native']`
     has `ready: true` and a `signingKey` (server token), and the pod reaches the collector.
 
+### FullStack Intelligence (module `intelligence`, paid add-on): OFF by default
+
+Do nothing unless FullStack Studio switched Intelligence on for the site. Then, in `.env`: `FSC_INTELLIGENCE_ENABLED=true`, optionally
+`FSC_INTELLIGENCE_EXCLUDE_IPS=<office IPs/CIDRs>` (their visits are marked `fsi_ex` and never build a profile) and, on fullstackstudio.nl only,
+`FSC_INTELLIGENCE_RECOGNITION_COOKIE=fsi_rec` (the portal recognition cookie). The native proxy then links a CONSENTING browser to its profile
+(`ContentClient::identifyVisitor`, after the response, once per browser per 12 h). Without consent: no identify, no cookie read, nothing on the device.
+A site form that should link the submission to the visitor may send `window.fsa.pid()` along (null without consent). Never show the visitor
+what is known about them ("you viewed SMS 3 times").
+
 ### Cache and webhook invalidation
 
 Reads are cached under tags (`content:articles`, `content:article:<slug>`, `content:page:<path>`, `content:seo`, ... see `FullStackStudio\Content\Tags`) in your Laravel

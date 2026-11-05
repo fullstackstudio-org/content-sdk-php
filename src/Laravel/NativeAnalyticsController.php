@@ -101,6 +101,9 @@ final class NativeAnalyticsController
             return $this->json(202);
         }
 
+        // FullStack Intelligence (off unless content.intelligence.enabled): office traffic is marked so it never builds a profile.
+        IntelligenceProxy::markExcluded($batch, $ip);
+
         $forward = (string) json_encode($batch, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $headers = ['Content-Type' => 'text/plain; charset=utf-8', 'User-Agent' => $this->header($request, 'user-agent', 512)];
 
@@ -124,6 +127,9 @@ final class NativeAnalyticsController
         } catch (Throwable) {
             // Collector unreachable: this batch is lost, the page never notices.
         }
+
+        // FullStack Intelligence: a consenting browser is linked to its profile after the response (off unless enabled).
+        IntelligenceProxy::identifyLater($request, $batch, $ip);
 
         return $this->json(202);
     }

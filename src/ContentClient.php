@@ -703,4 +703,30 @@ final class ContentClient
             'options' => $options,
         ])->data;
     }
+
+    // --- FullStack Intelligence (module `intelligence`) ------------------------------------------------------------------------------
+
+    /**
+     * Server token only. Links a CONSENTING browser (the tracker's `pid`, which it only sends with consent) to its Intelligence profile,
+     * optionally with the raw value of the portal recognition cookie (the Hub verifies the signature and only uses it when the project
+     * opted in). Answers `{active, profileId, recognized}`; `active: false` while the module is off. Never cached.
+     *
+     * @param array{timeoutMs?: int} $options
+     * @return array{active?: bool, profileId?: ?string, recognized?: bool}
+     */
+    public function identifyVisitor(string $pid, ?string $recognition = null, array $options = []): array
+    {
+        $body = ['pid' => $pid];
+
+        if ($recognition !== null && $recognition !== '') {
+            $body['recognition'] = substr($recognition, 0, 200);
+        }
+
+        return $this->context->execute([
+            'method' => 'POST',
+            'path' => '/intelligence/identify',
+            'body' => $body,
+            'options' => $options,
+        ])->data;
+    }
 }

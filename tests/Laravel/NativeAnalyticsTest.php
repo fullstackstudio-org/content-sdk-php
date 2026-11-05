@@ -203,6 +203,48 @@ final class NativeAnalyticsTest extends LaravelTestCase
         self::assertSame(['pageview', 'heatmap'], array_column($forwarded['e'], 't'));
     }
 
+    public function testIntelligenceIsOffByDefaultAndNeverChangesTheBatchOrCallsTheHub(): void
+    {
+        config(['content.intelligence.exclude_ips' => '203.0.113.0/24', 'content.intelligence.recognition_cookie' => 'fsi_rec']);
+        $this->content->always(FakeTransport::json(self::config('native')));
+        $body = $this->batch(['c' => 1, 'pid' => 'abcdefabcdefabcdef']);
+
+        $this->call('POST', '/_fsc/a/e', [], ['fsi_rec' => 'v1.cookie'], [], ['CONTENT_TYPE' => 'text/plain', 'HTTP_ORIGIN' => 'https://studio.nl', 'HTTP_CF_CONNECTING_IP' => '203.0.113.9', 'HTTP_USER_AGENT' => 'Mozilla/5.0 Test'], $body)->assertStatus(202);
+
+        self::assertSame($body, $this->collector->last()->body, 'byte for byte the batch of the browser');
+        self::assertSame([], array_values(array_filter($this->content->requests, fn ($r) => str_contains($r->url, '/intelligence/'))));
+    }
+
+    public function testIntelligenceMarksOfficeTrafficAndIdentifiesOnlyAConsentingBrowserOnce(): void
+    {
+        config(['content.intelligence.enabled' => true, 'content.intelligence.exclude_ips' => '198.51.100.0/24, 192.0.2.7', 'content.intelligence.recognition_cookie' => 'fsi_rec']);
+        $this->content->always(FakeTransport::json(self::config('native')));
+        $identify = fn () => array_values(array_filter($this->content->requests, fn ($r) => str_contains($r->url, '/api/v1/intelligence/identify')));
+        $send = fn (array $batch, string $ip, array $cookies = []) => $this->call('POST', '/_fsc/a/e', [], $cookies, [], ['CONTENT_TYPE' => 'text/plain', 'HTTP_ORIGIN' => 'https://studio.nl', 'HTTP_CF_CONNECTING_IP' => $ip, 'HTTP_USER_AGENT' => 'Mozilla/5.0 Test'], $this->batch($batch))->assertStatus(202);
+        $heat = ['t' => 'heatmap', 'u' => 'https://studio.nl/', 'sel' => 'a', 'x' => 0.5, 'y' => 0.5, 'hk' => 'click'];
+
+        // Office IP: every event that keeps properties is marked, heatmap clicks are left alone, and nobody is identified.
+        $send(['c' => 1, 'pid' => 'abcdefabcdefabcdef', 'e' => [['t' => 'pageview', 'u' => 'https://studio.nl/'], ['t' => 'event', 'n' => 'cta', 'u' => 'https://studio.nl/', 'p' => ['plan' => 'pro']], $heat]], '198.51.100.20', ['fsi_rec' => 'v1.cookie']);
+        $forwarded = json_decode((string) $this->collector->last()->body, true);
+        self::assertSame(['fsi_ex' => '1'], $forwarded['e'][0]['p']);
+        self::assertSame(['plan' => 'pro', 'fsi_ex' => '1'], $forwarded['e'][1]['p']);
+        self::assertArrayNotHasKey('p', $forwarded['e'][2]);
+        self::assertSame([], $identify());
+
+        // No consent: no pid leaves the site, nothing is identified, the recognition cookie is not even passed on.
+        $send(['c' => 0, 'pid' => 'abcdefabcdefabcdef'], '203.0.113.9', ['fsi_rec' => 'v1.cookie']);
+        self::assertSame([], $identify());
+        self::assertStringNotContainsString('fsi_ex', (string) $this->collector->last()->body);
+
+        // Consent: one call to the Hub after the response, with the browser id and the raw cookie; the next batch makes none.
+        $send(['c' => 1, 'pid' => 'abcdefabcdefabcdef'], '203.0.113.9', ['fsi_rec' => 'v1.cookie']);
+        $send(['c' => 1, 'pid' => 'abcdefabcdefabcdef'], '203.0.113.9', ['fsi_rec' => 'v1.cookie']);
+        self::assertCount(1, $identify());
+        self::assertSame('POST', $identify()[0]->method);
+        self::assertSame(['pid' => 'abcdefabcdefabcdef', 'recognition' => 'v1.cookie'], json_decode((string) $identify()[0]->body, true));
+        self::assertSame('Bearer fsc_srv_laraveltoken', $identify()[0]->headers['Authorization']);
+    }
+
     public function testScrollMapAndFrustrationSignalsAreCookielessAndPassWithoutConsent(): void
     {
         $this->content->always(FakeTransport::json(self::config('native')));

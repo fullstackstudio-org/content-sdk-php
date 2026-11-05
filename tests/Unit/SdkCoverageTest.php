@@ -33,6 +33,7 @@ final class SdkCoverageTest extends TestCase
         '/address/suggest' => '`suggestAddresses()`: Dutch address lookup is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
         '/address/lookup' => '`lookupAddress()`: see `/address/suggest`.',
         '/site' => '`getSite()`: the site standards (module `site`) are Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
+        '/intelligence/identify' => '`identifyVisitor()`: FullStack Intelligence (module `intelligence`) is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
         '/api/media/*' => '`mediaUrl()`: the JS version builds it from a template string that does not start with a slash, so the scan does not see it.',
     ];
 

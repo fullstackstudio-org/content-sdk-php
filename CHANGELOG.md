@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- FullStack Intelligence (plan analytics-engine part B, phase 6), OFF by default (`content.intelligence.enabled`, env `FSC_INTELLIGENCE_ENABLED`):
+  the native proxy marks visits from `exclude_ips` with the property `fsi_ex` and, for a consenting browser only, calls the new
+  `ContentClient::identifyVisitor()` (`POST /api/v1/intelligence/identify`, server token) after the response, optionally with the portal recognition
+  cookie named in `recognition_cookie`. Nothing changes for a site that does not switch it on.
+- `fsa.js`: `fsa.pid()` returns the browser id with consent (null without consent or under Global Privacy Control), for site forms that link a
+  submission to the visitor.
+
 ## 0.10.2
 
 - `fsa.js` (plan analytics-engine, phase 4 ingest): scroll map, frustration signals and richer heatmap clicks. Needs the matching collector release

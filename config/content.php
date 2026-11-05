@@ -100,6 +100,23 @@ return [
     ],
 
     /*
+     * FullStack Intelligence (Content module `intelligence`, a paid add-on). OFF by default: nothing here changes what a site sends until
+     * `enabled` is true AND the Hub has the module on for the project. With it on, the native proxy (`POST {analytics.path}/e`) also:
+     * - marks every event of a visitor from `exclude_ips` (office/staff networks, comma-separated IPs or CIDRs) with the property
+     *   `fsi_ex`, so the Hub never builds a profile from that traffic (the visit is still counted in Analytics);
+     * - for a CONSENTING browser only (the tracker sends its id `pid` only with consent) tells the Hub which profile it is
+     *   (`POST /api/v1/intelligence/identify`, server token, at most once per `identify_ttl` seconds per browser), plus the value of the
+     *   portal recognition cookie when `recognition_cookie` names one (FullStack Studio's own site; the Hub verifies its signature and
+     *   uses it only when the project opted in). Without consent nothing is identified and no cookie is read.
+     */
+    'intelligence' => [
+        'enabled' => (bool) env('FSC_INTELLIGENCE_ENABLED', false),
+        'recognition_cookie' => env('FSC_INTELLIGENCE_RECOGNITION_COOKIE', ''),
+        'exclude_ips' => env('FSC_INTELLIGENCE_EXCLUDE_IPS', ''),
+        'identify_ttl' => (int) env('FSC_INTELLIGENCE_IDENTIFY_TTL', 43200),
+    ],
+
+    /*
      * Site standards (Content module `site`): `<x-content::head />` and `<x-content::body-end />` render the customer's own code (gated by
      * cookie consent), verification metas, favicon, theme colour and the LocalBusiness JSON-LD. Read from `GET /api/v1/site`, cached under
      * `content:site` (webhook `site.updated`). A failed lookup renders the last good answer or nothing and pauses lookups for

@@ -223,6 +223,18 @@ test_('with consent: a persistent id in localStorage and heatmap clicks; revokin
     assert.equal(batch.body.e.some((e) => e.t === 'heatmap'), false, 'no heatmap without consent');
 });
 
+test_('fsa.pid() hands the browser id to a site form only with consent and never under Global Privacy Control', async () => {
+    const none = page();
+    assert.equal(none.run(() => none.win.fsa.pid()), null);
+    assert.equal(none.local.data['fsa-id'], undefined, 'asking does not create an id without consent');
+
+    const yes = page({ consent: 'accepted' });
+    assert.equal(yes.run(() => yes.win.fsa.pid()), '11111111-2222-4333-8444-555555555555');
+
+    const gpc = page({ consent: 'accepted', gpc: true });
+    assert.equal(gpc.run(() => gpc.win.fsa.pid()), null);
+});
+
 test_('without consent no heatmap clicks; Global Privacy Control blocks the persistent id even with consent', async () => {
     const p = page();
     p.fireDoc('click', { type: 'click', target: el('div'), clientX: 1, clientY: 1 });

@@ -20,7 +20,9 @@
  *   the error class and a hash of the normalised message, never the message or a stack) and quick_back (back within 5 s of arriving;
  *   needs the Navigation API or a same-document popstate). At most 20 per page view.
  *
- * API: fsa.track(name, props), fsa.revenue(amount, currency, props), fsa.pageview(), fsa.setConsent(value).
+ * API: fsa.track(name, props), fsa.revenue(amount, currency, props), fsa.pageview(), fsa.setConsent(value), fsa.pid() (the browser id,
+ * only with consent and without Global Privacy Control, else null: a site form may send it along so FullStack Intelligence links the
+ * submission to the visitor's profile).
  * Declarative: data-fsa-event="cta_click" (+ data-fsa-prop-<key>="value") on any clickable element; `data-fsc` / `data-fsc-prop-<key>`
  * work the same (plan name).
  */
@@ -683,6 +685,7 @@
         pageview: pageview,
         setConsent: setConsent,
         hasConsent: function () { return consent; },
+        pid: function () { return persistentId() || null; },
         flush: flush,
     };
 
