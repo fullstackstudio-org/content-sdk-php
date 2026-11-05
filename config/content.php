@@ -118,6 +118,9 @@ return [
         // The member recognition cookie (default `fsi_rec`): set by `Laravel\MemberRecognition` from the member login answers, sent to the Hub
         // by the proxy's identify call and the server-side slots. Empty = recognition cookie off (nothing set, nothing read).
         'recognition_cookie' => env('FSC_INTELLIGENCE_RECOGNITION_COOKIE', 'fsi_rec'),
+        // true (default): inside a Laravel request `$content->members->login/loginTotp/verifyEmail/refreshSession` send the consented browser id
+        // (`fsa_pid`) themselves and every answer with a `recognition` key queues the cookie on the response. Set false to do it by hand.
+        'member_recognition' => (bool) env('FSC_INTELLIGENCE_MEMBER_RECOGNITION', true),
         // Cookie domain of that cookie: empty = the site's own host only; `.example.nl` shares it across subdomains.
         'recognition_cookie_domain' => env('FSC_INTELLIGENCE_RECOGNITION_COOKIE_DOMAIN', ''),
         'exclude_ips' => env('FSC_INTELLIGENCE_EXCLUDE_IPS', ''),

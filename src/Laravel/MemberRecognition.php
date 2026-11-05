@@ -16,6 +16,10 @@ use Throwable;
  * lifetime `maxAge`, domain `content.intelligence.recognition_cookie_domain` (empty = this host). The proxy and the server-side slots send
  * it to the Hub, which verifies its signature per project.
  *
+ * Most sites need zero code: with the Laravel integration `Members::login/loginTotp/verifyEmail/refreshSession` pass the pid and the answers of
+ * `login`, `loginTotp`, `refreshSession`, `logout` and `logoutAll` queue the cookie themselves (`content.intelligence.member_recognition`, default true).
+ * The calls below are for a site with a fully custom HTTP client or one that switched that off:
+ *
  * ```php
  * $answer = $content->members->login($credentials, ['clientIp' => $request->ip(), 'pid' => MemberRecognition::pid($request)]);
  * MemberRecognition::queue($answer, $request);   // after login, refreshSession, logout and logoutAll
@@ -35,6 +39,48 @@ final class MemberRecognition
     public static function pid(Request $request): ?string
     {
         return IntelligenceProxy::pid($request);
+    }
+
+    /**
+     * Whether the SDK does the recognition work itself (`content.intelligence.member_recognition`, default true) and a Laravel application with a
+     * request is available. False in plain PHP, so `Members` stays framework independent.
+     */
+    public static function automatic(): bool
+    {
+        try {
+            $app = class_exists(\Illuminate\Container\Container::class) ? \Illuminate\Container\Container::getInstance() : null;
+
+            return $app !== null && $app->bound('config') && $app->bound('request') && (bool) $app->make('config')->get('content.intelligence.member_recognition', true);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /** The consenting browser's id of the current request, for the member calls (null when not {@see automatic()} or without consent). */
+    public static function automaticPid(): ?string
+    {
+        try {
+            return self::automatic() ? self::pid(\Illuminate\Container\Container::getInstance()->make('request')) : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Queues the cookie of a member answer on the current response when {@see automatic()}. Idempotent: Laravel's cookie jar keeps one queued cookie
+     * per name, path and domain, so a site that also calls {@see queue()} sets it once.
+     *
+     * @param array<string, mixed> $answer
+     */
+    public static function automaticQueue(array $answer): void
+    {
+        try {
+            if (array_key_exists('recognition', $answer) && self::automatic()) {
+                self::queue($answer, \Illuminate\Container\Container::getInstance()->make('request'));
+            }
+        } catch (Throwable) {
+            // never fails a login
+        }
     }
 
     /** The cookie name in use; empty = recognition cookie switched off by the site. */

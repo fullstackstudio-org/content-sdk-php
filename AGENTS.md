@@ -506,13 +506,16 @@ what is known about them ("you viewed SMS 3 times").
 
 The cookie name `content.intelligence.recognition_cookie` now defaults to `fsi_rec` (empty = off; `FSC_INTELLIGENCE_RECOGNITION_COOKIE_DOMAIN` for a shared
 domain). When the Hub project has Intelligence on with the `recognition` opt-in (the site owner switches it on in the Hub), a logged-in member is recognised on
-every later visit with a consenting browser. Two things to do in the login code of the site, nothing else:
+every later visit with a consenting browser. Most sites need ZERO code: inside a Laravel request `$content->members->login/loginTotp/verifyEmail/refreshSession`
+send the consented browser id themselves, and the answers of login, loginTotp, refreshSession, logout and logoutAll set or remove the cookie on the response
+(switch `content.intelligence.member_recognition`, default on; per call `['pid' => false]` or `['queue' => false]`). Only a site with a fully custom HTTP client
+(or the switch off) does it by hand:
 
 ```php
 use FullStackStudio\Content\Laravel\MemberRecognition;
 
-$answer = $content->members->login($credentials, ['clientIp' => $request->ip(), 'pid' => MemberRecognition::pid($request)]);   // pid: also for loginTotp, verifyEmail, refreshSession
-MemberRecognition::queue($answer, $request);   // after login, loginTotp, refreshSession, logout and logoutAll: sets or removes the cookie
+$answer = $content->members->login($credentials, ['clientIp' => $request->ip(), 'pid' => MemberRecognition::pid($request)]);
+MemberRecognition::queue($answer, $request);   // idempotent, also fine next to the automatic path
 ```
 
 `MemberRecognition::pid($request)` reads the consented `fsa_pid` cookie (null without consent, under `Sec-GPC: 1`, for crawlers); `queue()` sets the cookie from

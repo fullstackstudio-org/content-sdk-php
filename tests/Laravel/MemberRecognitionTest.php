@@ -195,4 +195,97 @@ final class MemberRecognitionTest extends LaravelTestCase
 
         self::assertNotContains('fsi_rec', $names);
     }
+
+    // --- automatic paths (Members called inside a Laravel request) ---
+
+    /** @return array{0: \FullStackStudio\Content\ContentClient, 1: \FullStackStudio\Content\Tests\Support\FakeTransport} */
+    private function fakeClient(array $answer): array
+    {
+        $http = new \FullStackStudio\Content\Tests\Support\FakeTransport();
+        $http->always(\FullStackStudio\Content\Tests\Support\FakeTransport::json($answer));
+
+        return [new \FullStackStudio\Content\ContentClient(['token' => 'fsc_srv_laraveltoken', 'baseUrl' => 'https://content.test', 'transport' => $http]), $http];
+    }
+
+    private function bindRequest(array $headers): void
+    {
+        $this->app->instance('request', $this->request($headers + ['User-Agent' => 'Mozilla/5.0']));
+    }
+
+    public function testMemberCallsPickUpThePidFromTheCurrentRequest(): void
+    {
+        [$client, $http] = $this->fakeClient(['status' => 'authenticated']);
+        $this->bindRequest(['Cookie' => 'fsa_pid=' . self::PID]);
+
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw']);
+        self::assertSame(self::PID, $http->lastBody()['pid']);
+
+        $client->members->refreshSession(['session' => 'S']);
+        self::assertSame(['pid' => self::PID], $http->lastBody());
+
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw'], ['pid' => false]);
+        self::assertArrayNotHasKey('pid', $http->lastBody());
+
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw'], ['pid' => 'zzzzzzzzzzzzzzzzzzzz']);
+        self::assertSame('zzzzzzzzzzzzzzzzzzzz', $http->lastBody()['pid'], 'explicit pid wins');
+    }
+
+    public function testNoAutomaticPidWithoutConsentOrWhenSwitchedOff(): void
+    {
+        [$client, $http] = $this->fakeClient(['status' => 'authenticated']);
+
+        $this->bindRequest([]);
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw']);
+        self::assertArrayNotHasKey('pid', $http->lastBody());
+
+        $this->bindRequest(['Cookie' => 'fsa_pid=' . self::PID, 'Sec-GPC' => '1']);
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw']);
+        self::assertArrayNotHasKey('pid', $http->lastBody());
+
+        config()->set('content.intelligence.member_recognition', false);
+        $this->bindRequest(['Cookie' => 'fsa_pid=' . self::PID]);
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw']);
+        self::assertArrayNotHasKey('pid', $http->lastBody());
+    }
+
+    public function testAnswersQueueTheCookieAutomaticallyAndOnlyOnce(): void
+    {
+        $this->bindRequest([]);
+        $this->app['cookie']->flushQueuedCookies();
+        [$client] = $this->fakeClient($this->answer());
+
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw']);
+        $client->members->refreshSession(['session' => 'S']);
+        MemberRecognition::queue($this->answer(), $this->request(['User-Agent' => 'Mozilla/5.0']));   // manual call on top: idempotent
+
+        $queued = $this->app['cookie']->getQueuedCookies();
+        self::assertCount(1, $queued);
+        self::assertSame(self::VALUE, $queued[0]->getValue());
+    }
+
+    public function testLogoutAnswerRemovesTheCookieAutomaticallyAndQueueFalseOptsOut(): void
+    {
+        $this->bindRequest([]);
+        $this->app['cookie']->flushQueuedCookies();
+        [$client] = $this->fakeClient(['loggedOut' => true, 'recognition' => null]);
+
+        $client->members->logout(['session' => 'S'], ['queue' => false]);
+        self::assertCount(0, $this->app['cookie']->getQueuedCookies());
+
+        $client->members->logout(['session' => 'S']);
+        $queued = $this->app['cookie']->getQueuedCookies();
+        self::assertCount(1, $queued);
+        self::assertTrue($queued[0]->isCleared());
+    }
+
+    public function testSwitchOffQueuesNothingAutomatically(): void
+    {
+        config()->set('content.intelligence.member_recognition', false);
+        $this->bindRequest([]);
+        $this->app['cookie']->flushQueuedCookies();
+        [$client] = $this->fakeClient($this->answer());
+
+        $client->members->login(['email' => 'a@b.nl', 'password' => 'pw']);
+        self::assertCount(0, $this->app['cookie']->getQueuedCookies());
+    }
 }

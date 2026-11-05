@@ -6,11 +6,8 @@
 - `Members::login`, `loginTotp`, `verifyEmail` and `refreshSession` take an optional `pid` in their call options (the consenting browser's id, only a well-formed id travels) and send it in the body; the Hub links the browser to the member at once. Without it the requests are what they were.
 - `IntelligenceProxy::pid($request)`: the consented `fsa_pid` cookie, read from the raw `Cookie` header; null under `Sec-GPC: 1`, for crawlers and prefetches, and for a malformed value. `<x-content::form>` (FormController) adds it as `_meta.pid` only when it is present, so a submission with an e-mail address links the visitor (Hub forms linking).
 - Default of `content.intelligence.recognition_cookie` is now `fsi_rec` (was empty; the Hub verifies per project). Set `FSC_INTELLIGENCE_RECOGNITION_COOKIE=` (empty) to switch the cookie off. A site that never calls the helpers sets no cookie; the proxy and the server-side slots only read `fsi_rec` when it exists. The identify call stays once per `identify_ttl` per browser and cookie.
+- Out of the box: the SDK ships no member routes of its own, so the member calls do the work. Inside a Laravel request `Members::login/loginTotp/verifyEmail/refreshSession` take the pid from the request (explicit `pid` option wins, `false` = none) and the answers of `login`, `loginTotp`, `confirmTotp` (setup token), `refreshSession`, `logout` and `logoutAll` queue the recognition cookie themselves (option `queue: false` opts out). Switch: `content.intelligence.member_recognition` (`FSC_INTELLIGENCE_MEMBER_RECOGNITION`, default true). Queuing twice is harmless. Most sites need zero code; only a fully custom HTTP client uses the helpers.
 - The Laravel example has a `MemberController` with the login and logout code. Site owners must name recognition in their privacy statement (AGENTS.md, section "Member recognition and form linking") and the Hub project needs Intelligence with `recognition: true`.
-
-### 0.17.1
-
-- Devmode switch: the redirect after `?fsc_devmode=1|0` is relative (path + remaining query), so a site behind a proxy or CDN that sees the request as http never downgrades to http; the cookie is Secure when the request is secure or `app.url` is https.
 
 ## 0.17.1
 

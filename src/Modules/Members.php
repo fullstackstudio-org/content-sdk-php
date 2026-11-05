@@ -6,11 +6,16 @@ namespace FullStackStudio\Content\Modules;
 
 use FullStackStudio\Content\Internal\Arr;
 use FullStackStudio\Content\Internal\ModuleContext;
+use FullStackStudio\Content\Laravel\MemberRecognition;
 
 /**
  * Member accounts (`$client->members`; module `members`): login with two-factor authentication, the account flows and the member admin.
  * SERVER TOKEN ONLY: call these from your site's server, never from a browser. `session` is the member's session token
  * (`X-FSC-Member-Session`, kept by your site in an httpOnly cookie, never in a URL); `clientIp` the visitor's IP for the per-visitor limits.
+ *
+ * With Laravel, FullStack Intelligence recognition needs no code: `login`, `loginTotp`, `verifyEmail` and `refreshSession` pick up the consented browser id
+ * from the current request (override with the option `pid`, `false` = none) and an answer with `recognition` queues the cookie (`queue: false` = not).
+ * See {@see MemberRecognition}.
  *
  * Errors: `invalid_credentials` (401), `invalid_member_session` (401), `member_token_invalid` (400), `account_locked` / `rate_limited`
  * (429, `retryAfter`), `conflict` (409).
@@ -43,8 +48,8 @@ final class Members
     }
 
     /**
-     * Adds the optional `pid` of `$options` (the consenting browser's id, cookie `fsa_pid`; `Laravel\MemberRecognition::pid($request)` reads it)
-     * to a body. Only a well-formed id travels; without one the body is exactly what it was.
+     * Adds the `pid` (the consenting browser's id) to a body: an explicit `pid` option wins (`false` or null = none); without the key a Laravel
+     * request in the container supplies it ({@see MemberRecognition::automatic()}). Only a well-formed id travels; otherwise the body is untouched.
      *
      * @param array<string, mixed>|null $body
      * @param array<string, mixed> $options
@@ -52,13 +57,29 @@ final class Members
      */
     private static function withPid(?array $body, array $options): ?array
     {
-        $pid = $options['pid'] ?? null;
+        $pid = array_key_exists('pid', $options) ? $options['pid'] : MemberRecognition::automaticPid();
 
         if (!is_string($pid) || preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) !== 1) {
             return $body;
         }
 
         return [...($body ?? []), 'pid' => $pid];
+    }
+
+    /**
+     * Queues the recognition cookie of an answer on the current Laravel response (automatic; `queue: false` in the options opts out).
+     *
+     * @param array<string, mixed> $answer
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private static function recognise(array $answer, array $options): array
+    {
+        if (($options['queue'] ?? true) !== false) {
+            MemberRecognition::automaticQueue($answer);
+        }
+
+        return $answer;
     }
 
     // --- Login and two-factor authentication (`members:auth`) -----------------------------------------------------------------
@@ -72,7 +93,7 @@ final class Members
      */
     public function login(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/login', self::withPid(['email' => $input['email'] ?? null, 'password' => $input['password'] ?? null], $options), null, $options);
+        return self::recognise($this->call('POST', '/members/login', self::withPid(['email' => $input['email'] ?? null, 'password' => $input['password'] ?? null], $options), null, $options), $options);
     }
 
     /**
@@ -84,7 +105,7 @@ final class Members
      */
     public function loginTotp(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/login/totp', self::withPid(['challengeToken' => $input['challengeToken'] ?? null, ...self::factor($input)], $options), null, $options);
+        return self::recognise($this->call('POST', '/members/login/totp', self::withPid(['challengeToken' => $input['challengeToken'] ?? null, ...self::factor($input)], $options), null, $options), $options);
     }
 
     /** The two-factor state of the logged-in member. @param array{session: string} $input @param array<string, mixed> $options @return array<string, mixed> */
@@ -121,7 +142,7 @@ final class Members
     public function confirmTotp(array $input, array $options = []): array
     {
         if (array_key_exists('setupToken', $input)) {
-            return $this->call('POST', '/members/totp/confirm', ['setupToken' => $input['setupToken'], 'code' => $input['code'] ?? null], null, $options);
+            return self::recognise($this->call('POST', '/members/totp/confirm', ['setupToken' => $input['setupToken'], 'code' => $input['code'] ?? null], null, $options), $options);
         }
 
         return $this->call('POST', '/members/me/totp/confirm', ['code' => $input['code'] ?? null], $input['session'] ?? null, $options);
@@ -217,19 +238,19 @@ final class Members
      */
     public function refreshSession(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/session/refresh', self::withPid(null, $options), $input['session'] ?? null, $options);
+        return self::recognise($this->call('POST', '/members/session/refresh', self::withPid(null, $options), $input['session'] ?? null, $options), $options);
     }
 
     /** With recognition on, the answer holds `recognition: null` (remove the cookie, see `Laravel\MemberRecognition`). @param array{session: string} $input @param array<string, mixed> $options @return array{loggedOut: true, recognition?: null} */
     public function logout(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/logout', null, $input['session'] ?? null, $options);
+        return self::recognise($this->call('POST', '/members/logout', null, $input['session'] ?? null, $options), $options);
     }
 
     /** Like `logout`: `recognition: null` when recognition is on. @param array{session: string} $input @param array<string, mixed> $options @return array{revokedSessions: int, recognition?: null} */
     public function logoutAll(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/logout-all', null, $input['session'] ?? null, $options);
+        return self::recognise($this->call('POST', '/members/logout-all', null, $input['session'] ?? null, $options), $options);
     }
 
     /** Always `['accepted' => true]`. @param array{email: string} $input @param array{clientIp?: string, timeoutMs?: int} $options @return array{accepted: true} */

@@ -119,14 +119,9 @@ $me = $content->members->me(['session' => $token]);                         // t
 $content->members->logout(['session' => $token]);
 ```
 
-With FullStack Intelligence recognition on (Hub opt-in), pass the consenting browser's id and set the recognition cookie from the answer (0.18.0):
-
-```php
-use FullStackStudio\Content\Laravel\MemberRecognition;
-
-$login = $content->members->login($credentials, ['clientIp' => $ip, 'pid' => MemberRecognition::pid($request)]);   // also loginTotp, verifyEmail, refreshSession
-MemberRecognition::queue($login, $request);                                                                         // also after logout / logoutAll
-```
+With FullStack Intelligence recognition on (Hub opt-in) a Laravel site needs no extra code (0.18.0): the member calls send the consented browser id and set or remove
+the recognition cookie themselves (`content.intelligence.member_recognition`). Custom HTTP client: pass `['pid' => MemberRecognition::pid($request)]` and call
+`MemberRecognition::queue($answer, $request)`.
 
 `setupTotp` / `confirmTotp` take either `['session' => ..., 'password' => ...]` or the `['setupToken' => ...]` from `login`;
 `disableTotp` and `regenerateRecoveryCodes` take a `code` or a `recoveryCode`. Recovery codes are only in the confirm response.

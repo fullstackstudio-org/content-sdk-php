@@ -114,6 +114,16 @@ final class MembersTest extends ModuleTestCase
         self::assertNull($this->http->last()->body);
     }
 
+    public function testOutsideLaravelNothingIsAutomatic(): void
+    {
+        $this->http->always(FakeTransport::json(['recognition' => ['cookie' => 'fsi_rec', 'value' => 'v', 'maxAge' => 60]]));
+
+        $answer = $this->client()->members->login(['email' => 'a@b.nl', 'password' => 'pw']);
+
+        self::assertSame(['email' => 'a@b.nl', 'password' => 'pw'], $this->http->lastBody(), 'no request in the container: no pid');
+        self::assertArrayHasKey('recognition', $answer, 'the answer is returned untouched');
+    }
+
     public function testRecoveryCodeWinsOverCodeAndSessionNeverLeaksIntoTheBody(): void
     {
         $this->http->always(FakeTransport::json(['recoveryCodes' => []]));
