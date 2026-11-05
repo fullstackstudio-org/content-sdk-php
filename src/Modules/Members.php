@@ -217,6 +217,32 @@ final class Members
     }
 
     /**
+     * The member's own marketing consent (plan ootb-integrations D11): `marketingOptIn` is `null` until the member chose. A FullStack Hub
+     * marketing message such as the abandoned-checkout reminder only goes to a member who opted in (or a confirmed newsletter subscriber).
+     *
+     * @param array{session: string} $input
+     * @param array<string, mixed> $options
+     * @return array{marketingOptIn: bool|null, marketingOptInAt: string|null}
+     */
+    public function getMarketingConsent(array $input, array $options = []): array
+    {
+        return $this->call('GET', '/members/me/marketing', null, $input['session'] ?? null, $options);
+    }
+
+    /**
+     * Sets the member's own marketing consent. Only call this from an explicit choice of the member (an unticked checkbox in the account page),
+     * never on their behalf. `changed` is false when the value was already set.
+     *
+     * @param array{session: string, marketingOptIn: bool} $input
+     * @param array<string, mixed> $options
+     * @return array{marketingOptIn: bool|null, marketingOptInAt: string|null, changed: bool}
+     */
+    public function setMarketingConsent(array $input, array $options = []): array
+    {
+        return $this->call('PUT', '/members/me/marketing', ['marketingOptIn' => $input['marketingOptIn'] ?? null], $input['session'] ?? null, $options);
+    }
+
+    /**
      * Changes the password; the member's other sessions end.
      *
      * @param array{session: string, currentPassword: string, newPassword: string} $input

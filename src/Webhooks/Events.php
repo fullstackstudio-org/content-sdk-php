@@ -120,6 +120,7 @@ final class Events
         'chat.conversation.handover',
         'intelligence.visitor.warm',
         'intelligence.visitor.signal',
+        'order.abandoned',
         'webhook.test',
     ];
 }

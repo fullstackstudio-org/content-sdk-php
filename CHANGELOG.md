@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Marketing consent of a member (plan ootb-integrations D11). `Members::getMarketingConsent(['session' => …])` (`GET /members/me/marketing`) returns `{marketingOptIn, marketingOptInAt}` (`null` = the member never chose) and `Members::setMarketingConsent(['session' => …, 'marketingOptIn' => true|false])` (`PUT /members/me/marketing`) stores the member's own choice (`changed: false` when nothing changed). Show it as an unticked checkbox on the account page; never set it on the member's behalf. The Hub only sends marketing messages, such as the abandoned-checkout reminder, to a member who opted in or to a confirmed newsletter subscriber.
+- Webhook event type `order.abandoned` in `Webhooks\Events::ALL` (an unpaid checkout older than the shop's `abandonedReminder.afterMinutes`; data: `ref` (order id), `number`, `recognized`, `consent` (`newsletter`, `member` or `null`) and `channel` (`email`, `whatsapp`, `both` or `null`); never personal data).
+
 ## 0.20.0
 
 - Chat and FullStack Intelligence (plan ootb-integrations D4/D5). `Chat::open` takes optional `pid` (the consented `fsa_pid` browser id) and `recognition` (the recognition cookie value) in its input; the Hub links the conversation to the visitor's profile and VERIFIED identity (module intelligence with `recognition`; a bad value is ignored, never an error).

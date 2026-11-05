@@ -34,6 +34,8 @@ final class MembersTest extends ModuleTestCase
         yield 'requestVerification' => [fn (ContentClient $c) => $c->members->requestVerification(['email' => 'a@b.nl']), 'POST', '/members/verify-email/request', [], ['email' => 'a@b.nl'], null];
         yield 'me' => [fn (ContentClient $c) => $c->members->me(['session' => 'S']), 'GET', '/members/me', [], null, 'S'];
         yield 'updateMe' => [fn (ContentClient $c) => $c->members->updateMe(['session' => 'S', 'name' => 'Piet']), 'PATCH', '/members/me', [], ['name' => 'Piet'], 'S'];
+        yield 'getMarketingConsent' => [fn (ContentClient $c) => $c->members->getMarketingConsent(['session' => 'S']), 'GET', '/members/me/marketing', [], null, 'S'];
+        yield 'setMarketingConsent' => [fn (ContentClient $c) => $c->members->setMarketingConsent(['session' => 'S', 'marketingOptIn' => true]), 'PUT', '/members/me/marketing', [], ['marketingOptIn' => true], 'S'];
         yield 'changePassword' => [fn (ContentClient $c) => $c->members->changePassword(['session' => 'S', 'currentPassword' => 'old', 'newPassword' => 'new']), 'POST', '/members/me/password', [], ['currentPassword' => 'old', 'newPassword' => 'new'], 'S'];
         yield 'refreshSession' => [fn (ContentClient $c) => $c->members->refreshSession(['session' => 'S']), 'POST', '/members/session/refresh', [], null, 'S'];
         yield 'logout' => [fn (ContentClient $c) => $c->members->logout(['session' => 'S']), 'POST', '/members/logout', [], null, 'S'];
