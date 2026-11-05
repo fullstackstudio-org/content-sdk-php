@@ -12,7 +12,12 @@
  * - Measurement through the tracker (`fsa.track`): `fsi_slot_view` once per slot when half of it is in view, `fsi_slot_click` for a click
  *   on a link or button in it, with `fsi_slot`, `fsi_variant` and `fsi_group` (personal, control, customer, none or fallback).
  * - API for data slots (no visible content, e.g. the chat opening line): `fsiSlots.get(name)` -> `{variant, group, fields}` or null,
- *   `fsiSlots.ready(callback)`, `fsiSlots.view(name)`; the event `fsi:slots` on document when the decisions are in.
+ *   `fsiSlots.ready(callback)`, `fsiSlots.view(name)` (call it in every group when shown, so control and fallback count too) and
+ *   `fsiSlots.chatMessage(name)` (`fsi_slot_chat_message`, the first chat message after it was shown); the event `fsi:slots` on document
+ *   when the decisions are in.
+ * - Field variants change only the text of `data-fsi-field` elements and the `href` of `data-fsi-href` links in place, so listeners and
+ *   animations on the slot stay intact; a variant with its own `<template>` replaces the default nodes (re-init scroll effects on `fsi:slots`).
+ * - The page language (`<html lang>`) goes along: the Hub only picks variants written for it.
  * - CSP-safe: no inline styles (CSSOM only), no innerHTML, no eval. Text goes in with textContent.
  */
 (function (w, d) {
@@ -69,6 +74,14 @@
                 track('fsi_slot_view', slot);
             }
         },
+        // The first chat message after a chat-type data slot was shown (the measure of the chat opening line), once per page.
+        chatMessage: function (name) {
+            var slot = slots[name];
+            if (slot && slot.result && slot.viewed && !slot.chatted) {
+                slot.chatted = true;
+                track('fsi_slot_chat_message', slot);
+            }
+        },
     };
     w.fsiSlots = api;
 
@@ -118,17 +131,57 @@
         return null;
     }
 
-    function build(slot, decision) {
-        var frag = d.createDocumentFragment();
-        var tpl = templateFor(slot.el, decision.v);
-        if (tpl) {
-            frag.appendChild(tpl.content.cloneNode(true));
-        } else {
-            var current = defaultNodes(slot.el);
-            for (var c = 0; c < current.length; c++) frag.appendChild(current[c].cloneNode(true));
+    // Field variants change the existing nodes in place (text and links only), so listeners and animations on them stay intact. Returns
+    // an undo function.
+    function applyInPlace(el, fields) {
+        var undo = [];
+        if (fields) {
+            var texts = el.querySelectorAll('[data-fsi-field]');
+            for (var a = 0; a < texts.length; a++) {
+                var key = texts[a].getAttribute('data-fsi-field');
+                if (typeof fields[key] === 'string' && fields[key] !== '') {
+                    var node = texts[a];
+                    var kids = [];
+                    for (var k = node.firstChild; k; k = k.nextSibling) kids.push(k);
+                    undo.push((function (target, children) {
+                        return function () {
+                            while (target.firstChild) target.removeChild(target.firstChild);
+                            for (var c = 0; c < children.length; c++) target.appendChild(children[c]);
+                        };
+                    })(node, kids));
+                    node.textContent = fields[key];
+                }
+            }
+            var links = el.querySelectorAll('[data-fsi-href]');
+            for (var b = 0; b < links.length; b++) {
+                var href = fields[links[b].getAttribute('data-fsi-href')];
+                if (typeof href === 'string' && isSafeUrl(href)) {
+                    undo.push((function (link, previous) {
+                        return function () { if (previous === null) link.removeAttribute('href'); else link.setAttribute('href', previous); };
+                    })(links[b], links[b].getAttribute('href')));
+                    links[b].setAttribute('href', href);
+                }
+            }
         }
-        applyFields(frag, decision.f);
-        return frag;
+        return function () { for (var u = undo.length - 1; u >= 0; u--) undo[u](); };
+    }
+
+    // A variant with its own markup (template) replaces the default nodes; returns an undo function.
+    function applyTemplate(el, tpl, fields) {
+        var old = defaultNodes(el);
+        var anchor = old.length ? old[old.length - 1].nextSibling : el.firstChild;
+        var frag = d.createDocumentFragment();
+        frag.appendChild(tpl.content.cloneNode(true));
+        applyFields(frag, fields);
+        var added = [];
+        for (var n = frag.firstChild; n; n = n.nextSibling) added.push(n);
+        for (var o = 0; o < old.length; o++) el.removeChild(old[o]);
+        el.insertBefore(frag, anchor && anchor.parentNode === el ? anchor : el.firstChild);
+        return function () {
+            for (var r = 0; r < added.length; r++) if (added[r].parentNode === el) el.removeChild(added[r]);
+            var first = el.firstChild;
+            for (var p = 0; p < old.length; p++) el.insertBefore(old[p], first);
+        };
     }
 
     // Swap in the variant; with `keep` false undo it again in the same task (the control group's check). True when it may stay.
@@ -136,15 +189,10 @@
         var el = slot.el;
         var before = el.getBoundingClientRect();
         var below = before.top >= (w.innerHeight || d.documentElement.clientHeight);
-        var old = defaultNodes(el);
-        var anchor = old.length ? old[old.length - 1].nextSibling : el.firstChild;
-        var frag = build(slot, decision);
-        var added = [];
-        for (var n = frag.firstChild; n; n = n.nextSibling) added.push(n);
+        var tpl = templateFor(el, decision.v);
+        var undo = tpl ? applyTemplate(el, tpl, decision.f) : applyInPlace(el, decision.f);
         var hide = decision.h === 1;
 
-        for (var o = 0; o < old.length; o++) el.removeChild(old[o]);
-        el.insertBefore(frag, anchor && anchor.parentNode === el ? anchor : el.firstChild);
         if (hide) {
             if (below) el.hidden = true; else el.style.visibility = 'hidden';
         }
@@ -153,9 +201,7 @@
         var ok = below || after.height <= before.height + 0.5;
 
         if (!ok || !keep) {
-            for (var r = 0; r < added.length; r++) if (added[r].parentNode === el) el.removeChild(added[r]);
-            var first = el.firstChild;
-            for (var p = 0; p < old.length; p++) el.insertBefore(old[p], first);
+            undo();
             el.hidden = false;
             el.style.visibility = '';
             return ok;
@@ -233,6 +279,8 @@
         var consent = !!(fsa && typeof fsa.hasConsent === 'function' && fsa.hasConsent());
         var pid = consent && typeof fsa.pid === 'function' ? fsa.pid() : null;
         var body = { s: names, p: w.location.pathname || '/', c: consent ? 1 : 0 };
+        var lang = String((d.documentElement && d.documentElement.lang) || '').toLowerCase();
+        if (/^[a-z]{2,3}(-[a-z0-9]{2,8})?$/.test(lang)) body.l = lang;
         var ref = referrerPath();
         if (ref) body.r = ref;
         if (pid) body.pid = pid;

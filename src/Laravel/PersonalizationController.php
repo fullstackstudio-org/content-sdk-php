@@ -15,17 +15,22 @@ use Throwable;
  * registered while `content.intelligence.enabled` AND `content.intelligence.personalization` are on.
  *
  * - `GET slots.js`: the small browser step (`resources/assets/fsi-slots.js`) that `<x-content::slot>` loads once per page.
- * - `POST decide { s: [slot keys], p: path, r?: referring path on this site, c: 0|1, pid? }`: asks the Hub which variant fits
- *   ({@see ContentClient::decideSlots()}) within `decide_timeout_ms`, caches the answer `decide_ttl` seconds, applies the control group
+ * - `POST decide { s: [slot keys], p: path, r?: referring path on this site, l?: page language, c: 0|1, pid? }`: asks the Hub which variant
+ *   fits ({@see ContentClient::decideSlots()}) within `decide_timeout_ms`, applies the control group
  *   and answers `{ d: { slot: { v, g, f?, h? } } }` with `g` = `personal` (show the variant), `control` (held back: keep the default and
  *   measure as control), `customer` (functional variant for a logged-in portal customer, never held back) or `none` (no variant fits).
  *   A slot that is off or unknown is absent: the browser leaves it alone and measures nothing. Any problem (Hub away, timeout, module off,
  *   bad request) answers `{ d: {} }`: the default content stays. Never cached by a browser or the edge.
  *
+ * Caching: only ANONYMOUS answers (no browser id, no recognition cookie) are cached, `decide_ttl` seconds, keyed by slots, pages and
+ * language, so a visitor can never fill the site's cache with per-visitor entries. Circuit breaker: after a failure, timeout or 429 of the Hub
+ * the site does not ask again for {@see self::BREAKER_SECONDS} seconds (one key per site), so a slow Hub never costs every page view its budget.
+ *
  * Consent (D5): the tracker's browser id `pid` is only forwarded with `c: 1`; without it the Hub only sees the current and previous page.
  * The portal recognition cookie (`recognition_cookie`) is forwarded always but the Hub uses it only as "is a logged-in customer"
- * (functional, plan B.4). The stable bucket of the control group: with consent from the browser id (stable across visits); without consent
- * from HMAC(app key, day, IP, user agent) (stable for the day, nothing stored, the IP never leaves this server).
+ * (functional, plan B.4). The stable bucket of the control group, PER SLOT (each slot has its own independent control group): with consent
+ * from HMAC(app key, slot, browser id) (stable across visits); without consent from HMAC(app key, slot, day, IP, user agent) (stable for the
+ * day, nothing stored, the IP never leaves this server).
  */
 final class PersonalizationController
 {
@@ -34,6 +39,12 @@ final class PersonalizationController
     public const MAX_SLOTS = 10;
 
     public const KEY = '/^[a-z0-9][a-z0-9-]{0,39}$/D';
+
+    public const LOCALE = '/^[a-z]{2,3}(-[a-z0-9]{2,8})?$/D';
+
+    public const BREAKER_SECONDS = 10;
+
+    public const BREAKER_KEY = 'fsi:decide:breaker';
 
     public static function enabled(): bool
     {
@@ -81,19 +92,19 @@ final class PersonalizationController
             return self::json($empty, 400);
         }
 
-        [$slots, $path, $referrer, $consent, $pid] = $input;
+        [$slots, $path, $referrer, $consent, $pid, $locale] = $input;
         $name = (string) config('content.intelligence.recognition_cookie', '');
         $cookie = $name !== '' ? $request->cookies->get($name) : null;
         $cookie = is_string($cookie) && $cookie !== '' && strlen($cookie) <= 200 ? $cookie : null;
 
-        $answer = self::ask($slots, $path, $referrer, $consent ? $pid : null, $consent, $cookie);
+        $answer = self::ask($slots, $path, $referrer, $consent ? $pid : null, $consent, $cookie, $locale);
 
         if (($answer['active'] ?? false) !== true || !is_array($answer['decisions'] ?? null)) {
             return self::json($empty, 200);
         }
 
         $control = max(0, min(50, (int) ($answer['controlPercent'] ?? 10)));
-        $bucket = self::bucket($consent ? $pid : null, $ip, (string) $request->headers->get('User-Agent', ''));
+        $userAgent = (string) $request->headers->get('User-Agent', '');
         $out = [];
 
         foreach ($answer['decisions'] as $slot => $decision) {
@@ -101,21 +112,22 @@ final class PersonalizationController
                 continue;
             }
 
-            $out[$slot] = self::present($decision, $bucket < $control);
+            $out[$slot] = self::present($decision, self::bucket($slot, $consent ? $pid : null, $ip, $userAgent) < $control);
         }
 
         return self::json(['d' => $out === [] ? new \stdClass() : $out], 200);
     }
 
     /**
-     * The stable bucket 0-99 of the control group. With consent: from the browser id, the same on every visit. Without consent: a keyed
-     * daily hash of IP and user agent (Europe/Amsterdam day), the same during the visit and the day; nothing is stored anywhere.
+     * The stable bucket 0-99 of the control group of one slot. Per slot, so every slot has its own independent control group. With consent:
+     * from the browser id, the same on every visit. Without consent: a keyed daily hash of IP and user agent (Europe/Amsterdam day), the
+     * same during the visit and the day; nothing is stored anywhere.
      */
-    public static function bucket(?string $pid, ?string $ip, string $userAgent, ?string $day = null): int
+    public static function bucket(string $slot, ?string $pid, ?string $ip, string $userAgent, ?string $day = null): int
     {
         $source = $pid !== null && $pid !== ''
-            ? 'pid|' . $pid
-            : 'anon|' . ($day ?? (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Amsterdam')))->format('Y-m-d')) . '|' . ($ip ?? '') . '|' . substr($userAgent, 0, 300);
+            ? 'pid|' . $slot . '|' . $pid
+            : 'anon|' . $slot . '|' . ($day ?? (new \DateTimeImmutable('now', new \DateTimeZone('Europe/Amsterdam')))->format('Y-m-d')) . '|' . ($ip ?? '') . '|' . substr($userAgent, 0, 300);
         $hash = hash_hmac('sha256', $source, 'fsi-bucket|' . (string) config('app.key', ''), true);
 
         return (int) (unpack('N', substr($hash, 0, 4))[1] % 100);
@@ -123,7 +135,7 @@ final class PersonalizationController
 
     /**
      * @param array<array-key, mixed> $body
-     * @return array{0: list<string>, 1: string, 2: ?string, 3: bool, 4: ?string}|null
+     * @return array{0: list<string>, 1: string, 2: ?string, 3: bool, 4: ?string, 5: ?string}|null
      */
     private static function input(array $body): ?array
     {
@@ -148,7 +160,10 @@ final class PersonalizationController
         $consent = ($body['c'] ?? 0) === 1 || ($body['c'] ?? false) === true;
         $pid = is_string($body['pid'] ?? null) && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $body['pid']) === 1 ? $body['pid'] : null;
 
-        return [array_values(array_unique($slots)), $path, self::path($body['r'] ?? null), $consent, $pid];
+        $locale = is_string($body['l'] ?? null) ? strtolower($body['l']) : null;
+        $locale = $locale !== null && preg_match(self::LOCALE, $locale) === 1 ? $locale : null;
+
+        return [array_values(array_unique($slots)), $path, self::path($body['r'] ?? null), $consent, $pid, $locale];
     }
 
     /** A path on this site without query or fragment, at most 300 characters; null otherwise. */
@@ -165,25 +180,52 @@ final class PersonalizationController
      * @param list<string> $slots
      * @return array<string, mixed>
      */
-    private static function ask(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $cookie): array
+    private static function ask(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $cookie, ?string $locale): array
     {
         try {
             $cache = app('cache')->store();
-            $key = 'fsi:decide:' . hash('sha256', implode(',', $slots) . "\0" . $path . "\0" . ($referrer ?? '') . "\0" . ($pid ?? '') . "\0" . ($consent ? '1' : '0') . "\0" . ($cookie ?? ''));
-            $cached = $cache->get($key);
+        } catch (Throwable) {
+            return [];
+        }
 
-            if (is_array($cached)) {
+        // Only anonymous answers are shared: the same for every visitor on these pages, so nobody can fill the cache per visitor.
+        $anonymous = $pid === null && $cookie === null;
+        $key = 'fsi:decide:' . hash('sha256', implode(',', $slots) . "\0" . $path . "\0" . ($referrer ?? '') . "\0" . ($locale ?? '') . "\0" . ($consent ? '1' : '0'));
+
+        try {
+            if ($anonymous && is_array($cached = $cache->get($key))) {
                 return $cached;
             }
 
-            $answer = app(ContentClient::class)->decideSlots($slots, $path, $referrer, $pid, $consent, $cookie, ['timeoutMs' => max(20, min(2000, (int) config('content.intelligence.decide_timeout_ms', 50)))]);
-            $cache->put($key, $answer, max(5, (int) config('content.intelligence.decide_ttl', 60)));
-
-            return $answer;
+            if ($cache->has(self::BREAKER_KEY)) {
+                return [];
+            }
         } catch (Throwable) {
-            // Hub away, too slow or the module off: the default content stays. Never visible to the visitor.
             return [];
         }
+
+        try {
+            $answer = app(ContentClient::class)->decideSlots($slots, $path, $referrer, $pid, $consent, $cookie, $locale, ['timeoutMs' => max(20, min(2000, (int) config('content.intelligence.decide_timeout_ms', 50)))]);
+        } catch (Throwable) {
+            // Hub away, too slow, rate limited (429) or the module off: the default content stays, and the Hub is left alone for a moment.
+            try {
+                $cache->put(self::BREAKER_KEY, 1, self::BREAKER_SECONDS);
+            } catch (Throwable) {
+                // No cache: no breaker, the default still stays.
+            }
+
+            return [];
+        }
+
+        if ($anonymous) {
+            try {
+                $cache->put($key, $answer, max(5, (int) config('content.intelligence.decide_ttl', 60)));
+            } catch (Throwable) {
+                // Not cached: the next view asks again.
+            }
+        }
+
+        return $answer;
     }
 
     /** @return array<string, mixed> */

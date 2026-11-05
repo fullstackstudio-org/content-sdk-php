@@ -4,9 +4,28 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Http;
 
-/** The default transport: ext-curl, no redirects, timeout from the request. */
+/**
+ * The default transport: ext-curl, no redirects, timeout from the request. On PHP 8.5+ the connections, DNS answers and TLS sessions are kept
+ * in a persistent share handle, so a PHP-FPM worker reuses its connection to the Hub across requests (keep-alive) instead of a new TLS
+ * handshake per call; that matters for the small personalisation budget. Older PHP: a fresh connection per call, as before.
+ */
 final class CurlTransport implements Transport
 {
+    private static mixed $share = null;
+
+    private static function share(): mixed
+    {
+        if (self::$share === null && function_exists('curl_share_init_persistent')) {
+            try {
+                self::$share = curl_share_init_persistent([CURL_LOCK_DATA_DNS, CURL_LOCK_DATA_CONNECT, CURL_LOCK_DATA_SSL_SESSION]);
+            } catch (\Throwable) {
+                self::$share = false;
+            }
+        }
+
+        return self::$share ?: null;
+    }
+
     public function send(Request $request): Response
     {
         $handle = curl_init($request->url);
@@ -48,6 +67,10 @@ final class CurlTransport implements Transport
             $options[CURLOPT_POSTFIELDS] = $payload;
         } elseif ($request->body !== null) {
             $options[CURLOPT_POSTFIELDS] = $request->body;
+        }
+
+        if (($share = self::share()) !== null) {
+            $options[CURLOPT_SHARE] = $share;
         }
 
         curl_setopt_array($handle, $options);

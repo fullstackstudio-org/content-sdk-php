@@ -20,6 +20,12 @@
     customer variant. The browser id is forwarded only with consent; the portal recognition cookie always (the Hub uses it only as "is a
     logged-in customer"). Any problem answers `{d: {}}`: the default stays. 120 requests per minute per visitor IP. `Cache-Control: no-store`.
   - Needs Hub routes of Intelligence phase 7; an older Hub answers 404, which keeps the default.
+  - Control group PER SLOT (the bucket hashes the slot key too): every slot has its own independent control group.
+  - Only anonymous decide answers are cached (no browser id, no recognition cookie); a failure, timeout or 429 of the Hub opens a 10 s
+    circuit breaker per site. The page language (`<html lang>`) goes along (`ContentClient::decideSlots(..., $locale)`).
+  - Field variants change the existing nodes in place (text, links), so listeners and animations survive; `fsiSlots.chatMessage(name)` measures
+    the first chat message of a chat slot (`fsi_slot_chat_message`).
+- `CurlTransport`: on PHP 8.5+ a persistent curl share (connections, DNS, TLS sessions), so a PHP-FPM worker keeps its connection to the Hub.
 
 ## 0.12.0
 

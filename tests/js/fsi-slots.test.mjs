@@ -29,6 +29,7 @@ class Node {
     get nextElementSibling() { const s = this.parentNode ? this.parentNode.childNodes : []; return s.slice(s.indexOf(this) + 1).find((n) => n.nodeType === 1) || null; }
     getAttribute(name) { return name in this.attrs ? this.attrs[name] : null; }
     setAttribute(name, value) { this.attrs[name] = String(value); }
+    removeAttribute(name) { delete this.attrs[name]; }
     hasAttribute(name) { return name in this.attrs; }
     detach(node) { if (node.parentNode) { node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1); node.parentNode = null; } }
     insertBefore(node, ref) {
@@ -79,7 +80,7 @@ const h = (tag, attrs = {}, ...children) => { const n = new Node(1, tag, attrs);
 const template = (variant, ...children) => { const t = h('template', { 'data-fsi-variant': variant }); children.forEach((c) => t.content.appendChild(c)); return t; };
 
 /** A page with the given slots, a fetch that answers `answer` (or fails), a tracker with or without consent, and a manual clock. */
-function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoaded = true, referrer = '', hash = '', delay = 0, viewport = 800 }) {
+function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoaded = true, referrer = '', hash = '', delay = 0, viewport = 800, lang = '' }) {
     let clock = 0;
     const tracked = [];
     const requests = [];
@@ -89,7 +90,7 @@ function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoa
     const document = {
         currentScript: { getAttribute: (n) => ({ 'data-endpoint': '/_fsc/i/decide', 'data-deadline': '1500' })[n] ?? null },
         referrer,
-        documentElement: { clientHeight: viewport },
+        documentElement: { clientHeight: viewport, lang },
         querySelectorAll: (selector) => root.querySelectorAll(selector).concat(slots.filter((s) => s.tagName === 'TEMPLATE' && s.hasAttribute('data-fsi-slot'))),
         createDocumentFragment: () => new Node(11),
         dispatchEvent: () => true,
@@ -271,4 +272,37 @@ test('waits briefly for the tracker and queues measurements until it is there', 
     assert.equal(p.requests[0].body.c, 0);
     p.seeAll();
     assert.deepEqual(Array.from(p.window.fsa.q[0]), ['track', 'fsi_slot_view', { fsi_slot: 'home-hero', fsi_variant: 'default', fsi_group: 'none' }]);
+});
+
+test('a field variant changes the existing nodes in place, so listeners stay; the page language goes along', async () => {
+    const slot = hero(100);
+    const title = slot.querySelectorAll('[data-fsi-field]')[0];
+    const link = slot.querySelectorAll('[data-fsi-href]')[0];
+    const p = page({ slots: [slot], lang: 'en', answer: { d: { 'home-hero': { v: 'voip', g: 'personal', f: { title: 'Calls', cta_url: '/en/voip' } } } } });
+    await p.settle();
+    assert.equal(p.requests[0].body.l, 'en');
+    assert.equal(slot.querySelectorAll('[data-fsi-field]')[0], title);
+    assert.equal(title.textContent, 'Calls');
+    assert.equal(slot.querySelectorAll('[data-fsi-href]')[0], link);
+    assert.equal(link.getAttribute('href'), '/en/voip');
+
+    // A refused in-place swap restores the original text and link.
+    const tall = hero(100);
+    const t2 = tall.querySelectorAll('[data-fsi-field]')[0];
+    const q = page({ slots: [tall], answer: { d: { 'home-hero': { v: 'voip', g: 'personal', f: { title: 'Een veel langere titel die over drie regels loopt en meer', cta_url: '/voip' } } } } });
+    await q.settle();
+    assert.equal(t2.textContent, 'Websites die werken');
+    assert.equal(tall.querySelectorAll('[data-fsi-href]')[0].getAttribute('href'), '/contact');
+});
+
+test('a chat data slot counts its view in every group and the first chat message once', async () => {
+    for (const group of ['control', 'personal']) {
+        const p = page({ slots: [h('template', { 'data-fsi-slot': 'chat-opening', 'data-fsi-data': '' })], answer: { d: { 'chat-opening': { v: 'voip', g: group, f: { text: 'x' } } } } });
+        await p.settle();
+        p.window.fsiSlots.chatMessage('chat-opening'); // before the view: not counted
+        p.window.fsiSlots.view('chat-opening');
+        p.window.fsiSlots.chatMessage('chat-opening');
+        p.window.fsiSlots.chatMessage('chat-opening');
+        assert.deepEqual(p.tracked.map(([name, props]) => [name, props.fsi_group]), [['fsi_slot_view', group], ['fsi_slot_chat_message', group]]);
+    }
 });

@@ -753,15 +753,20 @@ final class ContentClient
      * FullStack Intelligence personalisation (phase 7): which variant of each slot fits this visitor (`POST /api/v1/intelligence/decide`,
      * server token). `pid` counts only with `$consent`; the recognition cookie (portal) only answers "is a logged-in customer". Answers
      * `{active, controlPercent, decisions: {slot: {variant, fields, hide, functional} | null}}`; `active: false` while anything is off.
+     * `$locale` is the language of the page: only variants written for it count (default `nl` in the Hub).
      * Never cached here (the SDK route caches briefly); pass a small `timeoutMs`.
      *
      * @param list<string> $slots
      * @param array{timeoutMs?: int} $options
      * @return array{active?: bool, controlPercent?: int, decisions?: array<string, array{variant: string, fields: array<string, string>, hide: bool, functional: bool}|null>}
      */
-    public function decideSlots(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $recognition = null, array $options = []): array
+    public function decideSlots(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $recognition = null, ?string $locale = null, array $options = []): array
     {
         $body = ['slots' => array_values($slots), 'path' => $path, 'consent' => $consent];
+
+        if ($locale !== null && $locale !== '') {
+            $body['locale'] = $locale;
+        }
 
         if ($referrer !== null && $referrer !== '') {
             $body['referrer'] = $referrer;

@@ -127,8 +127,22 @@ final class PersonalizationTest extends LaravelTestCase
         // Stable: the same visitor gets the same group on every request of the day; with consent the browser id decides on every visit.
         $first = $this->decide(['s' => ['home-hero'], 'p' => '/voip', 'c' => 0], [], '192.0.2.44')['d']['home-hero']['g'];
         self::assertSame($first, $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0], [], '192.0.2.44')['d']['home-hero']['g']);
-        self::assertSame(PersonalizationController::bucket('abcdefabcdefabcdef', '192.0.2.1', 'A'), PersonalizationController::bucket('abcdefabcdefabcdef', '198.51.100.7', 'B'));
-        self::assertSame(PersonalizationController::bucket(null, '192.0.2.1', 'A', '2026-11-05'), PersonalizationController::bucket(null, '192.0.2.1', 'A', '2026-11-05'));
+        self::assertSame(PersonalizationController::bucket('home-hero', 'abcdefabcdefabcdef', '192.0.2.1', 'A'), PersonalizationController::bucket('home-hero', 'abcdefabcdefabcdef', '198.51.100.7', 'B'));
+        self::assertSame(PersonalizationController::bucket('home-hero', null, '192.0.2.1', 'A', '2026-11-05'), PersonalizationController::bucket('home-hero', null, '192.0.2.1', 'A', '2026-11-05'));
+
+        // Every slot has its own independent control group: over many visitors, being held back in one slot says nothing about another.
+        $both = 0;
+        $inA = 0;
+
+        for ($i = 0; $i < 2000; $i++) {
+            $a = PersonalizationController::bucket('home-hero', null, "10.0.{$i}.1", 'UA', '2026-11-05') < 10;
+            $b = PersonalizationController::bucket('cta-close', null, "10.0.{$i}.1", 'UA', '2026-11-05') < 10;
+            $inA += $a ? 1 : 0;
+            $both += $a && $b ? 1 : 0;
+        }
+
+        self::assertGreaterThan(120, $inA);
+        self::assertLessThan(60, $both); // independent: about 1% of 2000 = 20, never the 10% of a shared bucket
 
         // A held-back visitor keeps the default but the browser still gets the variant's content (for the same layout check).
         $control = self::answer(['home-hero' => ['variant' => 'voip', 'fields' => ['title' => 'Bellen'], 'hide' => false, 'functional' => false]], 50);
@@ -151,16 +165,28 @@ final class PersonalizationTest extends LaravelTestCase
         self::assertSame(['d' => ['home-hero' => ['v' => 'default', 'g' => 'none']]], $this->decide(['s' => ['home-hero', 'cta'], 'p' => '/', 'c' => 0]));
     }
 
-    public function testAnyProblemKeepsTheDefault(): void
+    public function testAnyProblemKeepsTheDefaultAndTheBreakerSparesTheHub(): void
     {
-        // Timeout or outage of the Hub.
+        // Timeout or outage of the Hub: the default stays, and for 10 s the site does not ask again (one key per site, not per visitor).
         $this->content->queue(new TransportException('timeout'));
         self::assertSame(['d' => []], $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0]));
+        self::assertSame(['d' => []], $this->decide(['s' => ['home-hero'], 'p' => '/voip', 'c' => 1, 'pid' => 'abcdefabcdefabcdef'], [], '192.0.2.77'));
+        self::assertCount(1, $this->hubCalls());
+        $this->travel(11)->seconds();
+
+        // A 429 of the Hub (rate limit per token) counts as a failure too.
+        $this->content->queue(FakeTransport::json(['error' => ['code' => 'rate_limited', 'message' => 'Te veel']], 429));
+        self::assertSame(['d' => []], $this->decide(['s' => ['home-hero'], 'p' => '/a', 'c' => 0]));
+        self::assertSame(['d' => []], $this->decide(['s' => ['home-hero'], 'p' => '/b', 'c' => 0]));
+        self::assertCount(2, $this->hubCalls());
+        $this->travel(11)->seconds();
+
         // The module is off in the Hub.
         $this->content->queue(FakeTransport::json(['active' => false, 'controlPercent' => 0, 'decisions' => []]));
         self::assertSame(['d' => []], $this->decide(['s' => ['home-hero'], 'p' => '/about', 'c' => 0]));
         // The decide call uses the small budget.
         self::assertSame(50, $this->content->requests[0]->timeoutMs);
+        self::assertCount(3, $this->hubCalls());
 
         foreach ([['s' => [], 'p' => '/'], ['s' => ['Hero!'], 'p' => '/'], ['s' => ['a'], 'p' => 'https://elders.example/'], ['s' => ['a'], 'p' => '//elders.example/'], 'not json'] as $body) {
             $raw = is_string($body) ? $body : (string) json_encode($body);
@@ -180,5 +206,19 @@ final class PersonalizationTest extends LaravelTestCase
         self::assertCount(1, $this->hubCalls());
         $this->decide(['s' => ['home-hero'], 'p' => '/voip', 'c' => 0]);
         self::assertCount(2, $this->hubCalls());
+
+        // Answers for a browser id or a recognition cookie are never cached: no per-visitor entries in the site's cache.
+        $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 1, 'pid' => 'abcdefabcdefabcdef']);
+        $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 1, 'pid' => 'abcdefabcdefabcdef']);
+        $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0], ['fsi_rec' => 'v1.cookie']);
+        $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0], ['fsi_rec' => 'v1.cookie']);
+        self::assertCount(6, $this->hubCalls());
+
+        // The page language goes to the Hub and is part of the anonymous cache key.
+        $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0, 'l' => 'en']);
+        self::assertSame('en', $this->hubCalls()[6]['locale']);
+        $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0, 'l' => 'EN']);
+        $this->decide(['s' => ['home-hero'], 'p' => '/', 'c' => 0, 'l' => 'bad lang']);
+        self::assertCount(7, $this->hubCalls());
     }
 }
