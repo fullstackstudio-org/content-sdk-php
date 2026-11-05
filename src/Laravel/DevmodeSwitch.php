@@ -32,8 +32,13 @@ final class DevmodeSwitch
         }
 
         $on = $value === '1';
-        $response = new RedirectResponse($request->fullUrlWithoutQuery([Devmode::PARAM]), 302);
-        $response->headers->setCookie(new Cookie(Devmode::cookie(), $on ? '1' : '', $on ? time() + self::YEAR : 1, '/', null, $request->isSecure(), false, false, Cookie::SAMESITE_LAX));
+        // A relative target: behind a proxy or CDN the request may arrive as http, and an absolute URL built from it would downgrade.
+        $query = $request->query->all();
+        unset($query[Devmode::PARAM]);
+        $target = $request->getBaseUrl() . $request->getPathInfo() . ($query === [] ? '' : '?' . http_build_query($query));
+        $response = new RedirectResponse($target, 302);
+        $secure = $request->isSecure() || str_starts_with((string) config('app.url', ''), 'https://');
+        $response->headers->setCookie(new Cookie(Devmode::cookie(), $on ? '1' : '', $on ? time() + self::YEAR : 1, '/', null, $secure, false, false, Cookie::SAMESITE_LAX));
         $response->headers->set('Cache-Control', 'no-store');
 
         return $response;

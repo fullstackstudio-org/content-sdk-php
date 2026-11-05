@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+### 0.17.1
+
+- Devmode switch: the redirect after `?fsc_devmode=1|0` is relative (path + remaining query), so a site behind a proxy or CDN that sees the request as http never downgrades to http; the cookie is Secure when the request is secure or `app.url` is https.
 
 ## 0.17.0
 
