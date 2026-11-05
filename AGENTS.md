@@ -571,8 +571,9 @@ Intelligence profile and, for a logged-in or recognised visitor, to who they are
 <fsc-chat token="fsc_pub_…" lang="nl" open-url="/_fsc/i/chat"></fsc-chat>
 ```
 
-Without `open-url` (or on a site without the route) the widget opens at the Hub as before. A visitor recognised by a cookie of at most 7 days old gets their
-own data in the chat only where the Hub allows it (members: orders, appointments, requests, invoices). The privacy statement text above covers it.
+Without `open-url` (or on a site without the route) the widget opens at the Hub as before. The cookie only tells the Hub WHO the visitor is; it never
+unlocks a member's own data in the chat (orders, appointments, requests, invoices): that still takes the member session (`FscChat.init({ memberSession })`).
+The privacy statement text above covers it.
 
 #### Personalisation slots (0.13.0, server-side decision 0.14.0): OFF by default
 
