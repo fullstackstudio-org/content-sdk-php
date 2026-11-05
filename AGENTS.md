@@ -575,6 +575,32 @@ Without `open-url` (or on a site without the route) the widget opens at the Hub 
 unlocks a member's own data in the chat (orders, appointments, requests, invoices): that still takes the member session (`FscChat.init({ memberSession })`).
 The privacy statement text above covers it.
 
+#### Accountgegevens via de chat (Unreleased)
+
+For a site that runs its OWN customer portal (login, invoices, tickets, services) the chat bot can answer a logged-in visitor's questions about their own
+account data. The Hub never sees the portal's login: the portal hands out an opaque HttpOnly session handle and answers a signed server-to-server call.
+
+1. **Handle cookie.** Your portal sets an HttpOnly, Secure, SameSite=Lax cookie named `content.intelligence.session_cookie` (default `fsi_sess`, env
+   `FSC_INTELLIGENCE_SESSION_COOKIE`) holding a random handle of at most 128 characters `[A-Za-z0-9._-]`; store only its hash next to the portal session, and
+   end it with the session. The package never sets it. With `content.intelligence.enabled` on, `POST /_fsc/i/chat` forwards it to the Hub as `session` under the
+   same conditions as `recognition` (not an excluded IP, not staff, not a crawler, same site only; a malformed value is dropped). Never print it into the page.
+2. **Hub configuration.** In the project's chatbot module settings give `accountData.url` (https) and `accountData.topics` (subset of `invoices`, `tickets`,
+   `services`, `appointments`) and the module secret `accountDataSecret` (32-64 characters, generate it in the vault). The data is only used at identity level
+   (a recognised portal login) with Intelligence `recognition` on.
+3. **Signed call.** The Hub sends `POST <url>` with `Content-Type: application/json`, `X-FSC-Signature` (the webhook scheme, `WebhookSignature`, timestamp = now),
+   `X-FSC-Request-Id` (uuid v4) and `User-Agent: FullStackHub-AccountData/1`. Verify the signature over the raw bytes with a 300 s window, dedupe the request id
+   for 10 minutes, and check `projectId` against your own Hub project. Register the route outside the `web` group (no session, no CSRF) with a throttle.
+   A bad signature is 401 and a malformed body 400 (no detail in the body).
+4. **Request body.** `{"version":1,"projectId":"<hub project uuid>","conversation":"<first 16 hex of sha256(conversationId)>","identity":{"source":"fss",
+   "kind":"contact","ref":"portal_user:<uuid>"},"session":"<handle>","topic":"invoices","ref":null,"limit":5,"locale":"nl","sentAt":"<iso>"}`. Look the handle up,
+   refuse when it is expired, impersonated, or when `identity.ref` is not the session's user (`identity_mismatch`), and answer for THAT user's customer only.
+5. **Answer (HTTP 200).** `{"ok":true,"topic":"invoices","items":[{"ref":"F2026-0123","title":"Factuur F2026-0123","status":"open","date":"2026-10-01",
+   "amount":"EUR 121,00","open":"EUR 121,00","due":"2026-10-15","note":"..."}],"total":7,"more":true,"link":"https://portal.example.nl/facturen","hint":"..."}` or
+   `{"ok":false,"code":"session_invalid|identity_mismatch|unsupported_topic|forbidden|rate_limited|unavailable"}`. The Hub cuts at 10 items, 160 characters per
+   title or note, a `ref` of 40 characters `[A-Za-z0-9._-]`, 3072 bytes in total and keeps `link` only when it is https on the same host as `url`; it never stores
+   the items. Return only what the portal itself shows (no payment tokens, public links, internal ids, message bodies, other people's data). After
+   `session_invalid` or `identity_mismatch` the Hub stops asking for that conversation. The privacy statement must say the chat can look up the account data of a logged-in visitor.
+
 #### Newsletter click links (Unreleased)
 
 The Hub's newsletter rewrites links in every campaign mail to a short redirect (`/n/l/<token>`, on by default per project; the Hub switch is

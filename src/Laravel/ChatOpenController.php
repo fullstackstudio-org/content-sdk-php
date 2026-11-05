@@ -17,7 +17,11 @@ use Throwable;
  *
  * - `pid` = the consented browser id (`fsa_pid`, {@see IntelligenceProxy::pid()}: never under `Sec-GPC: 1`, never for a crawler);
  * - `recognition` = the HttpOnly recognition cookie ({@see MemberRecognition::cookieName()}), read from the raw `Cookie` header;
- * - neither for an excluded IP or a staff browser (as the tracker proxy never identifies those).
+ * - `session` = the HttpOnly account-session handle of the site's own customer portal (cookie `content.intelligence.session_cookie`, default
+ *   `fsi_sess`, see {@see self::sessionCookieName()}), only so the Hub can ask the site's account-data endpoint about the visitor's own
+ *   invoices, tickets and services (plan ootb-a5-account-data D1/D5). Read from the raw header under the same conditions as `recognition`, a
+ *   value of at most 128 characters `[A-Za-z0-9._-]` or dropped, and never printed into the page;
+ * - none of them for an excluded IP or a staff browser (as the tracker proxy never identifies those).
  *
  * The widget opts in with `<fsc-chat token="fsc_pub_…" open-url="/_fsc/i/chat">`; every later call (messages, reads) goes straight to the Hub with
  * the conversation token. The call to the Hub uses the site's server token and passes the visitor IP (per-visitor limits) and an optional
@@ -29,6 +33,18 @@ use Throwable;
 final class ChatOpenController
 {
     private const BODY_MAX_BYTES = 8192;
+
+    public const DEFAULT_SESSION_COOKIE = 'fsi_sess';
+
+    private const SESSION_MAX_LENGTH = 128;
+
+    /** The account-session cookie name (`content.intelligence.session_cookie`); empty = off (nothing is read or forwarded). */
+    public static function sessionCookieName(): string
+    {
+        $name = config('content.intelligence.session_cookie', self::DEFAULT_SESSION_COOKIE);
+
+        return is_string($name) && preg_match('/^[A-Za-z0-9_.-]{1,64}$/D', $name) === 1 ? $name : '';
+    }
 
     public function open(Request $request, ContentClient $content): Response
     {
@@ -47,6 +63,9 @@ final class ChatOpenController
         $identify = IntelligenceProxy::enabled() && !IntelligenceProxy::isExcluded($ip) && !IntelligenceProxy::isStaff($request);
         $name = MemberRecognition::cookieName();
         $recognition = $identify && $name !== '' ? (SlotDecisions::rawCookies($request)[$name] ?? null) : null;
+        $sessionName = self::sessionCookieName();
+        $session = $identify && $sessionName !== '' ? (SlotDecisions::rawCookies($request)[$sessionName] ?? null) : null;
+        $session = is_string($session) && strlen($session) <= self::SESSION_MAX_LENGTH && preg_match('/^[A-Za-z0-9._-]+$/D', $session) === 1 ? $session : null;
         $member = trim((string) $request->headers->get('X-FSC-Member-Session', ''));
 
         try {
@@ -55,6 +74,7 @@ final class ChatOpenController
                 'turnstileToken' => is_string($body['_turnstile'] ?? null) ? substr($body['_turnstile'], 0, 4096) : null,
                 'pid' => $identify ? IntelligenceProxy::pid($request) : null,
                 'recognition' => is_string($recognition) && $recognition !== '' && strlen($recognition) <= 200 ? $recognition : null,
+                'session' => $session,
             ], array_filter([
                 'memberSession' => $member !== '' && strlen($member) <= 200 ? $member : null,
                 'clientIp' => $ip,

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Chat forwards the account-session handle (plan ootb-a5-account-data S1). `POST /_fsc/i/chat` reads the HttpOnly cookie named by `content.intelligence.session_cookie` (default `fsi_sess`, env `FSC_INTELLIGENCE_SESSION_COOKIE`, empty = off) from the raw `Cookie` header and passes it to the Hub as `session`, under the same conditions as `recognition` (Intelligence on, not an excluded IP, not a staff browser, not a crawler, same site). Only a value of at most 128 characters `[A-Za-z0-9._-]` travels, anything else is dropped; it never reaches page JavaScript. `Chat::open` accepts `session` in its input with the same check. The package never sets the cookie (the site's own portal does) and exempts the name from Laravel's cookie encryption. The Hub ignores `session` until its account-data support is live.
+- AGENTS.md: section "Accountgegevens via de chat" with the provider contract (signed call, request and answer shapes) for sites that run their own customer portal.
+
 ## 0.21.0
 
 - Newsletter click links (plan ootb-integrations D9). A page view with `?fscn=<token>` (added by the Hub's newsletter redirect `/n/l/<token>` to links to the project's own site) links a CONSENTING browser to the newsletter subscriber: new global middleware `Laravel\NewsletterClickLink` (registered by the provider, a no-op unless `content.intelligence.enabled` is on and the parameter is present) calls `IntelligenceProxy::newsletterClickLater()`, which after the response makes one `ContentClient::linkNewsletterClick($pid, $token)` (`POST /intelligence/link {pid, newsletterToken}`, server token) per browser and token (cached 30 days). Only with the `fsa_pid` cookie; never under `Sec-GPC: 1`, for crawlers and prefetches, staff browsers or `exclude_ips`; silent on failure. The Hub stores a claimed link with source `newsletter` only with Intelligence `recognition` on and never creates a profile.

@@ -44,7 +44,10 @@ final class Chat
      * Optional `pid` (the consented `fsa_pid` browser id) and `recognition` (the recognition cookie value) let the Hub link the conversation to the
      * visitor's FullStack Intelligence profile and verified identity (module intelligence with `recognition`); a bad value is ignored by the Hub.
      *
-     * @param array{locale?: string, turnstileToken?: string, pid?: string|null, recognition?: string|null} $input
+     * Optional `session` (the HttpOnly account-session handle of the site's own portal, at most 128 characters `[A-Za-z0-9._-]`) lets the Hub
+     * ask the site's account-data endpoint about the visitor's own data; a bad value is dropped here.
+     *
+     * @param array{locale?: string, turnstileToken?: string, pid?: string|null, recognition?: string|null, session?: string|null} $input
      * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int} $options
      * @return array<string, mixed> includes the `conversationToken` (shown once)
      */
@@ -58,6 +61,7 @@ final class Chat
                 '_turnstile' => $input['turnstileToken'] ?? null,
                 'pid' => isset($input['pid']) && $input['pid'] !== '' ? $input['pid'] : null,
                 'recognition' => isset($input['recognition']) && $input['recognition'] !== '' ? substr($input['recognition'], 0, 200) : null,
+                'session' => isset($input['session']) && is_string($input['session']) && strlen($input['session']) <= 128 && preg_match('/^[A-Za-z0-9._-]+$/D', $input['session']) === 1 ? $input['session'] : null,
             ]),
             'headers' => $this->ctx->visitorHeaders($options['memberSession'] ?? null, $options['clientIp'] ?? null),
             'options' => $options,

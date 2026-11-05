@@ -113,6 +113,13 @@ final class ContentServiceProvider extends ServiceProvider
             EncryptCookies::except($recognitionCookie);
         }
 
+        // The account-session handle cookie of a site's own portal is written by that portal as plain text and only read by the chat route.
+        $sessionCookie = ChatOpenController::sessionCookieName();
+
+        if ($sessionCookie !== '' && class_exists(EncryptCookies::class)) {
+            EncryptCookies::except($sessionCookie);
+        }
+
         // Newsletter click links (`?fscn=`): a no-op unless `content.intelligence.enabled` is on and the parameter is present.
         $this->app->make(HttpKernel::class)->pushMiddleware(NewsletterClickLink::class);
 

@@ -123,6 +123,10 @@ return [
         'member_recognition' => (bool) env('FSC_INTELLIGENCE_MEMBER_RECOGNITION', true),
         // Cookie domain of that cookie: empty = the site's own host only; `.example.nl` shares it across subdomains.
         'recognition_cookie_domain' => env('FSC_INTELLIGENCE_RECOGNITION_COOKIE_DOMAIN', ''),
+        // Account-session handle cookie (default `fsi_sess`) of a site with its own customer portal: the portal sets it HttpOnly, and `POST /_fsc/i/chat`
+        // forwards it to the Hub as `session` under the same conditions as the recognition cookie (see AGENTS.md "Accountgegevens via de chat").
+        // The package never sets it. Empty = never read or forwarded.
+        'session_cookie' => env('FSC_INTELLIGENCE_SESSION_COOKIE', 'fsi_sess'),
         'exclude_ips' => env('FSC_INTELLIGENCE_EXCLUDE_IPS', ''),
         'identify_ttl' => (int) env('FSC_INTELLIGENCE_IDENTIFY_TTL', 43200),
         // The staff marker cookie the admin sets at staff login on .fullstackstudio.nl: such a browser is marked `fsi_ex` and never identified.
