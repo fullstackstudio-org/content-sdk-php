@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.0
+
+- Chat and FullStack Intelligence (plan ootb-integrations D4/D5). `Chat::open` takes optional `pid` (the consented `fsa_pid` browser id) and `recognition` (the recognition cookie value) in its input; the Hub links the conversation to the visitor's profile and VERIFIED identity (module intelligence with `recognition`; a bad value is ignored, never an error).
+- New route `POST {content.intelligence.path}/chat` (default `/_fsc/i/chat`, registered while `content.intelligence.enabled` is on; `ChatOpenController`): the chat widget opens its conversation through the site with `<fsc-chat token="fsc_pub_…" open-url="/_fsc/i/chat">`. The site adds the consented browser id and the HttpOnly recognition cookie server-side (never under `Sec-GPC: 1` for the pid, never for crawlers, staff browsers or `exclude_ips`), calls the Hub with its server token, the visitor IP and an optional `X-FSC-Member-Session`, and passes the Hub's answer through (`Cache-Control: no-store`). Another site (`Origin` or `Sec-Fetch-Site`) gets 403. Every later chat call goes straight to the Hub with the conversation token. A widget without `open-url`, or a site without this route, opens at the Hub as before.
+
 ## 0.19.0
 
 - Conversion events for the Hub's default goals and funnels (plan ootb-integrations C2). Three Blade components print one hidden marker that the analytics helper (`fsc.js`) fires once per page through every active tracker, without consent and without personal data:

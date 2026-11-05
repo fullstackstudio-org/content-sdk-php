@@ -138,6 +138,8 @@ $content->chat->feedback($id, $conversationToken, $answer['message']['id'], 1);
 ```
 
 The token goes in `X-FSC-Conversation`, never in a URL. A conversation that belongs to a member needs `['memberSession' => ...]` on every call.
+`open` also takes `pid` (consented `fsa_pid`) and `recognition` (the `fsi_rec` value) so the Hub links the conversation to the visitor's Intelligence
+profile and verified identity; the browser widget does this through the site with `<fsc-chat open-url="/_fsc/i/chat">` (Laravel, 0.20.0).
 
 ### Files and uploads
 

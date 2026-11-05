@@ -41,8 +41,10 @@ final class Chat
 
     /**
      * Opens a conversation (201). 400 `turnstile_required` when the bot asks for a Turnstile token; 429 `rate_limited` (5 per hour per visitor IP).
+     * Optional `pid` (the consented `fsa_pid` browser id) and `recognition` (the recognition cookie value) let the Hub link the conversation to the
+     * visitor's FullStack Intelligence profile and verified identity (module intelligence with `recognition`); a bad value is ignored by the Hub.
      *
-     * @param array{locale?: string, turnstileToken?: string} $input
+     * @param array{locale?: string, turnstileToken?: string, pid?: string|null, recognition?: string|null} $input
      * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int} $options
      * @return array<string, mixed> includes the `conversationToken` (shown once)
      */
@@ -51,7 +53,12 @@ final class Chat
         return $this->ctx->execute([
             'method' => 'POST',
             'path' => '/chat/conversations',
-            'body' => Arr::defined(['locale' => $input['locale'] ?? null, '_turnstile' => $input['turnstileToken'] ?? null]),
+            'body' => Arr::defined([
+                'locale' => $input['locale'] ?? null,
+                '_turnstile' => $input['turnstileToken'] ?? null,
+                'pid' => isset($input['pid']) && $input['pid'] !== '' ? $input['pid'] : null,
+                'recognition' => isset($input['recognition']) && $input['recognition'] !== '' ? substr($input['recognition'], 0, 200) : null,
+            ]),
             'headers' => $this->ctx->visitorHeaders($options['memberSession'] ?? null, $options['clientIp'] ?? null),
             'options' => $options,
         ])->data;

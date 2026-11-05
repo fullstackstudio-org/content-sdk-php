@@ -91,6 +91,7 @@ final class ContentServiceProvider extends ServiceProvider
 
         if (IntelligenceProxy::enabled()) {
             self::registerIntelligenceMeRoute();
+            self::registerChatOpenRoute();
         }
 
         if (PersonalizationController::enabled()) {
@@ -189,6 +190,18 @@ final class ContentServiceProvider extends ServiceProvider
         $prefix = trim((string) app('config')->get('content.intelligence.path', '_fsc/i'), '/') ?: '_fsc/i';
 
         Route::post($prefix . '/me', [PersonalizationController::class, 'me'])->name('content.intelligence.me');
+    }
+
+    /**
+     * `POST _fsc/i/chat` (default prefix `content.intelligence.path`): opens a chat conversation for the widget (`<fsc-chat open-url="/_fsc/i/chat">`)
+     * with the consented browser id and the HttpOnly recognition cookie added server-side, so neither reaches page JavaScript. Only while
+     * `content.intelligence.enabled` is on (called for you then). No middleware group: no session, cookies or CSRF ({@see ChatOpenController}).
+     */
+    public static function registerChatOpenRoute(): void
+    {
+        $prefix = trim((string) app('config')->get('content.intelligence.path', '_fsc/i'), '/') ?: '_fsc/i';
+
+        Route::post($prefix . '/chat', [ChatOpenController::class, 'open'])->name('content.intelligence.chat-open');
     }
 
     /**
