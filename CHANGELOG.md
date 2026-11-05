@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.0
+
+- Conversion events for the Hub's default goals and funnels (plan ootb-integrations C2). Three Blade components print one hidden marker that the analytics helper (`fsc.js`) fires once per page through every active tracker, without consent and without personal data:
+  `<x-content::begin-checkout :items :value />` (event `begin_checkout`, checkout page), `<x-content::appointment-booked :service :reference page />` (event `appointment_booked`, after a successful booking; `page` is the booking page path, sent as `booking_path`, default the current path) and `<x-content::purchase :order />` (revenue event `purchase` with the order number, from `Orders::get` or `number`, `total-cents`, `currency`; nothing is printed for a zero total). A reference (booking id, order number) makes the event once per browser session too, so a reload of the confirmation or thank-you page does not count twice. Nothing happens while the analytics module is off.
+- `fsc.js`: `window.fscAnalytics.revenue(amount, currency, props)` (native `fsa.revenue`, and on Umami `track(name, {revenue, currency})`), `window.fscAnalytics.scan()` (fires markers added later) and the marker scan itself; a marker waits for a tracker that loads late.
+- `Laravel\ConversionMarker`: builds the marker; props pass a safe-key and no-`@` filter (names, e-mail, phone, address and note keys are refused). Documented for custom sites in `AGENTS.md` and `docs/client-integration.md`.
+
 ## 0.18.0
 
 - Member recognition cookie. `Laravel\MemberRecognition` turns the `recognition: {cookie, value, maxAge}` of the member login answers (`login`, `loginTotp`, `refreshSession`; `null` on `logout` and `logoutAll`) into the cookie `content.intelligence.recognition_cookie` on the site's own domain: HttpOnly, Secure on https (request or `app.url`), SameSite=Lax, path `/`, `maxAge` from the answer (capped at 400 days), domain from the new `content.intelligence.recognition_cookie_domain` (`FSC_INTELLIGENCE_RECOGNITION_COOKIE_DOMAIN`, empty = this host). API: `cookie($answer, $request)` (null when `recognition` is absent, null or malformed), `forget()`, `fromAnswer()` (set, remove or nothing), `queue($answer, $request)` (cookie jar, never throws), `pid($request)`, `cookieName()`. Crawlers and prefetches never get the cookie. The provider exempts the cookie from `EncryptCookies`, so the Hub and the proxy read it as plain text.

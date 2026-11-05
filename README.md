@@ -308,6 +308,18 @@ and `$content->lookupAddress('2592VB', '68')` (one address or `null`; an exact m
 | `FSC_ADDRESS_RATE_LIMIT` | `120` | requests per visitor IP per minute |
 | `FSC_IP_HEADER` | `cf-connecting-ip` | visitor IP header your proxy sets (shared with forms and analytics) |
 
+### Conversion events (0.19.0)
+
+Three components print one hidden marker; the analytics helper (`<x-content::analytics />`) fires it once per page, without consent and without personal data. The Hub's default goals and funnels count them:
+
+```blade
+<x-content::begin-checkout :items="2" :value="49.95" />                              {{-- checkout page: event begin_checkout --}}
+<x-content::appointment-booked service="knippen" :reference="$id" page="/afspraak" /> {{-- after a successful booking: event appointment_booked --}}
+<x-content::purchase :order="$order" />                                              {{-- thank-you page: revenue event purchase (order number, total incl. VAT) --}}
+```
+
+A reference (booking id, order number) also makes the event once per browser session, so a reload does not count twice. Details and the JS calls for custom sites: `AGENTS.md`, "Conversion events".
+
 ## Site standards (module `site`)
 
 Two components that belong in every layout, also while the module is off (then they render nothing):

@@ -368,7 +368,7 @@ above the fold. Plain URLs: `$content->mediaUrl($id)`, `$content->assetUrl($path
 ### Blade components (namespace `content::`)
 
 `meta`, `head` and `body-end` (see "Altijd in elke site"), `analytics` (see Analytics), `errors` (see Error monitoring), `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
-`image`, `form`, `address-field` (see Address autocomplete). Override a block type with your own view: `:views="['articleList' => 'blocks.articles']"` or `config('content.blocks')`; your view receives
+`image`, `form`, `address-field` (see Address autocomplete), `begin-checkout`, `appointment-booked`, `purchase` (see "Conversion events"). Override a block type with your own view: `:views="['articleList' => 'blocks.articles']"` or `config('content.blocks')`; your view receives
 `$block`, `$index`, `$baseUrl`, `$resolve($mediaId)`. The `articleList` block only says what to show: fetch the articles in your view. There is no cookie banner
 component (needs JS): build one on `getConsentConfig()` / `recordConsent()` and follow the consent contract in "Altijd in elke site".
 
@@ -492,6 +492,41 @@ Checklist "analytics correct ingericht":
 9. The privacy page mentions Umami and the after-consent heatmaps/recordings.
 10. Native engine (`engine` native/both): `GET /_fsc/a/fsa.js` and `GET /_fsc/a/overlay.js` return JavaScript, `POST /_fsc/a/e` answers 202 on a page view, `getAnalyticsConfig()['native']`
     has `ready: true` and a `signingKey` (server token), and the pod reaches the collector.
+
+#### Conversion events (0.19.0): `begin_checkout`, `appointment_booked`, `purchase`
+
+The Hub's default goals and funnels ("Afspraak geboekt", "Aankoop", the shop funnel product, checkout, purchase, the appointment funnel) count three events
+that the site has to fire. Place one component on the right page; it prints one hidden element and the analytics helper (`fsc.js`, part of
+`<x-content::analytics />`) fires it once per page through every active tracker (native `fsa.js` and/or Umami). Cookieless and without consent
+(session-level events); nothing is printed or sent when the analytics module is off.
+
+```blade
+{{-- checkout page (the page where the visitor fills in the order) --}}
+<x-content::begin-checkout :items="count($cart['lines'])" :value="$cart['totalCents'] / 100" />
+
+{{-- confirmation shown after Appointments::book succeeded (render it only on success) --}}
+<x-content::appointment-booked :service="$serviceSlug" :reference="$appointment['id']" page="/afspraak-maken" />
+
+{{-- order thank-you page: the order from Orders::get; pass number, total-cents and currency yourself if you have no order array --}}
+<x-content::purchase :order="$order" />
+```
+
+- `begin_checkout`: optional `items` and `value`. `appointment_booked`: optional `service`, `reference` (booking id: a reload of the confirmation does not count
+  twice in the same browser session) and `page`, the path of the booking page, sent as `booking_path` (default: the current path). **Always pass `page`
+  when the confirmation is shown on another URL than the booking form**; the Hub reads `booking_path` to learn where the booking page is.
+- `purchase` is a revenue event named `purchase`: `fsa.revenue(total, currency, {name: 'purchase', order: <number>})`. Total = `totals.totalCents / 100`
+  (VAT included), currency from the order (default `EUR`); the order number is the reference, so a reload of the thank-you page does not count the order
+  again. A zero or unknown total prints nothing. On the Umami engine the same call is `umami.track('purchase', {revenue, currency, order})`.
+- 🚨 No personal data in props: the components accept only short scalar values, refuse keys such as name, mail, phone, address, note and drop any value with an `@`.
+  Never put a name, an e-mail address or an address in a custom event either.
+- Custom or non-Blade sites fire the same three by hand (names and shapes are the contract with the Hub, keep them exact):
+
+```js
+window.fsa.track('begin_checkout', { items: 2, value: 49.95 });                          // once, when the checkout page is shown
+window.fsa.track('appointment_booked', { service: 'knippen', booking_path: '/afspraak' }); // once, after a successful booking
+window.fsa.revenue(104.85, 'EUR', { name: 'purchase', order: '0042' });                   // once per order, on the thank-you page
+// or for every engine: window.fscAnalytics.track(...) / window.fscAnalytics.revenue(amount, currency, props)
+```
 
 ### FullStack Intelligence (module `intelligence`, paid add-on, 0.12.0, slots 0.13.0): OFF by default
 

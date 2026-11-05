@@ -7,6 +7,9 @@
  *   once (the record endpoint is blocked in this page) and the recorder is not loaded on later pages.
  * - First-touch attribution (utm_*, ad click ids, landing URL, external referrer) is kept in sessionStorage and added to forms.
  * - With the native engine (fsa.js) `fscAnalytics.track()` and `setConsent()` reach that tracker too.
+ * - Conversion markers: `<x-content::begin-checkout />`, `<x-content::appointment-booked />` and `<x-content::purchase />` print an inert
+ *   `<span hidden data-fsc-fire="...">`; this helper fires each marker once per page (a purchase or booking with an order/booking reference
+ *   also once per browser session) through `fscAnalytics.track()` / `fscAnalytics.revenue()`. Events are session-level: no consent needed.
  *
  * Consent wiring for a site's own banner (any of these):
  *   window.dispatchEvent(new CustomEvent('fsc:consent', { detail: 'accepted' }));   // or 'declined', true/false, { analytics: true },
@@ -37,7 +40,7 @@
     // replay, no attribution, no counting. The API stays, as no-ops, so site code keeps working.
     if (w.fsaOverlayMode || /(?:^#|&)fsa_overlay=/.test(String((w.location || {}).hash || ''))) {
         var none = function () {};
-        w.fscAnalytics = { __loaded: true, overlay: true, setConsent: none, hasConsent: function () { return false; }, attribution: function () { return null; }, track: none };
+        w.fscAnalytics = { __loaded: true, overlay: true, setConsent: none, hasConsent: function () { return false; }, attribution: function () { return null; }, track: none, revenue: none, scan: none };
         return;
     }
 
@@ -215,25 +218,135 @@
         field.value = JSON.stringify(attribution());
     }, true);
 
+    // --- Events and conversion markers -----------------------------------------------------------------------------------------
+
+    /** True while at least one tracker can take an event. */
+    function engineReady() {
+        return !!((w.fsa && typeof w.fsa.track === 'function') || (w.umami && typeof w.umami.track === 'function'));
+    }
+
+    /** One call for every engine: Umami and/or the native tracker (engine `both` counts in both). */
+    function track(name, payload) {
+        var result;
+        try {
+            if (w.fsa && typeof w.fsa.track === 'function') w.fsa.track(name, payload);
+        } catch (e) {
+            // Analytics never breaks a user action.
+        }
+        try {
+            if (w.umami && typeof w.umami.track === 'function') result = w.umami.track(name, payload);
+        } catch (e) {
+            // Idem.
+        }
+        return result;
+    }
+
+    /**
+     * A revenue event for every engine. The native tracker has a revenue event type (`fsa.revenue`); Umami gets the event with Umami's own
+     * `revenue` and `currency` properties. `props.name` (default `purchase`) names the event.
+     */
+    function revenue(amount, currency, props) {
+        var value = Number(amount);
+        var cur = String(currency || '').toUpperCase();
+        if (!isFinite(value) || value <= 0 || !/^[A-Z]{3}$/.test(cur)) return;
+        var extra = {};
+        Object.keys(props || {}).forEach(function (key) { extra[key] = props[key]; });
+        var name = typeof extra.name === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(extra.name) ? extra.name : 'purchase';
+        delete extra.name;
+        try {
+            if (w.fsa && typeof w.fsa.revenue === 'function') w.fsa.revenue(value, cur, Object.assign({ name: name }, extra));
+        } catch (e) {
+            // Analytics never breaks a page.
+        }
+        try {
+            if (w.umami && typeof w.umami.track === 'function') w.umami.track(name, Object.assign({}, extra, { revenue: value, currency: cur }));
+        } catch (e) {
+            // Idem.
+        }
+    }
+
+    var PROP_PREFIX = 'data-fsc-prop-';
+    var EVENT_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+    /** The props of a marker: `data-fsc-prop-order_ref="A-1"` becomes `{order_ref: 'A-1'}`. Values are strings, numbers, booleans. */
+    function markerProps(el) {
+        var out = {};
+        var attrs = el.attributes || [];
+        for (var i = 0; i < attrs.length; i++) {
+            var attr = attrs[i];
+            if (!attr || String(attr.name).indexOf(PROP_PREFIX) !== 0) continue;
+            var key = String(attr.name).slice(PROP_PREFIX.length).replace(/-/g, '_');
+            if (key) out[key] = clean(attr.value, 200);
+        }
+        return out;
+    }
+
+    function onceKey(name, ref) {
+        return 'fsc-fired:' + name + ':' + ref;
+    }
+
+    function alreadyFired(key) {
+        try { return w.sessionStorage.getItem(key) === '1'; } catch (e) { return false; }
+    }
+
+    function remember(key) {
+        try { w.sessionStorage.setItem(key, '1'); } catch (e) { /* storage blocked: the once-per-page mark still holds */ }
+    }
+
+    /** Fires one marker; returns true when it is settled (sent, or deliberately skipped), false when no tracker was ready yet. */
+    function fireMarker(el) {
+        if (el.getAttribute('data-fsc-fired') === '1') return true;
+        var name = clean(el.getAttribute('data-fsc-fire'), 64);
+        if (!EVENT_NAME.test(name)) { el.setAttribute('data-fsc-fired', '1'); return true; }
+        if (!engineReady()) return false;
+
+        // With a reference (order number, booking id) the event is also once per browser session: a reload of the thank-you page must
+        // not count the order twice.
+        var ref = clean(el.getAttribute('data-fsc-once'), 120);
+        var key = ref ? onceKey(name, ref) : null;
+        el.setAttribute('data-fsc-fired', '1');
+        if (key && alreadyFired(key)) return true;
+
+        var props = markerProps(el);
+        var amount = el.getAttribute('data-fsc-revenue');
+        if (amount !== null) {
+            props.name = name;
+            revenue(amount, el.getAttribute('data-fsc-currency'), props);
+        } else {
+            track(name, props);
+        }
+        if (key) remember(key);
+        return true;
+    }
+
+    var scanQueued = false;
+
+    /** Fires every marker on the page that did not fire yet. Markers wait for a tracker until the page has loaded. */
+    function scan() {
+        var nodes = d.querySelectorAll ? d.querySelectorAll('[data-fsc-fire]') : [];
+        var waiting = false;
+        for (var i = 0; i < nodes.length; i++) {
+            if (!fireMarker(nodes[i])) waiting = true;
+        }
+        if (waiting && !scanQueued) {
+            scanQueued = true;
+            var retry = function () { scanQueued = false; scan(); };
+            w.addEventListener('load', retry);
+            var tag = tracker();
+            if (tag) tag.addEventListener('load', retry, { once: true });
+        }
+    }
+
+    if (d.readyState === 'loading' && d.addEventListener) d.addEventListener('DOMContentLoaded', scan);
+    else scan();
+
     w.fscAnalytics = {
         __loaded: true,
         setConsent: setConsent,
         hasConsent: function () { return consent; },
         attribution: attribution,
-        // One call for every engine: Umami and/or the native tracker (engine `both` counts in both).
-        track: function (name, payload) {
-            var result;
-            try {
-                if (w.fsa && typeof w.fsa.track === 'function') w.fsa.track(name, payload);
-            } catch (e) {
-                // Analytics never breaks a user action.
-            }
-            try {
-                if (w.umami && typeof w.umami.track === 'function') result = w.umami.track(name, payload);
-            } catch (e) {
-                // Idem.
-            }
-            return result;
-        },
+        track: track,
+        revenue: revenue,
+        scan: scan,
     };
 })(window, document);
