@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Modules;
 
+use FullStackStudio\Content\ContentException;
 use FullStackStudio\Content\Internal\Arr;
 use FullStackStudio\Content\Internal\ModuleContext;
 use FullStackStudio\Content\Tags;
@@ -38,6 +39,87 @@ final class Products
     public function get(string $ref, array $options = []): array
     {
         return $this->ctx->get('/products/' . ModuleContext::seg($ref), [Tags::PRODUCTS, Tags::product($ref)], null, $options)->data['product'] ?? [];
+    }
+
+    /**
+     * Product ids for "you might also like", ranked in the Hub (FullStack Intelligence): the hot topics of the consenting visitor first, then the
+     * best sellers of the last 30 days, then the newest products. Only active products that can be bought. Needs a SERVER token; a pub token gets
+     * a 403. Nothing is written and the answer holds no personal data.
+     *
+     * `$pid` is the visitor's consented browser id, sent in the header `X-FSI-Pid` (never in the URL) (`IntelligenceProxy::pid($request)` in Laravel: the `fsa_pid` cookie, null without consent or
+     * under Global Privacy Control). Without one, or when the Hub cannot recognise it, you get the fallback. Pass `['gpc' => true]` in the options
+     * when the visitor's request carried `Sec-GPC: 1`: the Hub then ignores the id even if one is given. `['locale' => 'en']` picks the language
+     * (default: the project's default language). When personalisation is off for the project the Hub still answers with the fallback ids, so there
+     * is always something to show.
+     *
+     * Not cached by the SDK (the answer depends on the visitor); the Hub caches per topic set for 60 seconds. For the full answer use
+     * {@see self::recommendations()}, to get products instead of ids use {@see self::recommendedProducts()}.
+     *
+     * @param array{gpc?: bool, locale?: string, timeoutMs?: int} $options
+     * @return list<string> product ids, best first (at most `$limit`, 1 to 24)
+     */
+    public function recommended(?string $pid = null, int $limit = 8, array $options = []): array
+    {
+        return $this->recommendations($pid, $limit, $options)['ids'];
+    }
+
+    /**
+     * Like {@see self::recommended()}, with the Hub's flags: `active` (personalisation is on for the project) and `source` (`interest` when at
+     * least one id came from the visitor's interests, otherwise `fallback`).
+     *
+     * @param array{gpc?: bool, locale?: string, timeoutMs?: int} $options
+     * @return array{active: bool, source: string, ids: list<string>}
+     */
+    public function recommendations(?string $pid = null, int $limit = 8, array $options = []): array
+    {
+        $query = ['limit' => max(1, min(24, $limit)), 'locale' => $options['locale'] ?? null];
+
+        $headers = ($options['gpc'] ?? false) === true ? ['Sec-GPC' => '1'] : [];
+
+        // Only a well-formed browser id travels, and in a header: a URL ends up in access logs and error reports.
+        if ($pid !== null && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) === 1) {
+            $headers['X-FSI-Pid'] = $pid;
+        }
+
+        $data = $this->ctx->execute([
+            'path' => '/products/recommended',
+            'query' => $query,
+            'headers' => $headers,
+            'options' => Arr::pick($options, ['timeoutMs']),
+        ])->data;
+        $ids = array_values(array_filter(is_array($data['ids'] ?? null) ? $data['ids'] : [], 'is_string'));
+
+        return ['active' => ($data['active'] ?? false) === true, 'source' => is_string($data['source'] ?? null) ? $data['source'] : 'fallback', 'ids' => $ids];
+    }
+
+    /**
+     * The recommended products themselves: {@see self::recommended()} followed by one product read per id (`get()`, so the SDK cache and its
+     * `product:{id}` tags apply). A product that disappeared in between, or that is out of stock by now, is skipped, so the list can be shorter than `$limit`. The reads run one after the other: keep `$limit` small (4 to 8).
+     *
+     * @param array{gpc?: bool, locale?: string, timeoutMs?: int} $options
+     * @return list<array<string, mixed>> as {@see self::get()}, in the Hub's order
+     */
+    public function recommendedProducts(?string $pid = null, int $limit = 8, array $options = []): array
+    {
+        $products = [];
+
+        foreach ($this->recommended($pid, $limit, $options) as $id) {
+            try {
+                $product = $this->get($id, Arr::pick($options, ['timeoutMs']));
+            } catch (ContentException $error) {
+                if ($error->status() === 404) {
+                    continue;
+                }
+
+                throw $error;
+            }
+
+            if ($product !== [] && ($product['inStock'] ?? true) !== false) {
+                $products[] = $product;
+            }
+        }
+
+        return $products;
     }
 
     /**

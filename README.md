@@ -65,7 +65,7 @@ API, results are the same arrays the JS SDK returns (single objects unwrapped, l
 
 | Module | What it does |
 |---|---|
-| `$content->products` | `list`, `get`, `categories` (also with a pub token); manage products, variants, atomic `setStock` |
+| `$content->products` | `list`, `get`, `categories` (also with a pub token); `recommended` / `recommendations` / `recommendedProducts` (ids ranked by FullStack Intelligence, server token); manage products, variants, atomic `setStock` |
 | `$content->cart` / `$content->orders` | price a cart with a discount code and shipping, then `orders->place([...], ['memberSession' => ...])`; `get`, `list`, `transition`, `cancel`, `update`, `revisions` |
 | `$content->payments` | `startForOrder` (send the buyer to `payment.checkoutUrl`), `listForOrder`, `get`, `refund` (always pass a `requestId`) |
 | `$content->discounts`, `$content->shipping` | manage discount codes and shipping methods |
