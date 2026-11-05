@@ -20,6 +20,8 @@
  *   the error class and a hash of the normalised message, never the message or a stack) and quick_back (back within 5 s of arriving;
  *   needs the Navigation API or a same-document popstate). At most 20 per page view.
  *
+ * - Heatmap overlay: a page opened from the portal with `#fsa_overlay=<token>` is not measured; `/_fsc/a/overlay.js` draws the heatmap.
+ *
  * API: fsa.track(name, props), fsa.revenue(amount, currency, props), fsa.pageview(), fsa.setConsent(value).
  * Declarative: data-fsa-event="cta_click" (+ data-fsa-prop-<key>="value") on any clickable element; `data-fsc` / `data-fsc-prop-<key>`
  * work the same (plan name).
@@ -35,6 +37,19 @@
     if (!KEY) return;
 
     var ENDPOINT = data.endpoint || '/_fsc/a/e';
+
+    // Heatmap overlay (plan analytics-engine, phase 4): the portal opened this page with #fsa_overlay=<short-lived token>. Staff looking
+    // at a heatmap is no visitor, so this view is not measured at all; overlay.js (same origin) draws the heatmap. The token stays in the
+    // fragment: it never reaches a server log or a Referer.
+    if (/(?:^#|&)fsa_overlay=/.test(String((w.location || {}).hash || ''))) {
+        var overlay = d.createElement('script');
+        overlay.src = ENDPOINT.replace(/\/e$/, '') + '/overlay.js';
+        overlay.async = true;
+        (d.head || d.documentElement).appendChild(overlay);
+        var noop = function () {};
+        w.fsa = { __loaded: true, track: noop, revenue: noop, pageview: noop, setConsent: noop };
+        return;
+    }
     var CONSENT_KEY = data.consentKey || 'fsc-consent';
     var CONSENT_EVENT = data.consentEvent || 'fsc:consent';
     var ID_KEY = 'fsa-id';

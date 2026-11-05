@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel;
 
 use FullStackStudio\Content\Analytics;
+use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\ContentException;
 use FullStackStudio\Content\Http\CurlTransport;
 use FullStackStudio\Content\Http\Request as UpstreamRequest;
 use FullStackStudio\Content\Http\Transport;
@@ -25,6 +27,10 @@ use Throwable;
  *   persistent id and heatmap clicks are removed before signing, whatever the browser sent. Forwarded headers: `User-Agent`,
  *   `Accept-Language`, `Origin`, `Referer` (the collector checks the domain). Never cookies. The answer is always `202 {}` unless the
  *   request itself is wrong (400/413/429): a collector problem never reaches the page.
+ * - `GET overlay.js` and `POST overlay`: the heatmap overlay (phase 4). The portal opens a page with `#fsa_overlay=<token>` (a short-lived
+ *   token minted by the Hub for one page of this project); `fsa.js` then does not measure that view and loads `overlay.js`, which posts
+ *   the token here. This route forwards it with the site's server token to the Hub (`getAnalyticsOverlay`, header, never in a URL) and
+ *   returns the aggregated heatmap of that page, or 403 when the Hub refuses the token. Nothing is stored or cached.
  */
 final class NativeAnalyticsController
 {
@@ -34,6 +40,9 @@ final class NativeAnalyticsController
     private const MAX_BYTES = 64 * 1024;
 
     private const MAX_EVENTS = 50;
+
+    /** The shape of an overlay token (`v1.<payload>.<signature>`, Hub `OverlayToken`); anything else is refused before the Hub is asked. */
+    private const OVERLAY_TOKEN = '/^v1\.[A-Za-z0-9_-]{16,900}\.[A-Za-z0-9_-]{30,90}$/D';
 
     public function tracker(): Response
     {
@@ -47,6 +56,61 @@ final class NativeAnalyticsController
             'Cache-Control' => 'public, max-age=86400',
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    public function overlayScript(): Response
+    {
+        return new Response((string) file_get_contents(__DIR__ . '/../../resources/assets/fsa-overlay.js'), 200, [
+            'Content-Type' => 'text/javascript; charset=utf-8',
+            'Cache-Control' => 'public, max-age=3600',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function overlay(Request $request): Response
+    {
+        $body = (string) $request->getContent();
+
+        if ($body === '' || strlen($body) > 2048) {
+            return $this->overlayJson(['error' => 'invalid'], 400);
+        }
+
+        try {
+            $limiter = app(RateLimiter::class);
+            $key = 'fsa-overlay:' . hash('sha256', (string) $this->visitorIp($request));
+
+            if ($limiter->tooManyAttempts($key, 30)) {
+                return $this->overlayJson(['error' => 'rate_limited'], 429);
+            }
+
+            $limiter->hit($key, 60);
+        } catch (Throwable) {
+            // No cache for the limiter: the Hub limits views per project as well.
+        }
+
+        try {
+            $input = json_decode($body, false, 4, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            return $this->overlayJson(['error' => 'invalid'], 400);
+        }
+
+        $token = $input instanceof stdClass ? ($input->t ?? null) : null;
+
+        if (!is_string($token) || preg_match(self::OVERLAY_TOKEN, $token) !== 1) {
+            return $this->overlayJson(['error' => 'invalid'], 400);
+        }
+
+        try {
+            $result = app(ContentClient::class)->getAnalyticsOverlay($token, ['timeoutMs' => 8000]);
+        } catch (ContentException $e) {
+            return in_array($e->status(), [401, 403, 404], true)
+                ? $this->overlayJson(['error' => 'forbidden'], 403)
+                : $this->overlayJson(['error' => 'unavailable'], 502);
+        } catch (Throwable) {
+            return $this->overlayJson(['error' => 'unavailable'], 502);
+        }
+
+        return $this->overlayJson(['result' => $result], 200);
     }
 
     public function collect(Request $request): Response
@@ -177,6 +241,17 @@ final class NativeAnalyticsController
         $bound = app()->bound(self::TRANSPORT) ? app(self::TRANSPORT) : null;
 
         return $bound instanceof Transport ? $bound : new CurlTransport();
+    }
+
+    /** @param array<string, mixed> $data */
+    private function overlayJson(array $data, int $status): Response
+    {
+        return new Response((string) json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $status, [
+            'Content-Type' => 'application/json',
+            'Cache-Control' => 'no-store',
+            'X-Content-Type-Options' => 'nosniff',
+            'Referrer-Policy' => 'no-referrer',
+        ]);
     }
 
     private function json(int $status): Response

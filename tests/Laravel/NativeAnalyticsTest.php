@@ -295,4 +295,81 @@ final class NativeAnalyticsTest extends LaravelTestCase
         self::assertSame(["'self'", 'https://analytics.fullstackstudio.nl'], Analytics::csp(Analytics::MODE_DIRECT, Analytics::DEFAULT_HOST, true)['connect-src']);
         self::assertSame(['https://analytics.fullstackstudio.nl'], Analytics::csp(Analytics::MODE_DIRECT)['connect-src']);
     }
+
+    // --- heatmap overlay (phase 4) ----------------------------------------------------------------------------------------------
+
+    private const OVERLAY_TOKEN = 'v1.eyJwIjoiYWJjIiwidSI6Ii9wcmlqemVuIn0.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE';
+
+    private function postOverlay(string $body): \Illuminate\Testing\TestResponse
+    {
+        return $this->call('POST', '/_fsc/a/overlay', [], ['laravel_session' => 'secret-session'], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_CF_CONNECTING_IP' => '203.0.113.9',
+            'HTTP_AUTHORIZATION' => 'Bearer must-not-leak',
+        ], $body);
+    }
+
+    public function testOverlayScriptIsServedSameOrigin(): void
+    {
+        $response = $this->get('/_fsc/a/overlay.js');
+
+        $response->assertOk();
+        self::assertStringStartsWith('text/javascript', (string) $response->headers->get('Content-Type'));
+        self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
+        self::assertStringContainsString('fsa_overlay=', (string) $response->getContent());
+        self::assertDoesNotMatchRegularExpression('/\.innerHTML\s*=|insertAdjacentHTML|\beval\(|new Function/', (string) $response->getContent());
+    }
+
+    public function testOverlayForwardsTheTokenAsAHeaderWithTheServerTokenAndReturnsTheAggregates(): void
+    {
+        $result = ['path' => '/prijzen', 'viewport' => 'desktop', 'grid' => 10, 'elements' => [['selector' => 'button#offerte', 'clicks' => 4, 'cells' => [[1, 5, 2]]]]];
+        $this->content->queue(FakeTransport::json(['result' => $result]));
+
+        $response = $this->postOverlay((string) json_encode(['t' => self::OVERLAY_TOKEN]));
+
+        $response->assertOk()->assertJson(['result' => $result]);
+        self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        self::assertCount(1, $this->content->requests);
+        $hub = $this->content->requests[0];
+        self::assertSame('GET', $hub->method);
+        self::assertSame('https://content.test/api/v1/analytics/overlay', $hub->url, 'the token is never in the URL');
+        $headers = array_change_key_case($hub->headers, CASE_LOWER);
+        self::assertSame(self::OVERLAY_TOKEN, $headers['x-fsa-overlay']);
+        self::assertSame('Bearer fsc_srv_laraveltoken', $headers['authorization'], 'the site server token, never the browser\'s Authorization header');
+        self::assertArrayNotHasKey('cookie', $headers);
+
+        // Not cached: a second request asks the Hub again.
+        $this->content->queue(FakeTransport::json(['result' => $result]));
+        $this->postOverlay((string) json_encode(['t' => self::OVERLAY_TOKEN]))->assertOk();
+        self::assertCount(2, $this->content->requests);
+    }
+
+    public function testOverlayRefusesMalformedInputWithoutAskingTheHub(): void
+    {
+        foreach (['', 'nope', '{"t":"v1.short.sig"}', '{"t":123}', '[]', (string) json_encode(['t' => self::OVERLAY_TOKEN . "\n"]), str_repeat('a', 3000)] as $body) {
+            $this->postOverlay($body)->assertStatus(400);
+        }
+
+        self::assertCount(0, $this->content->requests);
+    }
+
+    public function testOverlayMapsAHubRefusalTo403AndAnOutageTo502(): void
+    {
+        $this->content->queue(FakeTransport::json(['error' => ['code' => 'forbidden', 'message' => 'Verlopen']], 403));
+        $this->postOverlay((string) json_encode(['t' => self::OVERLAY_TOKEN]))->assertStatus(403)->assertExactJson(['error' => 'forbidden']);
+
+        $this->content->queue(new TransportException('down'), new TransportException('down'), new TransportException('down'));
+        $this->postOverlay((string) json_encode(['t' => self::OVERLAY_TOKEN]))->assertStatus(502)->assertExactJson(['error' => 'unavailable']);
+    }
+
+    public function testOverlayIsRateLimitedPerVisitorIp(): void
+    {
+        $this->content->always(FakeTransport::json(['result' => []]));
+
+        for ($i = 0; $i < 30; $i++) {
+            $this->postOverlay((string) json_encode(['t' => self::OVERLAY_TOKEN]))->assertOk();
+        }
+
+        $this->postOverlay((string) json_encode(['t' => self::OVERLAY_TOKEN]))->assertStatus(429);
+    }
 }

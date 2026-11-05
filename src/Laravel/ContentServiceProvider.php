@@ -116,6 +116,8 @@ final class ContentServiceProvider extends ServiceProvider
         Route::get($prefix . '/fsc.js', [AnalyticsController::class, 'helper'])->name('content.analytics.helper');
         Route::get($prefix . '/fsa.js', [NativeAnalyticsController::class, 'tracker'])->name('content.analytics.native-tracker');
         Route::post($prefix . '/e', [NativeAnalyticsController::class, 'collect'])->name('content.analytics.native-collect');
+        Route::get($prefix . '/overlay.js', [NativeAnalyticsController::class, 'overlayScript'])->name('content.analytics.overlay-script');
+        Route::post($prefix . '/overlay', [NativeAnalyticsController::class, 'overlay'])->name('content.analytics.overlay');
 
         if ($config->get('content.analytics.mode') === 'direct') {
             return;

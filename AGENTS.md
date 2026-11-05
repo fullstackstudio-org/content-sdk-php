@@ -159,7 +159,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.10.0" }
+    "require": { "fullstackstudio/content": "^0.11.0" }
 }
 ```
 
@@ -452,6 +452,12 @@ every unsigned batch.
   every request reaches the pod through Cloudflare and nothing else can set the header (FSS cluster: the nodes' ports 80/443 are closed, only the
   Cloudflare tunnel and the tailnet reach Traefik). A site that can be reached directly must set `FSC_IP_HEADER` to a header its own proxy overwrites,
   or to an empty value (then Laravel's `$request->ip()` counts).
+- **Heatmap overlay** (0.11.0): the portal opens a page in a window of the right width with `#fsa_overlay=<token>` (a 10-minute token from the Hub
+  for one page of this project). `fsa.js` then does not measure that view and loads `/_fsc/a/overlay.js`, which removes the token from the address bar,
+  posts it to `POST /_fsc/a/overlay` (body, never a URL) and draws the heat over the current box of each element. The SDK forwards the token with the
+  server token to the Hub (`getAnalyticsOverlay()`, `@internal`); the Hub only answers for a token of this project. Nothing to configure: same-origin
+  script and fetch, styles through the CSSOM only, so `script-src 'self'`, `connect-src 'self'` and `frame-ancestors 'self'` stay as they are (the
+  overlay runs in its own window, never in an iframe). Needs a server token (`fsc_srv_`).
 - `fsa.js` is served minified (`resources/assets/fsa.min.js`); after changing `resources/assets/fsa.js` run `scripts/build-fsa.sh` (bun) and commit both.
   The JS tests run against both and fail on a stale build. Always first-party, also in
 direct mode (then `Content::analyticsCsp()` adds `'self'`). The pod needs network egress to the collector (FSS cluster: NetworkPolicy, done by the platform).
@@ -483,7 +489,7 @@ Checklist "analytics correct ingericht":
 7. `FSC_IP_HEADER` matches the proxy in front of the site (Cloudflare: `cf-connecting-ip`).
 8. Open `/?utm_source=test&gclid=abc`, submit a form: the submission in Content shows the utm and click id. Redirects keep `?utm_...`.
 9. The privacy page mentions Umami and the after-consent heatmaps/recordings.
-10. Native engine (`engine` native/both): `GET /_fsc/a/fsa.js` returns JavaScript, `POST /_fsc/a/e` answers 202 on a page view, `getAnalyticsConfig()['native']`
+10. Native engine (`engine` native/both): `GET /_fsc/a/fsa.js` and `GET /_fsc/a/overlay.js` return JavaScript, `POST /_fsc/a/e` answers 202 on a page view, `getAnalyticsConfig()['native']`
     has `ready: true` and a `signingKey` (server token), and the pod reaches the collector.
 
 ### Cache and webhook invalidation

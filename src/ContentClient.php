@@ -45,7 +45,7 @@ use FullStackStudio\Content\Modules\Tickets;
  */
 final class ContentClient
 {
-    public const VERSION = '0.10.2';
+    public const VERSION = '0.11.0';
 
     /** Total size of the files of one submission (the API's limit). */
     private const MAX_FORM_FILES_BYTES = 50 * 1024 * 1024;
@@ -594,6 +594,25 @@ final class ContentClient
     public function getAnalyticsProxyConfig(array $options = []): array
     {
         return $this->context->get('/analytics', [Tags::ANALYTICS], null, ['ttl' => 300, ...$options])->data['analytics'] ?? [];
+    }
+
+    /**
+     * @internal Server token. The aggregated heatmap of one page for the SDK overlay (`POST /_fsc/a/overlay`): the Hub answers only for
+     *           a short-lived overlay token minted in the portal for THIS project (403 `forbidden` otherwise). Never cached. The token
+     *           goes as the header `X-Fsa-Overlay`, never in a URL.
+     *
+     * @param array{timeoutMs?: int} $options
+     * @return array<string, mixed>
+     */
+    public function getAnalyticsOverlay(string $token, array $options = []): array
+    {
+        $result = $this->context->execute([
+            'path' => '/analytics/overlay',
+            'headers' => ['X-Fsa-Overlay' => $token],
+            'options' => [...$options, 'cache' => false],
+        ])->data['result'] ?? [];
+
+        return is_array($result) ? $result : [];
     }
 
     // --- Site standards (module `site`) ------------------------------------------------------------------------------------------

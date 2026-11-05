@@ -74,6 +74,9 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
         documentElement: { scrollHeight: 4000 },
         body: { scrollHeight: 4000 },
         addEventListener: (type, fn) => { (docListeners[type] ||= []).push(fn); },
+        appended: [],
+        createElement: (tag) => ({ tagName: tag.toUpperCase() }),
+        head: { appendChild(node) { doc.appended.push(node); return node; } },
     };
     const location = new URL(url);
     const history = {
@@ -720,6 +723,21 @@ test_('selectors that do not follow the grammar are never sent (no heatmap click
     const sels = (await p.events()).filter((e) => e.t === 'heatmap').map((e) => e.sel);
     assert.deepEqual(sels, ['div.leveld > div.levele > div.levelf > div.levelg', 'a[data-testid="ok"]', 'a']);
     for (const sel of sels) assert.ok(sel.split(' > ').length <= 4 && sel.length <= 300);
+});
+
+test_('a page opened with an overlay token is not measured and loads the overlay script instead', async () => {
+    const p = page({ url: 'https://studio.nl/prijzen#fsa_overlay=v1.abc.def', consent: 'accepted' });
+    p.run(() => { p.win.fsa.track('x'); p.win.fsa.pageview(); });
+    p.fireDoc('click', { type: 'click', target: el('button', { id: 'buy' }), clientX: 5, clientY: 5, detail: 1 });
+    p.advance(70_000);
+    assert.equal((await p.batches()).length, 0, 'nothing sent: no pageview, heatmap click or heartbeat');
+    assert.equal(p.local.data['fsa-id'], undefined, 'nothing stored');
+    assert.deepEqual(p.doc.appended.map((n) => n.src), ['/_fsc/a/overlay.js']);
+    // Another fragment is a normal visit.
+    const q = page({ url: 'https://studio.nl/prijzen#fsa_overlayx' });
+    q.advance(1000);
+    assert.equal((await q.events())[0].t, 'pageview');
+    assert.equal(q.doc.appended.length, 0);
 });
 
 test_('the minified build is the current source', () => {

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.11.0
+
+- Heatmap overlay (plan analytics-engine, phase 4 reports). The portal opens a page in its own window (390/820/1280 px for mobile/tablet/desktop) with
+  `#fsa_overlay=<token>`: a short-lived (10 min) token the Hub mints for one page, viewport class and period of this site's project.
+  - `fsa.js`: with that fragment the view is not measured at all (no pageview, heatmap click, heartbeat or signal; nothing stored) and
+    `/_fsc/a/overlay.js` is loaded instead.
+  - `GET /_fsc/a/overlay.js` (new, `resources/assets/fsa-overlay.js`): removes the token from the address bar, posts it to the site and draws the heat over the
+    CURRENT box of each element (`querySelector` + `getBoundingClientRect`, so it survives layout changes), with click counts per element, rage/dead marks,
+    scroll-reach lines every 20% and a panel (consent share, legend, a warning when the window width or the page does not match, elements that are gone).
+    CSP-safe: CSSOM styles, `textContent`, no inline `<style>`, no `innerHTML`, no eval.
+  - `POST /_fsc/a/overlay` (new, no session/cookies/CSRF): checks the token shape, 30 requests per visitor IP per minute, forwards it with the server token to the
+    Hub (`ContentClient::getAnalyticsOverlay()`, `@internal`, header `X-Fsa-Overlay`, never cached) and returns the aggregates (elements with 2+ visits,
+    clicks per cell of a 10 × 10 grid over each element, scroll reach), 403 when the Hub refuses the token, 502 on an outage. `Cache-Control: no-store`.
+  - Needs Hub routes of analytics phase 4 (`GET /api/v1/analytics/overlay`); an older Hub answers 404, which the overlay shows as an expired link.
+
 ## 0.10.2
 
 - `fsa.js` (plan analytics-engine, phase 4 ingest): scroll map, frustration signals and richer heatmap clicks. Needs the matching collector release
