@@ -37,6 +37,7 @@ final class SdkCoverageTest extends TestCase
         '/intelligence/identify' => '`identifyVisitor()`: FullStack Intelligence (module `intelligence`) is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
         '/intelligence/decide' => '`decideSlots()`: FullStack Intelligence personalisation (phase 7) is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
         '/intelligence/me' => '`intelligenceMe()`: the visitor\'s own profile for the site dev panel; Laravel/PHP only, the JS SDK is frozen and gets no new routes.',
+        '/products/recommended' => '`recommendations()`: ranked product ids from FullStack Intelligence (plan ootb-integrations C9); Laravel/PHP only, the JS SDK is frozen and gets no new routes.',
         '/api/media/*' => '`mediaUrl()`: the JS version builds it from a template string that does not start with a slash, so the scan does not see it.',
     ];
 

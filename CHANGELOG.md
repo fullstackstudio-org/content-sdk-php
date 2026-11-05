@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Product recommendations as ids (plan ootb-integrations C9, D12). `Products::recommended(?string $pid = null, int $limit = 8, array $options = [])` returns product ids ranked in the Hub (`GET /api/v1/products/recommended`, server token): the hot topics of the consenting visitor mapped to the shop's product categories first, then the best sellers of the last 30 days, then the newest products; only active products that can be bought. `Products::recommendations()` returns the whole answer (`active`, `source`, `ids`) and `Products::recommendedProducts()` hydrates the ids with `get()` (a product that disappeared is skipped). Only a well-formed browser id is sent; option `gpc: true` forwards `Sec-GPC: 1`, `locale` picks the language, `limit` is clamped to 1..24. Not cached by the SDK (the Hub caches per topic set for 60 s, never per browser id). With Intelligence off the Hub answers `active: false` with the fallback ids. Blade example in `AGENTS.md`.
+
 ## 0.19.0
 
 - Conversion events for the Hub's default goals and funnels (plan ootb-integrations C2). Three Blade components print one hidden marker that the analytics helper (`fsc.js`) fires once per page through every active tracker, without consent and without personal data:
