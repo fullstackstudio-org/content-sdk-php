@@ -204,4 +204,22 @@ return [
             'per_minute' => 120,
         ],
     ],
+
+    /*
+     * The dev panel (Bezoeker, Weergave, Deze pagina; reduced motion, Save-Data, no WebGL, weak device). OFF for every visitor: the server only
+     * writes its script tags into the `<head>` (`<x-content::head />` or `<x-content::devmode />`) for a request with the cookie `cookie`=1.
+     * Visit any page with `?fsc_devmode=1` to set it (a year, path /) and `?fsc_devmode=0` to clear it; the panel has a button for that too.
+     * A page with the tags is `Cache-Control: private, no-cache`; for a CDN in front, skip the cache when the cookie header contains `fsc_devmode=1`.
+     * `portal_url`: link to a visitor profile in the portal, with `{ref}` for the profile reference (no link when empty). `scripts`: same-origin
+     * paths of your own scripts that add flags or sections to the panel (see the header of fsc-devmode.js). `aliases`: extra console names for
+     * `devmode()`, which only exists while the panel is loaded. `path`: where the two assets are served.
+     */
+    'devmode' => [
+        'enabled' => (bool) env('FSC_DEVMODE_ENABLED', true),
+        'cookie' => env('FSC_DEVMODE_COOKIE', 'fsc_devmode'),
+        'path' => env('FSC_DEVMODE_PATH', '_fsc/d'),
+        'portal_url' => env('FSC_DEVMODE_PORTAL_URL', ''),
+        'scripts' => [],
+        'aliases' => [],
+    ],
 ];

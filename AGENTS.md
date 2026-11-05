@@ -545,6 +545,20 @@ Wrap a part of a page that FullStack Intelligence may personalise. Write the DEF
 - Variant content in the Hub must never tell the visitor what we saw (the Hub refuses obvious phrases). Give images in a variant fixed dimensions.
 - JS: `fsiSlots.ready(fn)`, `fsiSlots.get(name)` -> `{variant, group, fields}` or null, `fsiSlots.view(name)` (data slots: report when shown).
 
+### Dev panel (0.17.0): `?fsc_devmode=1`
+
+Every site gets a dev panel for free; it is off for everybody. Visit any page with `?fsc_devmode=1` (sets the cookie `fsc_devmode`, redirects) and `?fsc_devmode=0` to
+leave. Only a request with the cookie gets two script tags in the `<head>` (from `<x-content::head />`, or `<x-content::devmode />` when a layout has no head component),
+and that response is `private, no-cache`; no devmode bit exists in the HTML otherwise. **A CDN that caches HTML must bypass its cache when the Cookie header contains
+`fsc_devmode=1`** (Cloudflare: add `not http.cookie contains "fsc_devmode=1"` to the cache rule), or the panel is cached into the page / the page is served without it.
+The panel shows the visitor's ids and Intelligence profile, display switches (reduced motion, Save-Data, no WebGL, weak device; this browser only, via `html[data-fsc-*]`
+attributes and `window.fscDev.has()`) and the page's slot decisions.
+
+Wiring per site (all in `config/content.php` -> `devmode`): `portal_url` (e.g. `https://portal.example.nl/websites/<id>/intelligence/bezoeker/{ref}`, no link when empty),
+`scripts` (same-origin scripts that add your own switches or sections: `(window.fscDevExtensions = window.fscDevExtensions || []).push({ id, title, flags: [{ id, label, hint }], mount(ctx), render(host, ctx) })`),
+`aliases` (extra console names for `devmode()`), and three CSS variables to keep your floating buttons free: `--fsc-dev-top` (desktop offset from the top, below a sticky header),
+`--fsc-dev-bottom` (space kept free at the bottom: the desktop panel stops above it, the phone sheet is raised by it) and `--fsc-dev-pill-bottom` (pill on a phone).
+
 ### Cache and webhook invalidation
 
 Reads are cached under tags (`content:articles`, `content:article:<slug>`, `content:page:<path>`, `content:seo`, ... see `FullStackStudio\Content\Tags`) in your Laravel

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Laravel\View\Components;
 
+use FullStackStudio\Content\Laravel\Devmode;
 use FullStackStudio\Content\Laravel\RichStyle;
 use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Site;
@@ -26,6 +27,7 @@ final class Head extends Component
     public function render(): HtmlString
     {
         $layer = RichStyle::layerDeclaration($this->nonce);
+        $layer .= self::devmode($this->nonce);
 
         try {
             $site = SiteSettings::make()->current();
@@ -37,6 +39,16 @@ final class Head extends Component
             return new HtmlString($layer . Site::head($site, SiteSettings::renderOptions($this->nonce)));
         } catch (Throwable) {
             return new HtmlString($layer);
+        }
+    }
+
+    /** The dev panel tags for a request with the devmode cookie, nothing otherwise. */
+    private static function devmode(?string $nonce): string
+    {
+        try {
+            return Devmode::tags(null, SiteSettings::renderOptions($nonce)['nonce']);
+        } catch (Throwable) {
+            return '';
         }
     }
 }

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.17.0
+
+- Dev panel for every site, OFF for everybody until a browser asks for it. `?fsc_devmode=1` on any GET page sets the cookie `fsc_devmode=1` (a year,
+  path `/`, SameSite=Lax, Secure on https) and 302s to the same URL without the parameter (`Cache-Control: no-store`); `?fsc_devmode=0` clears it. Only for
+  a request with that cookie (and not a crawler or prefetch) `<x-content::head />` (or the new `<x-content::devmode />` for a layout without it) writes two
+  tags into the `<head>`: a blocking `flags.js` and a deferred `devmode.js`, both served by the SDK under `content.devmode.path` (default `/_fsc/d`). Without the
+  cookie the HTML has no devmode bit at all. A page that got the tags is sent `Cache-Control: private, no-cache` (same mechanism as a server-decided slot); a
+  CDN in front must skip its cache when the cookie header contains `fsc_devmode=1`. The middleware that handles the switch is registered globally by the provider.
+- The panel (`resources/assets/fsc-devmode.js`): a pill "Dev" that opens a card (a bottom sheet on a phone) with three sections. Bezoeker: browser id with a
+  copy button ("Gekopieerd"), consent, cookie `fsa_pid`, and the Intelligence profile of `POST /_fsc/i/me` (only while `content.intelligence.enabled`) with
+  an "Open in portaal" link built from `content.devmode.portal_url` (`{ref}` placeholder; no link when empty). Weergave: switches for Reduced motion,
+  Save-Data, Geen WebGL and Zwak toestel, stored in localStorage `fsc-dev-flags` and applied on the next load by `flags.js` (this browser only): `<html data-fsc-motion="reduce">`,
+  `data-fsc-save-data`, `data-fsc-no-webgl`, `data-fsc-weak`, `window.fscDev.has(name)`, plus overrides of `matchMedia('(prefers-reduced-motion: reduce)')`,
+  `navigator.connection.saveData`, `deviceMemory`, `hardwareConcurrency` and WebGL contexts, and an end to all CSS animations and transitions for reduce. Deze pagina: path,
+  language, SDK version and the slot decisions (`data-fsi-*`). Dutch texts, English under `<html lang="en">`.
+- Extension point: `content.devmode.scripts` lists same-origin scripts the panel loads; they call `(window.fscDevExtensions = window.fscDevExtensions || []).push({ id, title?, flags?, mount?, render? })`
+  to add switches (stored with the others, read through `fscDev.has(id)`), a section or a hook (see the header of `fsc-devmode.js`).
+  `content.devmode.aliases` adds console names for `devmode()` (defined only while the panel is loaded; `devmode(false)` turns the mode off, same as the footer button).
+- Position: top right on desktop (below `--fsc-dev-top`, default 12px, and stopping `--fsc-dev-bottom` above the bottom edge, default 12px), a bottom sheet raised
+  by `--fsc-dev-bottom` on a phone and a pill `--fsc-dev-pill-bottom` from the bottom: a site sets these three CSS variables so its floating buttons stay free.
+- Config `content.devmode`: `enabled` (env `FSC_DEVMODE_ENABLED`, default on), `cookie`, `path`, `portal_url`, `scripts`, `aliases`.
+
 ## 0.16.0
 
 - `fsa.js`: the consented browser-id cookie `fsa_pid` can live on a parent domain: config `content.analytics.pid_cookie_domain`

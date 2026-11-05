@@ -16,6 +16,7 @@ use FullStackStudio\Content\Laravel\Errors\ReporterScriptController;
 use FullStackStudio\Content\Laravel\Errors\TunnelController;
 use FullStackStudio\Content\Laravel\View\Components\Meta;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
@@ -102,6 +103,15 @@ final class ContentServiceProvider extends ServiceProvider
             });
         }
 
+        if (Devmode::enabled()) {
+            self::registerDevmodeRoutes();
+            $this->app->make(HttpKernel::class)->pushMiddleware(DevmodeSwitch::class);
+            // The page that got the panel tags is for this browser only.
+            $this->app['events']->listen(RequestHandled::class, static function (RequestHandled $event): void {
+                SlotDecisions::privatise($event->request, $event->response);
+            });
+        }
+
         if ($this->app['config']->get('content.address.enabled', true)) {
             self::registerAddressRoutes();
         }
@@ -170,6 +180,18 @@ final class ContentServiceProvider extends ServiceProvider
         $prefix = trim((string) app('config')->get('content.intelligence.path', '_fsc/i'), '/') ?: '_fsc/i';
 
         Route::post($prefix . '/me', [PersonalizationController::class, 'me'])->name('content.intelligence.me');
+    }
+
+    /**
+     * The dev panel assets under `content.devmode.path` (default `_fsc/d`): `GET devmode.js` and `GET flags.js`. No middleware group. Called for
+     * you while `content.devmode.enabled` is on (the default); the panel itself is only written into a page for a request with the devmode cookie.
+     */
+    public static function registerDevmodeRoutes(): void
+    {
+        $prefix = trim(Devmode::base(), '/');
+
+        Route::get($prefix . '/devmode.js', [DevmodeController::class, 'panel'])->name('content.devmode.panel');
+        Route::get($prefix . '/flags.js', [DevmodeController::class, 'flags'])->name('content.devmode.flags');
     }
 
     /**
