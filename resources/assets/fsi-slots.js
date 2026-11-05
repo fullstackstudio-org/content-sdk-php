@@ -1,6 +1,11 @@
 /*!
  * FullStack Intelligence slots (phase 7, personalisation). Loaded once per page by <x-content::slot> while personalisation is on.
  *
+ * - Server-side decisions (default): when the request carried a signal the SERVER already rendered the variant into the HTML and marked the
+ *   slot (`data-fsi-variant`, `data-fsi-group`, `data-fsi-fields`). Such a slot is never asked for and never swapped here (nothing changes
+ *   after paint); this step only exposes its result through `fsiSlots` and measures view/click. Slots without a mark stay as they are,
+ *   unless `data-client="1"` on this script (config `client_decide`, for sites whose HTML is cached at the edge): then the browser path
+ *   below still asks for them.
  * - The HTML always holds the default content. This step asks the site's own `POST /_fsc/i/decide` which variant fits this visitor and
  *   swaps it in only when the swap cannot move the page: a slot fully below the viewport may change height; a slot in or above the
  *   viewport may only keep or lose height (the lost height stays reserved), otherwise the default stays. A hidden variant keeps its space
@@ -27,6 +32,7 @@
 
     var script = d.currentScript;
     var endpoint = (script && script.getAttribute('data-endpoint')) || '/_fsc/i/decide';
+    var clientDecide = !script || script.getAttribute('data-client') !== '0';
     var deadline = parseInt((script && script.getAttribute('data-deadline')) || '1500', 10) || 1500;
     var now = function () { return w.performance && w.performance.now ? w.performance.now() : Date.now(); };
     var started = now();
@@ -43,7 +49,16 @@
         var name = nodes[i].getAttribute('data-fsi-slot') || '';
         if (!KEY.test(name) || slots[name]) continue;
         slots[name] = { name: name, el: nodes[i], data: nodes[i].hasAttribute('data-fsi-data'), result: null, viewed: false, clicked: false };
-        names.push(name);
+        var serverGroup = nodes[i].getAttribute('data-fsi-group');
+        if (serverGroup) {
+            // Decided on the server: take over the result as it is, ask for nothing, swap nothing.
+            var fields = null;
+            try { fields = JSON.parse(nodes[i].getAttribute('data-fsi-fields') || 'null'); } catch (e) { fields = null; }
+            slots[name].result = { variant: nodes[i].getAttribute('data-fsi-variant') || 'default', group: serverGroup, fields: fields && typeof fields === 'object' ? fields : null };
+            slots[name].server = true;
+        } else if (clientDecide) {
+            names.push(name);
+        }
     }
 
     function track(event, slot) {
@@ -94,6 +109,8 @@
         try { d.dispatchEvent(new CustomEvent('fsi:slots', { detail: api })); } catch (e) { /* old browser */ }
     }
 
+    // Slots the server decided are measured at once; the rest (if any, `data-client`) waits for the answer.
+    observeDecided();
     if (!names.length) { finish(); return; }
 
     // --- Building and swapping ------------------------------------------------------------------------------------------------------
@@ -230,6 +247,12 @@
             }
         }, { threshold: [0.5] });
         io.observe(slot.el);
+    }
+
+    function observeDecided() {
+        for (var key in slots) {
+            if (Object.prototype.hasOwnProperty.call(slots, key) && slots[key].server) observe(slots[key]);
+        }
     }
 
     function apply(decisions) {

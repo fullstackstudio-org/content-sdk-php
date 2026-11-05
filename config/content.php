@@ -128,9 +128,18 @@ return [
          */
         'personalization' => (bool) env('FSC_INTELLIGENCE_PERSONALIZATION', false),
         'path' => env('FSC_INTELLIGENCE_PATH', '_fsc/i'),
-        'decide_timeout_ms' => (int) env('FSC_INTELLIGENCE_DECIDE_TIMEOUT_MS', 50),
+        'decide_timeout_ms' => (int) env('FSC_INTELLIGENCE_DECIDE_TIMEOUT_MS', 400),
         'decide_ttl' => (int) env('FSC_INTELLIGENCE_DECIDE_TTL', 60),
         'swap_deadline_ms' => (int) env('FSC_INTELLIGENCE_SWAP_DEADLINE_MS', 1500),
+        // Server-side rendering of the decision (default): when a request carries a signal (same-site Referer on another path, the portal
+        // recognition cookie, or the consented browser-id cookie `fsa_pid` that fsa.js mirrors) the slot component asks the Hub ONCE per
+        // request (within `ssr_timeout_ms`) and renders the variant straight into the HTML, so nothing swaps after paint. Without a
+        // signal there is no Hub call and the default renders. A response that used a signal is sent `Cache-Control: private, no-store`.
+        'ssr' => (bool) env('FSC_INTELLIGENCE_SSR', true),
+        'ssr_timeout_ms' => (int) env('FSC_INTELLIGENCE_SSR_TIMEOUT_MS', 250),
+        // The old browser path (slots.js asks POST /decide after load and swaps when the page cannot move). Off by default; switch it on
+        // only for a site whose HTML is cached at the edge (a server-rendered decision would then never reach the visitor).
+        'client_decide' => (bool) env('FSC_INTELLIGENCE_CLIENT_DECIDE', false),
     ],
 
     /*

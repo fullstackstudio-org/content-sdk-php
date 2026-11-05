@@ -80,7 +80,7 @@ const h = (tag, attrs = {}, ...children) => { const n = new Node(1, tag, attrs);
 const template = (variant, ...children) => { const t = h('template', { 'data-fsi-variant': variant }); children.forEach((c) => t.content.appendChild(c)); return t; };
 
 /** A page with the given slots, a fetch that answers `answer` (or fails), a tracker with or without consent, and a manual clock. */
-function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoaded = true, referrer = '', hash = '', delay = 0, viewport = 800, lang = '' }) {
+function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoaded = true, referrer = '', hash = '', delay = 0, viewport = 800, lang = '', client = '1' }) {
     let clock = 0;
     const tracked = [];
     const requests = [];
@@ -88,7 +88,7 @@ function page({ slots, answer = { d: {} }, fail = false, consent = false, fsaLoa
     const observers = [];
     const root = h('body', {}, ...slots);
     const document = {
-        currentScript: { getAttribute: (n) => ({ 'data-endpoint': '/_fsc/i/decide', 'data-deadline': '1500' })[n] ?? null },
+        currentScript: { getAttribute: (n) => ({ 'data-endpoint': '/_fsc/i/decide', 'data-deadline': '1500', 'data-client': client })[n] ?? null },
         referrer,
         documentElement: { clientHeight: viewport, lang },
         querySelectorAll: (selector) => root.querySelectorAll(selector).concat(slots.filter((s) => s.tagName === 'TEMPLATE' && s.hasAttribute('data-fsi-slot'))),
@@ -305,4 +305,30 @@ test('a chat data slot counts its view in every group and the first chat message
         p.window.fsiSlots.chatMessage('chat-opening');
         assert.deepEqual(p.tracked.map(([name, props]) => [name, props.fsi_group]), [['fsi_slot_view', group], ['fsi_slot_chat_message', group]]);
     }
+});
+
+test('a slot the server already decided is never asked for or swapped; it is only measured with the server variant and group', async () => {
+    const decided = h('div', { 'data-fsi-slot': 'home-hero', top: 100, 'data-fsi-variant': 'voip', 'data-fsi-group': 'personal', 'data-fsi-fields': '{"title":"Bellen"}' }, h('h1', { 'data-fsi-field': 'title' }, 'Bellen'));
+    const control = h('div', { 'data-fsi-slot': 'cta', top: 300, 'data-fsi-variant': 'klant', 'data-fsi-group': 'control' }, h('a', { href: '/contact' }, 'Contact'));
+    const answer = { d: { 'home-hero': { v: 'x', g: 'personal', f: { title: 'Nooit' } } } };
+
+    // Server rendering mode (data-client 0): no request at all, content untouched.
+    const p = page({ slots: [decided, control], client: '0', answer });
+    await p.settle();
+    assert.equal(p.requests.length, 0);
+    assert.equal(decided.querySelectorAll('[data-fsi-field]')[0].textContent, 'Bellen');
+    assert.deepEqual(p.window.fsiSlots.get('home-hero'), { variant: 'voip', group: 'personal', fields: { title: 'Bellen' } });
+    assert.deepEqual(p.window.fsiSlots.get('cta'), { variant: 'klant', group: 'control', fields: null });
+    p.seeAll();
+    assert.deepEqual(p.tracked.map(([n, props]) => [n, props.fsi_slot, props.fsi_variant, props.fsi_group]), [['fsi_slot_view', 'home-hero', 'voip', 'personal'], ['fsi_slot_view', 'cta', 'klant', 'control']]);
+
+    // Browser path switched on: only the slots the server did not decide are asked.
+    const open = h('div', { 'data-fsi-slot': 'footer-cta', top: 500 }, h('a', { href: '/x', 'data-fsi-href': 'cta_url' }, 'x'));
+    const q = page({ slots: [decided, open], client: '1', answer: { d: { 'footer-cta': { v: 'voip', g: 'personal', f: { cta_url: '/voip' } } } } });
+    await q.settle();
+    assert.equal(q.requests.length, 1);
+    assert.deepEqual(q.requests[0].body.s, ['footer-cta']);
+    assert.equal(q.window.fsiSlots.get('home-hero').group, 'personal');
+    assert.equal(q.window.fsiSlots.get('footer-cta').group, 'personal');
+    assert.equal(decided.querySelectorAll('[data-fsi-field]')[0].textContent, 'Bellen');
 });

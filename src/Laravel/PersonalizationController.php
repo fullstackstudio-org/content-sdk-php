@@ -26,6 +26,9 @@ use Throwable;
  * language, so a visitor can never fill the site's cache with per-visitor entries. Circuit breaker: after a failure, timeout or 429 of the Hub
  * the site does not ask again for {@see self::BREAKER_SECONDS} seconds (one key per site), so a slow Hub never costs every page view its budget.
  *
+ * Server-side rendering ({@see SlotDecisions}): the slot component asks {@see self::ask()} itself during the page render when the request
+ * carries a signal, with the same bucket, `present()` and breaker, so the groups are identical to the browser path.
+ *
  * Consent (D5): the tracker's browser id `pid` is only forwarded with `c: 1`; without it the Hub only sees the current and previous page.
  * The portal recognition cookie (`recognition_cookie`) is forwarded always but the Hub uses it only as "is a logged-in customer"
  * (functional, plan B.4). The stable bucket of the control group, PER SLOT (each slot has its own independent control group): with consent
@@ -167,7 +170,7 @@ final class PersonalizationController
     }
 
     /** A path on this site without query or fragment, at most 300 characters; null otherwise. */
-    private static function path(mixed $value): ?string
+    public static function path(mixed $value): ?string
     {
         if (!is_string($value) || $value === '' || strlen($value) > 300 || preg_match('#^/(?![/\\\\])[^\s]*$#D', $value) !== 1) {
             return null;
@@ -180,7 +183,7 @@ final class PersonalizationController
      * @param list<string> $slots
      * @return array<string, mixed>
      */
-    private static function ask(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $cookie, ?string $locale): array
+    public static function ask(array $slots, string $path, ?string $referrer, ?string $pid, bool $consent, ?string $cookie, ?string $locale, ?int $timeoutMs = null): array
     {
         try {
             $cache = app('cache')->store();
@@ -205,7 +208,7 @@ final class PersonalizationController
         }
 
         try {
-            $answer = app(ContentClient::class)->decideSlots($slots, $path, $referrer, $pid, $consent, $cookie, $locale, ['timeoutMs' => max(20, min(2000, (int) config('content.intelligence.decide_timeout_ms', 50)))]);
+            $answer = app(ContentClient::class)->decideSlots($slots, $path, $referrer, $pid, $consent, $cookie, $locale, ['timeoutMs' => max(20, min(2000, $timeoutMs ?? (int) config('content.intelligence.decide_timeout_ms', 400)))]);
         } catch (Throwable) {
             // Hub away, too slow, rate limited (429) or the module off: the default content stays, and the Hub is left alone for a moment.
             try {
@@ -229,7 +232,7 @@ final class PersonalizationController
     }
 
     /** @return array<string, mixed> */
-    private static function present(mixed $decision, bool $inControl): array
+    public static function present(mixed $decision, bool $inControl): array
     {
         if (!is_array($decision) || !is_string($decision['variant'] ?? null)) {
             return ['v' => 'default', 'g' => 'none'];
@@ -259,7 +262,7 @@ final class PersonalizationController
         return $out;
     }
 
-    private static function visitorIp(Request $request): ?string
+    public static function visitorIp(Request $request): ?string
     {
         $header = config('content.analytics.ip_header');
         $candidate = is_string($header) && $header !== '' ? $request->headers->get($header) : null;

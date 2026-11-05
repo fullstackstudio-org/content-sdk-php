@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.14.0
+
+- FullStack Intelligence slots are now decided ON THE SERVER, so a visitor never sees the default jump to a variant (the browser path swapped after paint
+  and flickered on the home page). Nothing to add to a layout: a site only needs this version. Applies to sites with
+  `content.intelligence.personalization` on; with it off nothing changes.
+  - `<x-content::slot>`: when the request carries a SIGNAL (a same-site `Referer` on another path, the portal recognition cookie
+    (`recognition_cookie`), or the consented browser-id cookie `fsa_pid`) the SDK asks the Hub ONCE per request for all slots of the page
+    (`ssr_timeout_ms`, env `FSC_INTELLIGENCE_SSR_TIMEOUT_MS`, default 250) and renders the variant (fields, links, the variant's own markup or
+    `hide`) straight into the HTML. Without a signal there is no Hub call and the default renders: zero added latency. Same control-group bucket,
+    answer cache and 10 s breaker as the browser path, so the groups are identical; a Hub that is away or slow leaves the default.
+  - The slot names of a page are learned (cache, per path): the first signal-carrying view of a page that was never rendered before decides only the
+    slots already seen, the next view all of them (one call). A slot not part of the call renders its default.
+  - A server-decided slot is marked `data-fsi-variant`, `data-fsi-group` (`personal`, `control`, `customer`, `none`) and, for an applied variant,
+    `data-fsi-fields`. `slots.js` never asks for nor swaps such a slot, it only exposes it (`fsiSlots.get`) and measures `fsi_slot_view` /
+    `fsi_slot_click` with the server's variant and group.
+  - 🚨 Caching: a response that used a signal gets `Cache-Control: private, no-store` (set after the whole middleware stack through the
+    `RequestHandled` event, over the site's own `public, s-maxage`; `Expires`, `Surrogate-Control` and `CDN-Cache-Control` are removed). Default
+    responses keep their headers. The HTML must therefore NOT be cached at the edge for personalisation to reach visitors; a site that does cache HTML
+    sets `FSC_INTELLIGENCE_CLIENT_DECIDE=true` (config `client_decide`, default off) to keep the old browser path for slots the server did not decide,
+    or `FSC_INTELLIGENCE_SSR=false` for the old behaviour only.
+  - `fsa.js`: with consent the browser id is mirrored into a first-party cookie `fsa_pid` (SameSite=Lax, Secure on https, 13 months, path `/`),
+    created together with the id and removed at once when consent is revoked, under Global Privacy Control or when the id is removed. The server
+    reads it only as the `pid` of a decision (its presence implies consent); the Hub contract is unchanged. `fsa.min.js` rebuilt. The cookie is read
+    from the raw `Cookie` header, so Laravel's cookie encryption does not get in the way. Sites list cookies for the privacy statement: `fsa_pid` is
+    an analytics cookie, set only after analytics consent.
+- `content.intelligence.decide_timeout_ms` default 50 -> 400 (50 ms was shorter than a real round trip, every request fell back).
+  `swap_deadline_ms` stays 1500 and only matters for the browser path.
+
 ## 0.13.0
 
 - FullStack Intelligence personalisation (plan analytics-engine B.7, phase 7), OFF by default (`content.intelligence.personalization`, env

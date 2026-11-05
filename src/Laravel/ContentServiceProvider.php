@@ -16,6 +16,7 @@ use FullStackStudio\Content\Laravel\Errors\ReporterScriptController;
 use FullStackStudio\Content\Laravel\Errors\TunnelController;
 use FullStackStudio\Content\Laravel\View\Components\Meta;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -88,6 +89,12 @@ final class ContentServiceProvider extends ServiceProvider
 
         if (PersonalizationController::enabled()) {
             self::registerIntelligenceRoutes();
+
+            // A response that used a visitor signal for a server-side slot decision must never be shared: private, no-store, over whatever
+            // the site set (`public, s-maxage`). RequestHandled fires after the whole middleware stack, so it is the last word.
+            $this->app['events']->listen(RequestHandled::class, function (RequestHandled $event): void {
+                SlotDecisions::privatise($event->request, $event->response);
+            });
         }
 
         if ($this->app['config']->get('content.address.enabled', true)) {

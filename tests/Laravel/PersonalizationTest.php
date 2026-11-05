@@ -78,7 +78,7 @@ final class PersonalizationTest extends LaravelTestCase
         self::assertStringContainsString('<div data-fsi-slot="cta"><a href="/contact">Contact</a></div>', $html);
         self::assertStringContainsString('<template data-fsi-slot="chat-opening" data-fsi-data></template>', $html);
         self::assertSame(1, substr_count($html, '<script'));
-        self::assertStringContainsString('<script defer src="/_fsc/i/slots.js?v=' . ContentClient::VERSION . '" data-endpoint="/_fsc/i/decide" data-deadline="1500"></script>', $html);
+        self::assertStringContainsString('<script defer src="/_fsc/i/slots.js?v=' . ContentClient::VERSION . '" data-endpoint="/_fsc/i/decide" data-client="0" data-deadline="1500"></script>', $html);
     }
 
     public function testTheScriptIsServedWithoutCookies(): void
@@ -185,7 +185,7 @@ final class PersonalizationTest extends LaravelTestCase
         $this->content->queue(FakeTransport::json(['active' => false, 'controlPercent' => 0, 'decisions' => []]));
         self::assertSame(['d' => []], $this->decide(['s' => ['home-hero'], 'p' => '/about', 'c' => 0]));
         // The decide call uses the small budget.
-        self::assertSame(50, $this->content->requests[0]->timeoutMs);
+        self::assertSame(400, $this->content->requests[0]->timeoutMs);
         self::assertCount(3, $this->hubCalls());
 
         foreach ([['s' => [], 'p' => '/'], ['s' => ['Hero!'], 'p' => '/'], ['s' => ['a'], 'p' => 'https://elders.example/'], ['s' => ['a'], 'p' => '//elders.example/'], 'not json'] as $body) {

@@ -179,8 +179,28 @@
     try { consent = interpret(storage() && storage().getItem(CONSENT_KEY)) === true; } catch (e) { consent = false; }
     var gpc = nav.globalPrivacyControl === true;
 
+    // First-party mirror of the browser id (with consent only): a cookie the SITE'S SERVER may read as the `pid` of a server-side
+    // personalisation decision (FullStack Intelligence slots), so the variant is already in the HTML. Same life as the localStorage id:
+    // removed at once when consent is revoked, the id is removed or GPC is on. Readable by script (the page's own JS can read the id anyway).
+    var PID_COOKIE = 'fsa_pid';
+    var mirrored = '';
+
+    function mirrorId(id) {
+        if (mirrored === id) return;
+        try {
+            d.cookie = PID_COOKIE + '=' + id + '; Max-Age=34128000; Path=/; SameSite=Lax' + (loc && loc.protocol === 'https:' ? '; Secure' : '');
+            mirrored = id;
+        } catch (e) { /* cookies blocked */ }
+    }
+
+    function forgetCookie() {
+        mirrored = '';
+        try { d.cookie = PID_COOKIE + '=; Max-Age=0; Path=/; SameSite=Lax' + (loc && loc.protocol === 'https:' ? '; Secure' : ''); } catch (e) { /* cookies blocked */ }
+    }
+
     function forgetId() {
         try { var s = storage(); if (s) s.removeItem(ID_KEY); } catch (e) { /* storage blocked */ }
+        forgetCookie();
     }
 
     // No consent (never given, declined, revoked in another tab while this one was closed) or GPC: no id may stay on the device.
@@ -196,17 +216,21 @@
                 id = c && c.randomUUID ? c.randomUUID() : (now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 32);
                 s.setItem(ID_KEY, id);
             }
+            mirrorId(id);
             return id;
         } catch (e) {
             return '';
         }
     }
 
+    // The id exists from the first view with consent, so the very next page load can already be decided on the server.
+    if (consent && !gpc) persistentId();
+
     function setConsent(value) {
         var granted = interpret(value);
         if (granted === null) return;
         consent = granted;
-        if (!granted) forgetId();
+        if (!granted) forgetId(); else if (!gpc) persistentId();
     }
 
     w.addEventListener(CONSENT_EVENT, function (event) { setConsent(event && 'detail' in event ? event.detail : null); });

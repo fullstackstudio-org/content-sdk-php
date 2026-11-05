@@ -69,6 +69,8 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
     const doc = {
         referrer,
         title,
+        cookies: [],
+        set cookie(value) { this.cookies.push(value); },
         visibilityState: 'visible',
         currentScript: { dataset: { sitekey: KEY, endpoint: '/_fsc/a/e', ...dataset } },
         documentElement: { scrollHeight: 4000 },
@@ -761,6 +763,25 @@ test_('a page opened with an overlay token is not measured, drops the token from
 test_('the minified build is the current source', () => {
     const hash = createHash('sha256').update(SOURCE).digest('hex');
     assert.ok(MINIFIED.startsWith(`/*! fsa.js sha256:${hash} */`), 'run scripts/build-fsa.sh');
+});
+
+test_('with consent the browser id is mirrored into a first-party cookie; revoking, GPC and no consent remove or never set it', async () => {
+    const p = page({ consent: 'accepted', url: 'https://studio.nl/' });
+    const set = p.doc.cookies.filter((c) => c.startsWith('fsa_pid=') && !c.startsWith('fsa_pid=;'));
+    assert.equal(set.length, 1, 'mirrored once, at the first view');
+    assert.match(set[0], /^fsa_pid=11111111-2222-4333-8444-555555555555; Max-Age=34128000; Path=\/; SameSite=Lax; Secure$/);
+
+    p.fireWin('fsc:consent', { detail: 'declined' });
+    assert.match(p.doc.cookies.at(-1), /^fsa_pid=; Max-Age=0; Path=\//, 'revoking removes the cookie at once');
+
+    const none = page({ consent: 'declined' });
+    assert.equal(none.doc.cookies.some((c) => /^fsa_pid=[^;]/.test(c)), false, 'never set without consent');
+    const gpc = page({ consent: 'accepted', gpc: true });
+    assert.equal(gpc.doc.cookies.some((c) => /^fsa_pid=[^;]/.test(c)), false, 'never set under Global Privacy Control');
+
+    // The cookie follows a removed id: an existing id is mirrored too, and plain http gets no Secure flag.
+    const old = page({ consent: 'accepted', url: 'http://localhost/', stored: { 'fsa-id': 'kept-id-0123456789abcdef' } });
+    assert.equal(old.doc.cookies.find((c) => c.startsWith('fsa_pid=kept')), 'fsa_pid=kept-id-0123456789abcdef; Max-Age=34128000; Path=/; SameSite=Lax');
 });
 
 for (const [label, source] of VARIANTS) {
