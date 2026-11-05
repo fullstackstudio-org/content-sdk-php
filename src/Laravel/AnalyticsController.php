@@ -183,7 +183,7 @@ final class AnalyticsController
         }
 
         if (is_string($cached) && $cached !== '') {
-            return $this->javascript($cached, $ttl);
+            return $this->javascript(self::overlayGuard($cached), $ttl);
         }
 
         try {
@@ -201,7 +201,7 @@ final class AnalyticsController
                 // Served uncached.
             }
 
-            return $this->javascript($source, $ttl);
+            return $this->javascript(self::overlayGuard($source), $ttl);
         }
 
         try {
@@ -211,7 +211,18 @@ final class AnalyticsController
         }
 
         // Umami unreachable and nothing cached: an empty script, so the page only misses analytics.
-        return $this->javascript(is_string($old) ? $old : '/* analytics unavailable */', is_string($old) ? 300 : 60);
+        return $this->javascript(is_string($old) ? self::overlayGuard($old) : '/* analytics unavailable */', is_string($old) ? 300 : 60);
+    }
+
+    /**
+     * The Umami tracker and recorder, served first-party, wrapped so they do nothing on a page opened from the portal for the heatmap
+     * overlay (phase 4): `fsa.js` sets `window.fsaOverlayMode` and takes `#fsa_overlay=` out of the URL; the tracker tag runs before
+     * `fsa.js`, so the fragment itself is checked too. No pageview of the staff view, no replay of the overlay. (In `direct` mode Umami
+     * loads from the analytics host and cannot be wrapped; the overlay is a native-engine feature.)
+     */
+    public static function overlayGuard(string $source): string
+    {
+        return "(function(){if(window.fsaOverlayMode||/(?:^#|&)fsa_overlay=/.test(String(location.hash||'')))return;\n" . $source . "\n})();";
     }
 
     private function visitorIp(Request $request): ?string

@@ -2,12 +2,37 @@
 
 ## Unreleased
 
+## 0.12.0
+
 - FullStack Intelligence (plan analytics-engine part B, phase 6), OFF by default (`content.intelligence.enabled`, env `FSC_INTELLIGENCE_ENABLED`):
   the native proxy marks visits from `exclude_ips` with the property `fsi_ex` and, for a consenting browser only, calls the new
   `ContentClient::identifyVisitor()` (`POST /api/v1/intelligence/identify`, server token) after the response, optionally with the portal recognition
   cookie named in `recognition_cookie`. Nothing changes for a site that does not switch it on.
 - `fsa.js`: `fsa.pid()` returns the browser id with consent (null without consent or under Global Privacy Control), for site forms that link a
   submission to the visitor.
+  In heatmap overlay mode `fsa.pid()` is null and nothing is sent, so a staff view never identifies or links anyone.
+- The native proxy also marks a browser with the admin's staff cookie (`staff_cookie`, default `fsi_staff`) as `fsi_ex` and never identifies it.
+
+## 0.11.0
+
+- Heatmap overlay (plan analytics-engine, phase 4 reports). The portal opens a page in its own window (390/820/1280 px for mobile/tablet/desktop) with
+  `#fsa_overlay=<token>`: a short-lived (10 min) token the Hub mints for one page, viewport class and period of this site's project.
+  - `fsa.js`: with that fragment the view is not measured at all (no pageview, heatmap click, heartbeat or signal; nothing stored) and
+    `/_fsc/a/overlay.js` is loaded instead.
+  - `GET /_fsc/a/overlay.js` (new, `resources/assets/fsa-overlay.js`): removes the token from the address bar, posts it to the site and draws the heat over the
+    CURRENT box of each element (`querySelector` + `getBoundingClientRect`, so it survives layout changes), with click counts per element, rage/dead marks,
+    scroll-reach lines every 20% and a panel (consent share, legend, a warning when the window width or the page does not match, elements that are gone).
+    CSP-safe: CSSOM styles, `textContent`, no inline `<style>`, no `innerHTML`, no eval.
+  - `POST /_fsc/a/overlay` (new, no session/cookies/CSRF): checks the token shape, 30 requests per visitor IP per minute, forwards it with the server token to the
+    Hub (`ContentClient::getAnalyticsOverlay()`, `@internal`, header `X-Fsa-Overlay`, never cached) and returns the aggregates (elements with 2+ visits,
+    clicks per cell of a 10 × 10 grid over each element, scroll reach), 403 when the Hub refuses the token, 502 on an outage. `Cache-Control: no-store`.
+  - The token leaves the address bar synchronously in `fsa.js` (before any other script can read the URL) and reaches `overlay.js` in memory
+    only. `fsa.js` sets `window.fsaOverlayMode`; `fsc.js` then loads no recorder, keeps no attribution and counts nothing (its API stays as no-ops),
+    and the first-party Umami `script.js` and `recorder.js` are served wrapped in a guard that also checks the fragment (that tag runs before
+    `fsa.js`): the staff view is counted nowhere and never replayed. In `direct` mode Umami cannot be wrapped (the overlay is a native-engine feature).
+  - The token is single use and lives 10 minutes; open the heatmap again from the portal for a new one.
+  - `POST /_fsc/a/overlay` refuses a declared `Content-Length` above 2 KB before reading the body.
+  - Needs Hub routes of analytics phase 4 (`GET /api/v1/analytics/overlay`); an older Hub answers 404, which the overlay shows as an expired link.
 
 ## 0.10.2
 

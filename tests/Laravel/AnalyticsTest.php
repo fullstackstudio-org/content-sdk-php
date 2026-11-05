@@ -215,15 +215,17 @@ final class AnalyticsTest extends LaravelTestCase
     {
         $this->umami->queue(new Response(200, ['content-type' => 'application/javascript'], '!function(){/*umami*/}();'));
 
+        $guarded = AnalyticsController::overlayGuard('!function(){/*umami*/}();');
         $first = $this->get('/_fsc/a/script.js')->assertOk();
-        self::assertSame('!function(){/*umami*/}();', $first->getContent());
+        self::assertSame($guarded, $first->getContent());
+        self::assertStringStartsWith("(function(){if(window.fsaOverlayMode||/(?:^#|&)fsa_overlay=/.test(String(location.hash||'')))return;", $guarded);
         self::assertSame('max-age=3600, public', $first->headers->get('Cache-Control'));
         $this->get('/_fsc/a/script.js')->assertOk();
         self::assertCount(1, $this->umami->requests);
 
         cache()->forget('fsc-analytics:script:script.js');
         $this->umami->queue(new TransportException('down'));
-        self::assertSame('!function(){/*umami*/}();', $this->get('/_fsc/a/script.js')->assertOk()->getContent());
+        self::assertSame($guarded, $this->get('/_fsc/a/script.js')->assertOk()->getContent());
 
         $this->umami->queue(new TransportException('down'));
         self::assertSame('/* analytics unavailable */', $this->get('/_fsc/a/recorder.js')->assertOk()->getContent());
@@ -235,5 +237,24 @@ final class AnalyticsTest extends LaravelTestCase
         self::assertSame(['script-src' => ['https://analytics.fullstackstudio.nl'], 'connect-src' => ['https://analytics.fullstackstudio.nl'], 'worker-src' => ['blob:', 'data:']], Analytics::csp('direct'));
         self::assertSame("default-src 'self'; script-src 'self' 'nonce-x'; connect-src 'self'; worker-src 'self' blob: data:", Analytics::mergeCsp("default-src 'self'; script-src 'self' 'nonce-x'"));
         self::assertSame(['script-src' => ["'self'"], 'connect-src' => ["'self'"], 'worker-src' => ["'self'", 'blob:', 'data:']], \FullStackStudio\Content\Laravel\Facades\Content::analyticsCsp());
+    }
+
+    public function testTheFirstPartyUmamiTrackerAndRecorderStandDownInOverlayMode(): void
+    {
+        $source = "window.__counted = (window.__counted || 0) + 1;";
+        $guarded = AnalyticsController::overlayGuard($source);
+        $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+
+        if ($node === '') {
+            self::markTestSkipped('node is not installed');
+        }
+
+        foreach (['' => 1, '#top' => 1, '#fsa_overlay=v1.abc' => 0, '#top&fsa_overlay=v1.abc' => 0] as $hash => $expected) {
+            $js = 'var window={};var location={hash:' . json_encode($hash) . '};' . $guarded . ';process.stdout.write(String(window.__counted||0));';
+            self::assertSame((string) $expected, shell_exec(escapeshellarg($node) . ' -e ' . escapeshellarg($js)), 'hash ' . $hash);
+        }
+
+        $js = 'var window={fsaOverlayMode:true};var location={hash:""};' . $guarded . ';process.stdout.write(String(window.__counted||0));';
+        self::assertSame('0', shell_exec(escapeshellarg($node) . ' -e ' . escapeshellarg($js)), 'flag set by fsa.js');
     }
 }

@@ -30,6 +30,7 @@ final class SdkCoverageTest extends TestCase
     private const PHP_ONLY = [
         '/translations' => 'The tail of the dynamic `/{kind}/*/translations` in `Admin::createTranslation` (the four JS paths are in JS_ONLY).',
         '/analytics' => '`getAnalyticsConfig()`: the analytics module is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
+        '/analytics/overlay' => '`getAnalyticsOverlay()`: the heatmap overlay of the SDK proxy, Laravel/PHP only (the JS SDK is frozen).',
         '/address/suggest' => '`suggestAddresses()`: Dutch address lookup is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
         '/address/lookup' => '`lookupAddress()`: see `/address/suggest`.',
         '/site' => '`getSite()`: the site standards (module `site`) are Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
