@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Marketing consent of a member (plan ootb-integrations D11). `Members::getMarketingConsent(['session' => …])` (`GET /members/me/marketing`) returns `{marketingOptIn, marketingOptInAt}` (`null` = the member never chose) and `Members::setMarketingConsent(['session' => …, 'marketingOptIn' => true|false])` (`PUT /members/me/marketing`) stores the member's own choice (`changed: false` when nothing changed). Show it as an unticked checkbox on the account page; never set it on the member's behalf. The Hub only sends marketing messages, such as the abandoned-checkout reminder, to a member who opted in or to a confirmed newsletter subscriber.
-- Webhook event type `order.abandoned` in `Webhooks\Events::ALL` (an unpaid checkout older than the shop's `abandonedReminder.afterMinutes`; data: `ref` (order id), `number`, `recognized`, `consent` (`newsletter`, `member` or `null`) and `channel` (`email`, `whatsapp`, `both` or `null`); never personal data).
+- Webhook event type `order.abandoned` in `Webhooks\Events::ALL` (an unpaid checkout older than the shop's `abandonedReminder.afterMinutes`; data: `ref` (order id), `number`, `recognized`, `consent` (`newsletter`, `member` or `null`), `channel` (`email`, `whatsapp`, `both` or `null`) and `whatsappConsent` (always `false`: newsletter or member consent covers e-mail only); never personal data). Member consent only counts for the member's own verified address, and every reminder has a one-click opt-out.
 
 ## 0.20.0
 
