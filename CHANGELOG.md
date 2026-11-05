@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Webhook event types `intelligence.visitor.warm` and `intelligence.visitor.signal` in `Webhooks\Events::ALL` (FullStack Intelligence for automations; data: `profileRef`, `warmth`, `stage`, `topic`, `signal`, `count`, `windowDays`, `known`, `strength` and the identity kind/source/ref of a verified recognition; never personal data).
+
 ## 0.18.0
 
 - Member recognition cookie. `Laravel\MemberRecognition` turns the `recognition: {cookie, value, maxAge}` of the member login answers (`login`, `loginTotp`, `refreshSession`; `null` on `logout` and `logoutAll`) into the cookie `content.intelligence.recognition_cookie` on the site's own domain: HttpOnly, Secure on https (request or `app.url`), SameSite=Lax, path `/`, `maxAge` from the answer (capped at 400 days), domain from the new `content.intelligence.recognition_cookie_domain` (`FSC_INTELLIGENCE_RECOGNITION_COOKIE_DOMAIN`, empty = this host). API: `cookie($answer, $request)` (null when `recognition` is absent, null or malformed), `forget()`, `fromAnswer()` (set, remove or nothing), `queue($answer, $request)` (cookie jar, never throws), `pid($request)`, `cookieName()`. Crawlers and prefetches never get the cookie. The provider exempts the cookie from `EncryptCookies`, so the Hub and the proxy read it as plain text.
