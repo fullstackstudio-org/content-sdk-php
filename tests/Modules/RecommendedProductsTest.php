@@ -17,13 +17,17 @@ final class RecommendedProductsTest extends ModuleTestCase
         $this->http->always(FakeTransport::json(['active' => true, 'source' => 'interest', 'ids' => ['p2', 'p1']]));
 
         self::assertSame(['p2', 'p1'], $this->client()->products->recommended(self::PID, 4));
-        $this->assertRequest('GET', '/products/recommended', ['limit' => '4', 'pid' => self::PID]);
+        $this->assertRequest('GET', '/products/recommended', ['limit' => '4']);
+        self::assertSame(self::PID, $this->http->last()->headers['X-FSI-Pid'] ?? null);
+        self::assertStringNotContainsString(self::PID, $this->http->last()->url, 'the browser id never travels in the URL');
 
         // No id, or an id that is not a browser id: no pid on the wire, default limit 8.
         $this->client()->products->recommended();
         $this->assertRequest('GET', '/products/recommended', ['limit' => '8']);
+        self::assertArrayNotHasKey('X-FSI-Pid', $this->http->last()->headers);
         $this->client()->products->recommended('not a browser id!');
         $this->assertRequest('GET', '/products/recommended', ['limit' => '8']);
+        self::assertArrayNotHasKey('X-FSI-Pid', $this->http->last()->headers);
     }
 
     public function testTheLimitIsClampedAndTheOptionsTravel(): void
@@ -35,7 +39,8 @@ final class RecommendedProductsTest extends ModuleTestCase
         self::assertArrayNotHasKey('Sec-GPC', $this->http->last()->headers);
 
         $this->client()->products->recommended(self::PID, 0, ['gpc' => true]);
-        $this->assertRequest('GET', '/products/recommended', ['limit' => '1', 'pid' => self::PID]);
+        $this->assertRequest('GET', '/products/recommended', ['limit' => '1']);
+        self::assertSame(self::PID, $this->http->last()->headers['X-FSI-Pid'] ?? null);
         self::assertSame('1', $this->http->last()->headers['Sec-GPC'] ?? null);
     }
 
@@ -76,6 +81,17 @@ final class RecommendedProductsTest extends ModuleTestCase
         self::assertStringEndsWith('/api/v1/products/recommended', (string) parse_url($this->http->requests[0]->url, PHP_URL_PATH));
         self::assertStringEndsWith('/api/v1/products/p2', (string) parse_url($this->http->requests[1]->url, PHP_URL_PATH));
         self::assertStringEndsWith('/api/v1/products/gone', (string) parse_url($this->http->requests[2]->url, PHP_URL_PATH));
+    }
+
+    public function testRecommendedProductsDropsAProductThatIsOutOfStock(): void
+    {
+        $this->http->queue(
+            FakeTransport::json(['active' => true, 'source' => 'interest', 'ids' => ['p1', 'p2']]),
+            FakeTransport::json(['product' => ['id' => 'p1', 'inStock' => false]]),
+            FakeTransport::json(['product' => ['id' => 'p2', 'inStock' => true]]),
+        );
+
+        self::assertSame(['p2'], array_column($this->client()->products->recommendedProducts(), 'id'));
     }
 
     public function testAnErrorOtherThanNotFoundPropagates(): void

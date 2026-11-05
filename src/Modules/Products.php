@@ -46,7 +46,7 @@ final class Products
      * best sellers of the last 30 days, then the newest products. Only active products that can be bought. Needs a SERVER token; a pub token gets
      * a 403. Nothing is written and the answer holds no personal data.
      *
-     * `$pid` is the visitor's consented browser id (`IntelligenceProxy::pid($request)` in Laravel: the `fsa_pid` cookie, null without consent or
+     * `$pid` is the visitor's consented browser id, sent in the header `X-FSI-Pid` (never in the URL) (`IntelligenceProxy::pid($request)` in Laravel: the `fsa_pid` cookie, null without consent or
      * under Global Privacy Control). Without one, or when the Hub cannot recognise it, you get the fallback. Pass `['gpc' => true]` in the options
      * when the visitor's request carried `Sec-GPC: 1`: the Hub then ignores the id even if one is given. `['locale' => 'en']` picks the language
      * (default: the project's default language). When personalisation is off for the project the Hub still answers with the fallback ids, so there
@@ -74,15 +74,17 @@ final class Products
     {
         $query = ['limit' => max(1, min(24, $limit)), 'locale' => $options['locale'] ?? null];
 
-        // Only a well-formed browser id travels; anything else is the same as no id.
+        $headers = ($options['gpc'] ?? false) === true ? ['Sec-GPC' => '1'] : [];
+
+        // Only a well-formed browser id travels, and in a header: a URL ends up in access logs and error reports.
         if ($pid !== null && preg_match('/^[A-Za-z0-9-]{16,64}$/D', $pid) === 1) {
-            $query['pid'] = $pid;
+            $headers['X-FSI-Pid'] = $pid;
         }
 
         $data = $this->ctx->execute([
             'path' => '/products/recommended',
             'query' => $query,
-            'headers' => ($options['gpc'] ?? false) === true ? ['Sec-GPC' => '1'] : [],
+            'headers' => $headers,
             'options' => Arr::pick($options, ['timeoutMs']),
         ])->data;
         $ids = array_values(array_filter(is_array($data['ids'] ?? null) ? $data['ids'] : [], 'is_string'));
@@ -92,7 +94,7 @@ final class Products
 
     /**
      * The recommended products themselves: {@see self::recommended()} followed by one product read per id (`get()`, so the SDK cache and its
-     * `product:{id}` tags apply). A product that disappeared in between is skipped, so the list can be shorter than `$limit`.
+     * `product:{id}` tags apply). A product that disappeared in between, or that is out of stock by now, is skipped, so the list can be shorter than `$limit`. The reads run one after the other: keep `$limit` small (4 to 8).
      *
      * @param array{gpc?: bool, locale?: string, timeoutMs?: int} $options
      * @return list<array<string, mixed>> as {@see self::get()}, in the Hub's order
@@ -112,7 +114,7 @@ final class Products
                 throw $error;
             }
 
-            if ($product !== []) {
+            if ($product !== [] && ($product['inStock'] ?? true) !== false) {
                 $products[] = $product;
             }
         }

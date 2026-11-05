@@ -610,11 +610,11 @@ categories first, then the best sellers of the last 30 days, then the newest pro
 
 ```php
 $ids = $content->products->recommended($pid, 8);              // list<string>, best first
-$products = $content->products->recommendedProducts($pid, 8); // the same, hydrated with products->get() (a gone product is skipped)
+$products = $content->products->recommendedProducts($pid, 8); // the same, hydrated with products->get() (a gone or sold-out product is skipped; one `get()` per id, one after the other, so keep the limit small)
 $answer = $content->products->recommendations($pid, 8);       // {active, source, ids}
 ```
 
-- Server token only (a pub token gets 403). `$pid` is the consented browser id: in Laravel `IntelligenceProxy::pid($request)` (the `fsa_pid` cookie, null without
+- Server token only (a pub token gets 403). `$pid` is the consented browser id, sent in the header `X-FSI-Pid` (never in the URL): in Laravel `IntelligenceProxy::pid($request)` (the `fsa_pid` cookie, null without
   consent, for crawlers and under `Sec-GPC: 1`). No `pid`, an unknown one or a suppressed browser all give the same fallback list. Pass `['gpc' => true]` in the
   options when the request carried `Sec-GPC: 1`; `['locale' => 'en']` for another language than the project default. `$limit` is 1 to 24 (default 8).
 - Works with Intelligence OFF too: `active` is then `false` and the ids are the fallback (best sellers, newest), so the block never has to hide. Interest ranking
