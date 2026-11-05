@@ -34,6 +34,17 @@
 
     if (w.fsa && w.fsa.__loaded) return;
 
+    // Newsletter click links (plan ootb-integrations D9): the Hub's redirect adds `fscn=<token>` to a link to this site. The site server
+    // already read it (the PHP SDK links a consenting browser after the response); it leaves the address bar at once, before any pageview,
+    // so it is never bookmarked, shared, copied into a form or reported. Always, also without consent or a sitekey.
+    try {
+        var search = String((w.location || {}).search || '');
+        if (/[?&]fscn=/.test(search)) {
+            var kept = search.replace(/^\?/, '').split('&').filter(function (part) { return part !== '' && part.indexOf('fscn=') !== 0; }).join('&');
+            w.history.replaceState(w.history.state, '', w.location.pathname + (kept ? '?' + kept : '') + (w.location.hash || ''));
+        }
+    } catch (e) { /* no history API: nothing else depends on it */ }
+
     var me = d.currentScript;
     var data = (me && me.dataset) || {};
     var KEY = data.sitekey || '';

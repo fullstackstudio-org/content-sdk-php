@@ -575,6 +575,23 @@ Without `open-url` (or on a site without the route) the widget opens at the Hub 
 unlocks a member's own data in the chat (orders, appointments, requests, invoices): that still takes the member session (`FscChat.init({ memberSession })`).
 The privacy statement text above covers it.
 
+#### Newsletter click links (Unreleased)
+
+The Hub's newsletter rewrites links in every campaign mail to a short redirect (`/n/l/<token>`, on by default per project; the Hub switch is
+`clickTracking`). A click counts in the campaign stats (per send and link; the stats show totals only). For a link to THIS site the redirect adds `?fscn=<token>`; with
+`content.intelligence.enabled` on, the package then links a consenting browser (the `fsa_pid` cookie; never under `Sec-GPC: 1`, never for crawlers,
+staff or `exclude_ips`) to the subscriber's address: one server-side `POST /intelligence/link {pid, newsletterToken}` after the response, once per
+browser and token (global middleware `NewsletterClickLink`, `ContentClient::linkNewsletterClick()`). fsa.js and fsc.js remove `fscn` from the address bar
+before the first pageview. ZERO code: never read, store, forward or print `fscn` yourself, and do not strip it in your own redirects before the page
+renders. The Hub only links with Intelligence `recognition` on, as a claim (a forwarded mail can be clicked by someone else), and never creates a profile.
+
+Rules: load `<x-content::analytics />` (fsa.js) before any other analytics or tag script, so `fscn` is gone before they read the URL; and never
+use the full request URL (with its query) for `canonical`, `og:url`, share links or anything stored: build those from the route or the path.
+
+The site's privacy statement must name this, e.g.: "Klik je op een link in onze nieuwsbrief, dan registreren we welke link in welke verzending is aangeklikt, om te zien
+welke onderwerpen aanslaan. Heb je op deze site toestemming gegeven voor statistieken, dan koppelen we je bezoek ook aan je inschrijving voor de
+nieuwsbrief, zodat we je relevantere inhoud kunnen tonen." (Dutch sites; translate for others.)
+
 #### Personalisation slots (0.13.0, server-side decision 0.14.0): OFF by default
 
 Wrap a part of a page that FullStack Intelligence may personalise. Write the DEFAULT content as always; it stays in the HTML for everyone
@@ -617,6 +634,49 @@ Wrap a part of a page that FullStack Intelligence may personalise. Write the DEF
   (1500); a 10% control group keeps the default. It measures `fsi_slot_view` / `fsi_slot_click` through the tracker; the Hub reports uplift per variant.
 - Variant content in the Hub must never tell the visitor what we saw (the Hub refuses obvious phrases). Give images in a variant fixed dimensions.
 - JS: `fsiSlots.ready(fn)`, `fsiSlots.get(name)` -> `{variant, group, fields}` or null, `fsiSlots.view(name)` (data slots: report when shown).
+
+#### Recommended products (unreleased): ids ranked in the Hub, the site renders
+
+"You might also like" without any tracking code on the site. The Hub ranks product ids (the hot topics of the consenting visitor, mapped to your product
+categories first, then the best sellers of the last 30 days, then the newest products; only active products that can be bought) and the site renders them:
+
+```php
+$ids = $content->products->recommended($pid, 8);              // list<string>, best first
+$products = $content->products->recommendedProducts($pid, 8); // the same, hydrated with products->get() (a gone or sold-out product is skipped; one `get()` per id, one after the other, so keep the limit small)
+$answer = $content->products->recommendations($pid, 8);       // {active, source, ids}
+```
+
+- Server token only (a pub token gets 403). `$pid` is the consented browser id, sent in the header `X-FSI-Pid` (never in the URL): in Laravel `IntelligenceProxy::pid($request)` (the `fsa_pid` cookie, null without
+  consent, for crawlers and under `Sec-GPC: 1`). No `pid`, an unknown one or a suppressed browser all give the same fallback list. Pass `['gpc' => true]` in the
+  options when the request carried `Sec-GPC: 1`; `['locale' => 'en']` for another language than the project default. `$limit` is 1 to 24 (default 8).
+- Works with Intelligence OFF too: `active` is then `false` and the ids are the fallback (best sellers, newest), so the block never has to hide. Interest ranking
+  needs the module `intelligence` with `personalization: true` and the global switches of the Hub; it only uses categories derived from the shop's own product
+  categories (`drv:product:<slug>`), so there is nothing to configure.
+- Not cached by the SDK (the answer depends on the visitor). The Hub caches the id list for 60 seconds per topic set, never per browser id, so a product that sells out
+  can show for up to a minute. Limit: 600 calls per minute per token (429 `rate_limited`: show your own list).
+- Name it in the privacy statement when you personalise ("products shown to you may depend on the pages you viewed, only with your consent"). Never show why.
+
+```blade
+@php
+    $pid = \FullStackStudio\Content\Laravel\IntelligenceProxy::pid(request());
+    try {
+        $recommended = app(\FullStackStudio\Content\ContentClient::class)->products->recommendedProducts($pid, 4, ['gpc' => request()->header('Sec-GPC') === '1']);
+    } catch (\FullStackStudio\Content\ContentException) {
+        $recommended = []; // the Hub is away or the module is off: render nothing
+    }
+@endphp
+@if ($recommended !== [])
+    <section class="recommended">
+        <h2>Misschien ook interessant</h2>
+        @foreach ($recommended as $product)
+            <a href="{{ route('product', $product['slug']) }}">
+                @if ($product['cover'] ?? null)<x-content::image :media="$product['cover']" :alt="$product['name']" />@endif
+                <span>{{ $product['name'] }}</span>
+            </a>
+        @endforeach
+    </section>
+@endif
+```
 
 ### Dev panel (0.17.0): `?fsc_devmode=1`
 

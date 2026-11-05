@@ -70,6 +70,13 @@ function page({ consent = null, search = '', referrer = '', session = {}, consen
         addEventListener: (type, fn) => { (winListeners[type] ||= []).push(fn); },
         dispatch: (type, event) => (winListeners[type] || []).forEach((fn) => fn(event)),
     };
+    win.history = {
+        state: null,
+        replaceState(_state, _title, next) {
+            const u = new URL(next, 'https://studio.nl');
+            Object.assign(win.location, { pathname: u.pathname, search: u.search, hash: u.hash });
+        },
+    };
 
     new Function('window', 'document', SOURCE)(win, doc);
 
@@ -159,6 +166,13 @@ test('first-touch attribution keeps utm and click ids, the landing URL and an ex
 
     const internal = page({ referrer: 'https://studio.nl/about' });
     assert.equal(internal.win.fscAnalytics.attribution().referrer, undefined);
+});
+
+test('a newsletter click token (fscn) leaves the address bar before the landing URL is kept', () => {
+    const p = page({ search: '?utm_source=nieuwsbrief&fscn=' + 'AQ' + 'k'.repeat(66) + '&x=1', hash: '#top' });
+    assert.equal(p.win.location.search, '?utm_source=nieuwsbrief&x=1');
+    assert.equal(p.win.location.hash, '#top');
+    assert.equal(p.win.fscAnalytics.attribution().landing_url, '/?utm_source=nieuwsbrief&x=1');
 });
 
 test('SDK forms and opted-in forms get the attribution as a hidden field', () => {

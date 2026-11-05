@@ -20,10 +20,16 @@ use Throwable;
  * - {@see identifyLater()}: after the response, for a batch WITH consent and a `pid` only, one server-to-server call to the Hub
  *   (`identifyVisitor`) with the portal recognition cookie when configured. Cached per browser (and cookie) for `identify_ttl` seconds,
  *   so a visit makes one call, not one per batch. Excluded IPs and staff browsers are never identified (no profile, no recognition). A failure is silent: tracking never breaks.
+ * - {@see newsletterClickLater()}: a page view that arrived from a newsletter click link (`?fscn=<token>`, added by the Hub's redirect) of a
+ *   CONSENTING browser (the `fsa_pid` cookie, never under `Sec-GPC: 1`, never for crawlers, excluded IPs or staff) makes, after the response,
+ *   one call `linkNewsletterClick` per browser and token. fsa.js / fsc.js take `fscn` out of the address bar.
  */
 final class IntelligenceProxy
 {
     public const EXCLUDE_PROP = 'fsi_ex';
+
+    /** The query parameter of a newsletter click link (Hub `ClickLinks::PARAM`). */
+    public const NEWSLETTER_PARAM = 'fscn';
 
     /** Event types that keep their `p` through the collector (heatmap clicks have none, frustration keeps only its own keys). */
     private const MARKABLE = ['pageview', 'event', 'heartbeat', 'outbound', 'download', 'form_start', 'form_submit', 'scroll', 'scroll_max', 'revenue'];
@@ -102,6 +108,45 @@ final class IntelligenceProxy
                 app(ContentClient::class)->identifyVisitor($pid, $cookie, ['timeoutMs' => 1500]);
             } catch (Throwable) {
                 // The Hub is away or the module is off: try again after the TTL. Never visible to the visitor.
+            }
+        });
+    }
+
+    /** The `fscn` token of a page view, or null when there is none or it is not shaped like one (68 base64url characters). */
+    public static function newsletterToken(Request $request): ?string
+    {
+        $token = $request->query(self::NEWSLETTER_PARAM);
+
+        return is_string($token) && preg_match('/^[A-Za-z0-9_-]{68}$/D', $token) === 1 ? $token : null;
+    }
+
+    /**
+     * A GET page view with `fscn` from a consenting browser: after the response, one `linkNewsletterClick` per browser and token (cached 30
+     * days, so a reload or a second tab makes no second call). Nothing without consent (no `fsa_pid` cookie), under `Sec-GPC: 1`, for a
+     * crawler or prefetch, an excluded IP or a staff browser. Silent on failure.
+     */
+    public static function newsletterClickLater(Request $request): void
+    {
+        if (!self::enabled() || !$request->isMethod('GET')) {
+            return;
+        }
+
+        $token = self::newsletterToken($request);
+        $pid = $token === null ? null : self::pid($request);
+
+        if ($token === null || $pid === null || self::isExcluded($request->ip()) || self::isStaff($request)) {
+            return;
+        }
+
+        app()->terminating(static function () use ($pid, $token): void {
+            try {
+                if (!app('cache')->store()->add('fsi:nl:' . hash('sha256', $pid . '|' . $token), 1, 30 * 86400)) {
+                    return;
+                }
+
+                app(ContentClient::class)->linkNewsletterClick($pid, $token, ['timeoutMs' => 1500]);
+            } catch (Throwable) {
+                // The Hub is away or the module is off: the Hub still counted the click. Never visible to the visitor.
             }
         });
     }

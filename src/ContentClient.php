@@ -815,4 +815,24 @@ final class ContentClient
             'options' => $options,
         ])->data;
     }
+
+    /**
+     * Server token only. Links a CONSENTING browser (the `fsa_pid` browser id) to the newsletter subscriber a click link was sent to
+     * (`POST /intelligence/link` with `newsletterToken`, plan ootb-integrations D9): `$token` is the `fscn` query parameter the Hub's redirect
+     * added. The Hub verifies the token, needs Intelligence `recognition` on and stores a CLAIMED link (source `newsletter`); it never creates
+     * a profile. Answers `{active, linked}`. {@see \FullStackStudio\Content\Laravel\NewsletterClickLink} calls this for you, once per browser
+     * and token, never under `Sec-GPC: 1`.
+     *
+     * @param array{timeoutMs?: int} $options
+     * @return array{active?: bool, linked?: bool}
+     */
+    public function linkNewsletterClick(string $pid, string $token, array $options = []): array
+    {
+        return $this->context->execute([
+            'method' => 'POST',
+            'path' => '/intelligence/link',
+            'body' => ['pid' => $pid, 'newsletterToken' => $token],
+            'options' => $options,
+        ])->data;
+    }
 }

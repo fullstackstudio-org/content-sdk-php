@@ -35,6 +35,16 @@
         return;
     }
 
+    // Newsletter click links (plan ootb-integrations D9): `fscn=<token>` from the Hub's redirect leaves the address bar before the landing
+    // URL is kept for attribution (fsa.js does the same; whichever runs first). The site server already read it.
+    try {
+        var search = String((w.location || {}).search || '');
+        if (/[?&]fscn=/.test(search)) {
+            var kept = search.replace(/^\?/, '').split('&').filter(function (part) { return part !== '' && part.indexOf('fscn=') !== 0; }).join('&');
+            w.history.replaceState(w.history.state, '', w.location.pathname + (kept ? '?' + kept : '') + (w.location.hash || ''));
+        }
+    } catch (e) { /* no history API: nothing else depends on it */ }
+
     // Heatmap overlay (plan analytics-engine, phase 4): the portal opened this page for staff (fsa.js sets fsaOverlayMode and takes the
     // token out of the URL; the hash check covers a page without fsa.js). Staff looking at a heatmap is no visitor: no recorder, no
     // replay, no attribution, no counting. The API stays, as no-ops, so site code keeps working.
