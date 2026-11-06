@@ -484,7 +484,7 @@ feature that is on:
 |---|---|
 | Always (forms) | "Wat je via een formulier stuurt, slaan we op in ons websitebeheer (FullStack Hub) en sturen we per e-mail naar ons door. We bewaren daarbij ook via welke campagne of link je op de site kwam, zonder cookies." |
 | Module `analytics`, engine Umami | "We meten bezoeken met Umami, een privacyvriendelijke statistiekdienst zonder cookies; IP-adressen worden niet opgeslagen. Alleen als je cookies accepteert, analyseren we ook anoniem klikken en navigatie (heatmaps en sessie-opnames, waarbij alles wat je typt verborgen blijft)." |
-| Module `analytics`, engine native | "We meten bezoeken met onze eigen statistieken, zonder cookies; IP-adressen worden niet opgeslagen. Alleen als je cookies accepteert, onthouden we je browser met een willekeurig nummer, zodat we terugkerende bezoeken zien, en analyseren we klikken (heatmaps). We maken geen opnames." (engine `both`: both sentences) |
+| Module `analytics`, engine native | "[Bedrijfsnaam] meet het gebruik van deze website met FullStack Hub Analytics, een dienst van FullStack Studio die zonder cookies werkt en niets op uw apparaat opslaat of uitleest. Zonder uw toestemming wordt per dag een tijdelijk kenmerk berekend uit uw IP-adres, uw browserkenmerken en een geheime dagwaarde die daarna wordt vernietigd; uw IP-adres wordt niet bewaard en alleen gebruikt om land, regio en plaats te bepalen. Een bezoek eindigt na 30 minuten zonder activiteit. Herkenning over meerdere dagen gebeurt alleen als u analytische cookies accepteert (cookie fsa_pid, 13 maanden); die toestemming kunt u altijd intrekken. Met die toestemming analyseren wij ook klikken (heatmaps) en bij formulieren welk veld u als laatste aanraakte, nooit wat u typt. Signaleert uw browser Global Privacy Control, dan bewaren wij nooit een kenmerk. Gegevens worden in de EU bewaard, als ruwe gegevens maximaal [13/25/37] maanden. FullStack Studio verwerkt deze gegevens als verwerker voor [Bedrijfsnaam]." (engine `both`: both sentences; replace `[13/25/37]` by the project's `retentionMonths`, see "Template notes" below) |
 | Module `analytics`, engine native, with forms | "Bij formulieren meten we of je het formulier start en verstuurt en hoe lang dat duurt, zonder wat je invult. Heb je toestemming gegeven voor statistieken, dan zien we ook bij welk veld je afhaakt (alleen de naam van het veld, nooit wat je typt)." |
 | Module `errors` | "Technische fouten op deze site melden we aan onze foutmonitoring, zonder persoonsgegevens." |
 | Intelligence recognition (members or chat) | "Log je in, dan herkennen we je bij latere bezoeken (cookie fsi_rec, 6 maanden) om relevante inhoud te tonen. Dat doen we alleen als je toestemming hebt gegeven voor statistieken." |
@@ -492,6 +492,18 @@ feature that is on:
 | Newsletter click links | "Klik je op een link in onze nieuwsbrief, dan registreren we welke link in welke verzending is aangeklikt, om te zien welke onderwerpen aanslaan. Heb je op deze site toestemming gegeven voor statistieken, dan koppelen we je bezoek ook aan je inschrijving voor de nieuwsbrief, zodat we je relevantere inhoud kunnen tonen." |
 | Account data via the chat (own portal) | "Ben je ingelogd, dan kan de chat op jouw vraag gegevens uit je eigen account opzoeken (zoals facturen of tickets) om je vraag te beantwoorden. De chat bewaart die gegevens niet." |
 | `FSC_PID_COOKIE_DOMAIN` set | name the shared cookie `fsa_pid` and the sibling host that reads it |
+
+Template notes for the native engine (plan `analytics-complete.md` F2). What the sentence says is what the collector does, so do not soften or extend it:
+
+- **Without consent** (no cookie, nothing read from or stored on the device): visits are counted with a hash of IP + user agent + project + a salt that
+  changes every day (Europe/Amsterdam day) and is never stored after that day; a session ends after 30 minutes without activity; there is no recognition
+  across days. The IP address is never stored; it is only used for the hash, for the rough location (country, region, city) and for rate limiting, and then
+  discarded. A city only shows in totals from 2 visits. Bots are excluded. Global Privacy Control (`Sec-GPC`) is respected: such a visitor is always counted as
+  without consent, and the SDK never sets `fsa_pid`.
+- **With consent** (category `analytics`): the cookie `fsa_pid` (13 months) for returning visitors and paths across days, heatmaps and form field analysis
+  (only which field was touched last, never what was typed). With the module Intelligence, add the Intelligence sentences below.
+- **Retention**: replace `[13/25/37]` by `GET /api/v1/analytics` -> `analytics.retentionMonths` (13 when absent).
+- The portal page "Wat meten we" (Analytics, `/analytics/privacy`) shows the same text with a copy button for the customer.
 
 Verify: `curl -s https://<site>/privacyverklaring` answers 200 with the sentences above; the footer and the banner link to it.
 
