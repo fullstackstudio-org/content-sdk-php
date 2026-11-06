@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.22.0
 
 - Chat forwards the account-session handle (plan ootb-a5-account-data S1). `POST /_fsc/i/chat` reads the HttpOnly cookie named by `content.intelligence.session_cookie` (default `fsi_sess`, env `FSC_INTELLIGENCE_SESSION_COOKIE`, empty = off) from the raw `Cookie` header and passes it to the Hub as `session`, under the same conditions as `recognition` (Intelligence on, not an excluded IP, not a staff browser, not a crawler, same site). Only a value of at most 128 characters `[A-Za-z0-9._-]` travels, anything else is dropped; it never reaches page JavaScript. `Chat::open` accepts `session` in its input with the same check. The package never sets the cookie (the site's own portal does) and exempts the name from Laravel's cookie encryption. The Hub ignores `session` until its account-data support is live.
 - AGENTS.md: section "Accountgegevens via de chat" with the provider contract (signed call, request and answer shapes) for sites that run their own customer portal.
