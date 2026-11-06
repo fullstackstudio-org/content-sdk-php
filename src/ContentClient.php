@@ -45,7 +45,7 @@ use FullStackStudio\Content\Modules\Tickets;
  */
 final class ContentClient
 {
-    public const VERSION = '0.24.0';
+    public const VERSION = '0.25.0';
 
     /** Total size of the files of one submission (the API's limit). */
     private const MAX_FORM_FILES_BYTES = 50 * 1024 * 1024;
