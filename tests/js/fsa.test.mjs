@@ -343,8 +343,113 @@ test_('form started once per form and submitted, never with field values; data-f
     p.fireDoc('focusin', { target: field });
     p.advance(1000);
     const events = (await p.events()).filter((e) => e.t.startsWith('form'));
-    assert.deepEqual(events.map((e) => [e.t, e.p]), [['form_start', { form: 'contact' }], ['form_submit', { form: 'contact' }]]);
+    // Submitted in the same instant as started: 0 seconds.
+    assert.deepEqual(events.map((e) => [e.t, e.p]), [['form_start', { form: 'contact' }], ['form_submit', { form: 'contact', seconds: 0 }]]);
     assert.equal(JSON.stringify(await p.batches()).includes('jan@x.nl'), false);
+});
+
+/** A form with fields: `fields` maps a name to its type; the inputs carry a value that must never leave the page. */
+function formPage(options = {}, attrs = { id: 'contact' }, fields = { email: 'email', message: 'text', token: 'hidden', pw: 'password' }) {
+    const p = page(options);
+    const form = el('form', attrs);
+    const inputs = {};
+    for (const [name, type] of Object.entries(fields)) {
+        const input = el(type === 'text' ? 'textarea' : 'input', { name, type }, form);
+        input.form = form;
+        input.value = `secret-value-of-${name}@x.nl`;
+        inputs[name] = input;
+    }
+    return { p, form, inputs };
+}
+
+test_('form_submit carries the seconds since form_start; data-fsa-form wins as the form identifier', async () => {
+    const { p, form, inputs } = formPage({}, { id: 'contact', 'data-fsa-form': 'offerte-aanvraag' });
+    p.fireDoc('focusin', { target: inputs.email });
+    p.tick(42_340);
+    p.fireDoc('submit', { target: form });
+    // A second submit on the same page has no start of its own: no duration.
+    p.tick(5000);
+    p.fireDoc('submit', { target: form });
+    p.advance(1000);
+    const forms = (await p.events()).filter((e) => e.t.startsWith('form'));
+    assert.deepEqual(forms.map((e) => [e.t, e.p]), [
+        ['form_start', { form: 'offerte-aanvraag' }],
+        ['form_submit', { form: 'offerte-aanvraag', seconds: 42.3 }],
+        ['form_submit', { form: 'offerte-aanvraag' }],
+    ]);
+});
+
+test_('an absurd duration (a tab left open for days) is not reported as seconds', async () => {
+    const { p, form, inputs } = formPage();
+    p.fireDoc('focusin', { target: inputs.email });
+    p.tick(3 * 86_400_000);
+    p.fireDoc('submit', { target: form });
+    p.advance(1000);
+    assert.deepEqual((await p.events()).filter((e) => e.t === 'form_submit').map((e) => e.p), [{ form: 'contact' }]);
+});
+
+test_('form_field only with consent and without GPC; only the field name, never a value, hidden or password input', async () => {
+    const run = async (options) => {
+        const { p, form, inputs } = formPage(options);
+        p.fireDoc('focusin', { target: inputs.email });
+        p.tick(2000);
+        p.fireDoc('focusin', { target: inputs.token });
+        p.fireDoc('focusin', { target: inputs.pw });
+        p.fireDoc('focusin', { target: inputs.message });
+        p.tick(3000);
+        p.advance(1000);
+        return { p, events: await p.events() };
+    };
+
+    const yes = await run({ consent: 'accepted' });
+    assert.deepEqual(yes.events.filter((e) => e.n === 'form_field').map((e) => [e.t, e.p]), [
+        ['event', { form: 'contact', field: 'email', seconds: 0 }],
+        ['event', { form: 'contact', field: 'message', seconds: 2 }],
+    ]);
+    const wire = JSON.stringify(await yes.p.batches());
+    assert.equal(wire.includes('secret-value'), false, 'no field value on the wire');
+    assert.equal(wire.includes('token'), false);
+    assert.equal(wire.includes('"pw"'), false);
+
+    for (const options of [{}, { consent: 'declined' }, { consent: 'accepted', gpc: true }]) {
+        const no = await run(options);
+        assert.equal(no.events.some((e) => e.n === 'form_field'), false, JSON.stringify(options));
+        assert.deepEqual(no.events.filter((e) => e.t.startsWith('form')).map((e) => e.t), ['form_start']);
+    }
+});
+
+test_('form_field follows consent given or revoked while the page is open, and ignores forms that opt out', async () => {
+    const { p, inputs } = formPage();
+    p.fireDoc('focusin', { target: inputs.email });
+    p.fireWin('fsc:consent', { detail: 'accepted' });
+    p.fireDoc('focusin', { target: inputs.message });
+    p.fireWin('fsc:consent', { detail: 'declined' });
+    p.fireDoc('focusin', { target: inputs.email });
+    p.advance(1000);
+    assert.deepEqual((await p.events()).filter((e) => e.n === 'form_field').map((e) => e.p.field), ['message']);
+
+    const out = formPage({ consent: 'accepted' }, { id: 'x', 'data-fsa-ignore': '' });
+    out.p.fireDoc('focusin', { target: out.inputs.email });
+    out.p.advance(1000);
+    assert.equal((await out.p.events()).some((e) => e.t.startsWith('form') || e.n === 'form_field'), false);
+});
+
+test_('form_field names are cut down to a safe alphabet; generated ids and e-mail like names are not reported; one event per change of field', async () => {
+    const { p, inputs } = formPage({ consent: 'accepted' }, { id: 'contact' }, {
+        'fields[Voor Naam]': 'text', 'f_8f3a9c1d2e4b5a67': 'text', 'jan@x.nl': 'text', input123456789: 'text', plain: 'text',
+    });
+    for (const name of ['fields[Voor Naam]', 'f_8f3a9c1d2e4b5a67', 'jan@x.nl', 'input123456789', 'plain', 'plain']) p.fireDoc('focusin', { target: inputs[name] });
+    p.fireDoc('focusin', { target: inputs['fields[Voor Naam]'] });
+    p.advance(1000);
+    assert.deepEqual((await p.events()).filter((e) => e.n === 'form_field').map((e) => e.p.field), ['fields_voor_naam', 'plain', 'fields_voor_naam']);
+});
+
+test_('form_field is capped per form and page view', async () => {
+    const names = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`veld${i}`, 'text']));
+    const { p, inputs } = formPage({ consent: 'accepted' }, { id: 'long' }, names);
+    for (const name of Object.keys(names)) p.fireDoc('focusin', { target: inputs[name] });
+    p.advance(1000);
+    assert.equal((await p.events()).filter((e) => e.n === 'form_field').length, 40);
 });
 
 test_('track() validates names; revenue() needs a positive amount and an ISO currency and flushes at once', async () => {

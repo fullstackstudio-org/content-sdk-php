@@ -19,6 +19,9 @@
  *   dead_click (click on a non-interactive element, no DOM change within 1 s), error_click (a JS error within 1 s after a click: only
  *   the error class and a hash of the normalised message, never the message or a stack) and quick_back (back within 5 s of arriving;
  *   needs the Navigation API or a same-document popstate). At most 20 per page view.
+ * - Forms (no consent needed): `form_start` (first interaction) and `form_submit` with the form id (`data-fsa-form`, else the form's id/name/action)
+ *   and, on submit, `seconds` since the start. With consent and without GPC also `form_field` events (the form id, the NAME of the field a
+ *   visitor enters, seconds since the start): never a value, never password or hidden inputs. `data-fsa-ignore` on a form opts it out.
  *
  * - Heatmap overlay: a page opened from the portal with `#fsa_overlay=<token>` is not measured; `/_fsc/a/overlay.js` draws the heatmap.
  *   No browser id either: `fsa.pid()` is null there, so a staff view never links to a FullStack Intelligence profile.
@@ -594,12 +597,20 @@
         flush();
     }
 
-    // --- Forms: started (first interaction) and submitted; never a field value ---------------------------------------------------
+    // --- Forms: started (first interaction), submitted, and with consent the field a visitor last entered --------------------------
+    // Never a field value. `form_start` / `form_submit` carry the form id; `form_submit` also `seconds` since `form_start` (a number, so
+    // the Hub reads it as `num.seconds`). With analytics consent (and no Global Privacy Control) an `event` named `form_field` follows the
+    // field a visitor enters (focus): the form id, the field's name or id attribute cut down to [a-z0-9_.-] (max 40) and the seconds since
+    // the start. Password and hidden inputs are not reported at all. The Hub shows from it after which field visitors left a form unsent.
 
     var started = {};
+    var startedAt = {};
+    var lastField = {};
+    var fieldCount = {};
+    var MAX_FIELD_EVENTS = 40;
 
     function formId(form) {
-        var id = form.getAttribute('data-fsc-form') || form.getAttribute('data-form-key') || form.id || form.getAttribute('name');
+        var id = form.getAttribute('data-fsa-form') || form.getAttribute('data-fsc-form') || form.getAttribute('data-form-key') || form.id || form.getAttribute('name');
         if (!id) {
             var action = parse(form.getAttribute('action') || loc.href);
             id = action ? action.pathname : 'form';
@@ -613,22 +624,67 @@
         return form && !(form.hasAttribute && form.hasAttribute('data-fsa-ignore')) ? form : null;
     }
 
+    /** Whole seconds (one decimal) since the form was started, or null when it was not (capped at a day: an open tab is no duration). */
+    function secondsSince(id) {
+        if (!startedAt[id]) return null;
+        var s = Math.round((now() - startedAt[id]) / 100) / 10;
+        return s >= 0 && s <= 86400 ? s : null;
+    }
+
+    /** The name of a field for the Hub: its name (else id) attribute, lowercased, anything but [a-z0-9_.-] becomes _, max 40. Never a value. */
+    function fieldName(target) {
+        var raw = (target.getAttribute && (target.getAttribute('name') || target.getAttribute('id'))) || target.name || target.id || '';
+        raw = str(raw, 80);
+        // A name that holds an e-mail address or phone number is data, not a name.
+        if (scrub(raw) !== raw) return '';
+        var name = raw.toLowerCase().replace(/[^a-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+        // A generated id (long digit run, uuid, hash) names nothing: it would only be noise or a token.
+        return /[0-9]{6,}|[0-9a-f]{16,}/.test(name) ? '' : name;
+    }
+
     function onFocus(event) {
         var target = event.target;
         if (!target || !/^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName || '')) return;
         var form = formOf(target);
         if (!form) return;
         var id = formId(form);
-        if (started[id]) return;
-        started[id] = 1;
-        push({ t: 'form_start', p: { form: id } });
+        if (!started[id]) {
+            started[id] = 1;
+            startedAt[id] = now();
+            push({ t: 'form_start', p: { form: id } });
+        }
+        fieldEntered(target, id);
+    }
+
+    /**
+     * With consent (and no GPC, checked now: consent can change while the page is open) the field a visitor enters is reported, so the
+     * last one before a form is left unsent is known. Entering rather than leaving a field: a visitor who closes the tab inside a field
+     * never blurs it. Only a change of field counts (tabbing back and forth is one step), at most 40 per form and page view.
+     */
+    function fieldEntered(target, id) {
+        if (!consent || gpc) return;
+        var type = String((target.getAttribute && target.getAttribute('type')) || target.type || '').toLowerCase();
+        if (type === 'hidden' || type === 'password') return;
+        var field = fieldName(target);
+        if (!field || lastField[id] === field || (fieldCount[id] || 0) >= MAX_FIELD_EVENTS) return;
+        lastField[id] = field;
+        fieldCount[id] = (fieldCount[id] || 0) + 1;
+        var props = { form: id, field: field };
+        var seconds = secondsSince(id);
+        if (seconds !== null) props.seconds = seconds;
+        push({ t: 'event', n: 'form_field', p: props });
     }
 
     function onSubmit(event) {
         var form = formOf(event.target);
         if (!form) return;
         var id = formId(form);
-        push({ t: 'form_submit', p: { form: id } });
+        var props = { form: id };
+        var seconds = secondsSince(id);
+        if (seconds !== null) props.seconds = seconds;
+        // A later submit of the same form on this page has no start of its own: no duration.
+        delete startedAt[id];
+        push({ t: 'form_submit', p: props });
         flush();
     }
 

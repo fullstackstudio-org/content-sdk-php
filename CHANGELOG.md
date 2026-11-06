@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `fsa.js` (rebuilt `fsa.min.js`): form tracking for the Hub forms view (plan analytics-complete E3). `data-fsa-form` names a form (before `data-fsc-form`, `data-form-key`, id, name, action path); `form_submit` carries `seconds` since the form's `form_start` (`num.seconds` in the Hub; none when the form was not started on this page or after a day); with analytics consent and without Global Privacy Control an `event` named `form_field` follows the field a visitor enters (`form`, `field` = the name or id attribute cut down to `[a-z0-9_.-]`, `seconds`; at most 40 per form and page view, only on a change of field). Never a field value; password and hidden inputs, names that hold an address or phone number and generated ids are not reported. The collector drops `form_field` without consent. AGENTS.md: "Form tracking" and the privacy sentence for the site owner.
 - `fsa.js` (rebuilt `fsa.min.js`): the pageview of a landing that had `?fscn=` sets `nl: 1` (a boolean, never the token; plan analytics-complete D6). The collector turns it into the `newsletter` channel. Only the landing view carries it, not later views of the visit.
 
 ## 0.23.0

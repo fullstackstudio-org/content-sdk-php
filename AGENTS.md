@@ -485,6 +485,7 @@ feature that is on:
 | Always (forms) | "Wat je via een formulier stuurt, slaan we op in ons websitebeheer (FullStack Hub) en sturen we per e-mail naar ons door. We bewaren daarbij ook via welke campagne of link je op de site kwam, zonder cookies." |
 | Module `analytics`, engine Umami | "We meten bezoeken met Umami, een privacyvriendelijke statistiekdienst zonder cookies; IP-adressen worden niet opgeslagen. Alleen als je cookies accepteert, analyseren we ook anoniem klikken en navigatie (heatmaps en sessie-opnames, waarbij alles wat je typt verborgen blijft)." |
 | Module `analytics`, engine native | "We meten bezoeken met onze eigen statistieken, zonder cookies; IP-adressen worden niet opgeslagen. Alleen als je cookies accepteert, onthouden we je browser met een willekeurig nummer, zodat we terugkerende bezoeken zien, en analyseren we klikken (heatmaps). We maken geen opnames." (engine `both`: both sentences) |
+| Module `analytics`, engine native, with forms | "Bij formulieren meten we of je het formulier start en verstuurt en hoe lang dat duurt, zonder wat je invult. Heb je toestemming gegeven voor statistieken, dan zien we ook bij welk veld je afhaakt (alleen de naam van het veld, nooit wat je typt)." |
 | Module `errors` | "Technische fouten op deze site melden we aan onze foutmonitoring, zonder persoonsgegevens." |
 | Intelligence recognition (members or chat) | "Log je in, dan herkennen we je bij latere bezoeken (cookie fsi_rec, 6 maanden) om relevante inhoud te tonen. Dat doen we alleen als je toestemming hebt gegeven voor statistieken." |
 | Personalisation or recommendations | "Heb je toestemming gegeven voor statistieken, dan kunnen de inhoud en producten die je ziet afhangen van de pagina's die je eerder bekeek." |
@@ -1074,6 +1075,19 @@ window.fsa.revenue(49.95, 'EUR', { order: 'A-1' });  // webshops
 // or declarative: <button data-fsa-event="cta_click" data-fsa-prop-location="hero">  (data-fsc / data-fsc-prop-* work the same)
 // window.fscAnalytics.track(name, props) reaches Umami AND the native tracker, whichever runs.
 ```
+
+**Form tracking (`form_start`, `form_submit`, `form_field`).** The tracker names a form by `data-fsa-form="offerte-aanvraag"` (best: a stable, readable
+name; then `data-fsc-form`, `data-form-key`, the form's `id`, `name`, or the path of its `action`). Give every form that matters a `data-fsa-form`; a form
+whose name looks like an address, a token or a long number shows as `…` in the Hub, and `data-fsa-ignore` on a form opts it out completely.
+Without consent the Hub learns only that a form was started or sent and how many seconds it took (`form_submit` carries `seconds` since the first
+interaction): no field, no value. **With consent** (category `analytics`, no Global Privacy Control) the tracker also reports which field a visitor
+entered (`event` `form_field`: the form name, the field's `name` or `id` attribute cut down to `[a-z0-9_.-]`, seconds since the start), so the Hub can
+show after which field visitors leave a form unsent. Never a value, never the label, never password or hidden inputs; at most 40 fields per form and
+page view. Give fields real `name` attributes (`telefoon`, `bericht`); generated ids (`input_8f3a9c1d2e4b`) are not reported. Do not put personal data in
+a `name`/`id` or in `data-fsa-form` (the tracker drops names that hold an address or phone number, but you are the first line).
+**Privacy statement (the site owner must add this when forms and the native engine are on):** "Bij formulieren meten we of je het formulier start en
+verstuurt en hoe lang dat duurt, zonder wat je invult. Heb je toestemming gegeven voor statistieken, dan zien we ook bij welk veld je afhaakt (alleen de
+naam van het veld, nooit wat je typt)."
 
 No cookies. Without consent nothing is stored on the device (the collector counts with a daily rotating hash); after consent (same banner contract as
 above) a random id in `localStorage` (`fsa-id`, never with Global Privacy Control) and heatmap clicks (element selector and position, never text or field values); without consent any stored id is deleted. Paths,
