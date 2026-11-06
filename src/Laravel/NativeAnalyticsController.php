@@ -25,7 +25,7 @@ use Throwable;
  *   (`content.analytics.collector_url`) with the visitor IP signed with this site's key (`X-Fsc-Client-Ip`, `X-Fsc-Ts`, `X-Fsc-Sig`,
  *   contract `collector/internal/proxyauth`). Only this site's own sitekey is forwarded (no open relay); without consent (`c != 1`) the
  *   persistent id and heatmap clicks are removed before signing, whatever the browser sent. Forwarded headers: `User-Agent`,
- *   `Accept-Language`, `Origin`, `Referer` (the collector checks the domain). Never cookies. The answer is always `202 {}` unless the
+ *   `Accept-Language`, `Origin`, `Referer` (the collector checks the domain), `Sec-GPC` (Global Privacy Control: the collector then counts the batch as without consent). Never cookies. The answer is always `202 {}` unless the
  *   request itself is wrong (400/413/429): a collector problem never reaches the page.
  * - `GET overlay.js` and `POST overlay`: the heatmap overlay (phase 4). The portal opens a page with `#fsa_overlay=<token>` (a short-lived
  *   token minted by the Hub for one page of this project); `fsa.js` then does not measure that view and loads `overlay.js`, which posts
@@ -178,7 +178,7 @@ final class NativeAnalyticsController
         $forward = (string) json_encode($batch, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $headers = ['Content-Type' => 'text/plain; charset=utf-8', 'User-Agent' => $this->header($request, 'user-agent', 512)];
 
-        foreach (['accept-language' => 'Accept-Language', 'origin' => 'Origin', 'referer' => 'Referer'] as $from => $to) {
+        foreach (['accept-language' => 'Accept-Language', 'origin' => 'Origin', 'referer' => 'Referer', 'sec-gpc' => 'Sec-GPC'] as $from => $to) {
             $value = $this->header($request, $from, $from === 'referer' ? 1024 : 256);
 
             if ($value !== '') {

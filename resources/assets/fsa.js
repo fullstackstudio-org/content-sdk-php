@@ -390,6 +390,8 @@
         perSelector = {};
         frustrations = 0;
         deadSeen = {};
+        // A new page view is a new form journey (SPA navigation): forms start, time and report their fields afresh.
+        started = {}; startedAt = {}; lastField = {}; fieldCount = {};
         scrollMaxSent = false;
         pageStart = now();
         engaged = 0;
@@ -741,6 +743,8 @@
     function track(name, props) {
         name = str(name, 64);
         if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(name)) return;
+        // Reserved: the tracker's own consent-only field event. A site must not be able to send it without the consent checks.
+        if (name.toLowerCase() === 'form_field') return;
         push({ t: 'event', n: name, p: cleanProps(props) });
     }
 

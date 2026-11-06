@@ -949,6 +949,29 @@ test_('a configured pid cookie domain is used for setting and removing, only whe
     }
 });
 
+test_('track() refuses the reserved name form_field in any casing', async () => {
+    const p = page({ consent: 'accepted' });
+    p.run(() => { p.win.fsa.track('form_field', { form: 'x', field: 'email' }); p.win.fsa.track('Form_Field', {}); p.win.fsa.track('form_fields', {}); });
+    p.advance(1000);
+    assert.deepEqual((await p.events()).filter((e) => e.t === 'event').map((e) => e.n), ['form_fields']);
+});
+
+test_('an SPA navigation starts a new form journey: the form starts again, with its own duration and fields', async () => {
+    const { p, form, inputs } = formPage({ consent: 'accepted' });
+    p.fireDoc('focusin', { target: inputs.email });
+    p.tick(10_000);
+    p.run(() => p.win.history.pushState({}, '', '/andere-pagina'));
+    p.advance(1000);
+    p.fireDoc('focusin', { target: inputs.email });
+    p.tick(3000);
+    p.fireDoc('submit', { target: form });
+    p.advance(1000);
+    const forms = (await p.events()).filter((e) => e.t.startsWith('form') || e.n === 'form_field');
+    assert.deepEqual(forms.map((e) => [e.t, e.p.field || null, e.p.seconds ?? null]), [
+        ['form_start', null, null], ['event', 'email', 0], ['form_start', null, null], ['event', 'email', 0], ['form_submit', null, 3],
+    ]);
+});
+
 for (const [label, source] of VARIANTS) {
     for (const [name, fn] of tests) {
         realTest(`[${label}] ${name}`, async () => {
