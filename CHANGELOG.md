@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Webhook event types `analytics.report.weekly`, `analytics.alert` and `analytics.alert.resolved` in `Webhooks\Events::ALL` (native analytics monitoring: a weekly summary of the previous ISO week and alerts for a spike, dip, no data or a goal that stops converting; aggregates only, never a session, visitor or IP).
 - `fsa.js` (rebuilt `fsa.min.js`): the pageview of a landing that had `?fscn=` sets `nl: 1` (a boolean, never the token; plan analytics-complete D6). The collector turns it into the `newsletter` channel. Only the landing view carries it, not later views of the visit.
 
 ## 0.23.0
