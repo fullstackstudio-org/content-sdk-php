@@ -25,6 +25,10 @@ Once it is on Packagist, `composer require fullstackstudio/content` is enough an
 existing `CLAUDE.md`) that points AI coding agents at [`AGENTS.md`](AGENTS.md) of this package, the integration guide with recipes and rules. It is idempotent and only
 touches the text between `<!-- fullstack-content:start -->` and `<!-- fullstack-content:end -->`.
 
+**Then run `php artisan fsc:doctor`** until it shows no `FOUT` line. It checks the items every site needs (AGENTS.md, "Altijd verplicht"): env keys, https
+forcing, sessions not in a cookie, the layout components, the sitemap/robots/health/webhook/form routes, the redirect middleware, a cookie banner, error pages,
+no secrets in views. `--skip-env` skips the secret checks, `--online` also asks the Hub which modules are on, `--strict` fails on warnings too.
+
 ## Quick start (any PHP)
 
 ```php
@@ -398,7 +402,9 @@ section "Error monitoring", and `config/content.php` (`errors`).
 
 `examples/laravel` is a small but real Laravel 13 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for
 the rest), every other path as a page of blocks, a contact form (`<x-content::form>`), `sitemap.xml`, `robots.txt`, the webhook route, the redirect
-middleware, the layout components (`meta`, `head`, `errors`, `body-end`, `analytics`) and `GET /api/health`. When Content is down the site answers 503 instead of a stack trace, and `/api/health` stays up.
+middleware, the layout components (`meta`, `head`, `errors`, `body-end`, `analytics`), a cookie banner on the consent contract (`partials/consent-banner`
+plus `POST /api/consent`), the privacy statement from the legal module (`/privacyverklaring`), `errors/404` and a standalone `errors/503`, and `GET /api/health`
+(`{"ok":true}`). When Content is down the site answers 503 instead of a stack trace, and `/api/health` stays up. It passes `php artisan fsc:doctor`.
 
 ```bash
 cd examples/laravel

@@ -10,6 +10,7 @@ use FullStackStudio\Content\Cache\VersionedTagCache;
 use FullStackStudio\Content\ClientOptions;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Console\AgentsCommand;
+use FullStackStudio\Content\Laravel\Console\DoctorCommand;
 use FullStackStudio\Content\Laravel\Errors\ErrorReporter;
 use FullStackStudio\Content\Laravel\Errors\Errors;
 use FullStackStudio\Content\Laravel\Errors\ReporterScriptController;
@@ -74,7 +75,7 @@ final class ContentServiceProvider extends ServiceProvider
         $this->publishes([__DIR__ . '/../../resources/views' => $this->app->resourcePath('views/vendor/content')], 'content-views');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([AgentsCommand::class]);
+            $this->commands([AgentsCommand::class, DoctorCommand::class]);
         }
 
         if ($this->app['config']->get('content.webhook.enabled')) {

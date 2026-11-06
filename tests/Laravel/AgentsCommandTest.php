@@ -29,7 +29,10 @@ final class AgentsCommandTest extends LaravelTestCase
 
     public function testCreatesAgentsFileWithTheBlock(): void
     {
-        $this->artisan('fsc:agents')->expectsOutput('AGENTS.md: created.')->assertExitCode(0);
+        $this->artisan('fsc:agents')
+            ->expectsOutput('AGENTS.md: created.')
+            ->expectsOutputToContain('php artisan fsc:doctor')
+            ->assertExitCode(0);
 
         self::assertSame(AgentsBlock::newFile(), file_get_contents($this->agents));
         self::assertStringContainsString('vendor/fullstackstudio/content/AGENTS.md', (string) file_get_contents($this->agents));

@@ -55,6 +55,10 @@ final class AgentsCommand extends Command
             }
         }
 
+        $this->newLine();
+        $this->line('Next: follow "Bouwvolgorde" and "Altijd verplicht" at the top of vendor/fullstackstudio/content/AGENTS.md,');
+        $this->line('then run `php artisan fsc:doctor` until it reports no FOUT lines.');
+
         return self::SUCCESS;
     }
 }

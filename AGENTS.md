@@ -1,70 +1,216 @@
 # AGENTS.md: fullstackstudio/content (PHP SDK)
 
-Guide for AI coding agents working in a Laravel (or other PHP) site that uses this package. Read it before changing anything about content,
-forms, SEO, the sitemap, redirects, caching or the webhook. Everything below matches the code of this version; if the code and this file
-disagree, the code wins. Full reference: `README.md` next to this file.
+Guide for AI coding agents that build or change a Laravel site on **FullStack Hub** (the CMS at `https://content.fullstackstudio.nl`, API `/api/v1`;
+older names: Fullstack Content, "Content"). Assume this file and the installed package are all you have: everything a site needs is in here, from an
+empty Laravel app to a site that is ready to go live. Everything below matches the code of this version; if the code and this file disagree, the code
+wins. Full API reference of the package: `README.md` next to this file.
 
-## Altijd in elke site
+Contents:
 
-Bouw dit in **elke** site die dit pakket gebruikt, ook als de module voor het project (nog) uit staat. Aanzetten in Content vraagt dan geen
-codewijziging. Met de module uit renderen de componenten niets, geeft de paginaroute een gewone 404 en doen redirects niets, zonder exceptions
-en zonder logregels boven `debug`.
+1. **Bouwvolgorde voor een nieuwe site**: the order in which to build a fresh site.
+2. **Altijd verplicht**: items every site has, whatever modules are on (each with what, where, how to verify).
+3. **Als de module X aanstaat**: what to add per Hub module.
+4. **Controleer je site**: `php artisan fsc:doctor`, curl checks and the mistakes that already broke live sites.
+5. Reference: install, environment, client basics and the detailed recipes per feature (from "What it is" on).
 
-**1. Layout** (`resources/views/layouts/app.blade.php`): in `<head>` eerst de meta, dan de site-standaarden en de foutrapportage; vlak vóór
-`</body>` de eigen code en analytics. De componenten zetten zelf de CSP-nonce (`Vite::cspNonce()`) op elke `<script>` en `<style>`, of geef
-`nonce="..."` mee.
+## Bouwvolgorde voor een nieuwe site
+
+Build in this order; each step points at the item in "Altijd verplicht" (A1 to A16) or a module section. Do not skip an item because a module is
+off today: every component and route below is safe with its module off (renders nothing, 404s or does nothing, without exceptions), so switching a
+module on in the Hub later needs no code change.
+
+1. A fresh Laravel 13 app (PHP >= 8.2; FullStack Studio images use 8.5), Blade + Vite. No database unless the site really needs one.
+2. Install the package and run `php artisan fsc:agents` (A1). Set the environment (A2) in `.env` locally and in the runtime env of the host.
+3. `bootstrap/app.php`: trust the proxy and prepend the redirect middleware (A4, A7). `AppServiceProvider::boot()`: force https in production (A4).
+4. The layout `resources/views/layouts/app.blade.php` with the five components (A5) and the cookie banner partial (A10).
+5. `routes/web.php` in this order: sitemap and robots (A6), your own routes, the legal pages (A11), the catch-all for Hub pages LAST (A6).
+   `routes/api.php`: `/health` (A6) and `/consent` (A10).
+6. `PageController` with the error handling of A6, `resources/views/page.blade.php` with `<x-content::page-blocks>`.
+7. Error pages `errors/404` and `errors/503` (A12).
+8. Webhook (A8) and forms (A9).
+9. Privacy statement with the required sentences (A11) and a footer link to it plus "Cookie-instellingen".
+10. Ask which modules are on (`php artisan fsc:doctor --online` lists them, or `$content->getProject()['modules']`) and build the section
+    "Als de module X aanstaat" for each.
+11. If the site has a Content-Security-Policy: merge the SDK sources (A13).
+12. Run `php artisan fsc:doctor` until it shows no `FOUT` line, then the checks in "Controleer je site".
+
+Every snippet you need is in this file. FullStack Studio staff also have the working reference `examples/laravel` in the (private) Hub repository
+`fullstackstudio-org/fullstack-content`, branch `laravel`: it passes `fsc:doctor` and contains the code of A4 to A12.
+
+## Altijd verplicht
+
+Every site on this package has all of these. Format per item: **what**, then where (file and snippet), then how to verify.
+
+### A1. Package and agent pointer
+
+```json
+// composer.json
+"repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
+"require": { "fullstackstudio/content": "^0.22" }
+```
+
+```bash
+composer update fullstackstudio/content
+php artisan fsc:agents    # writes a pointer block into the site's AGENTS.md (and @AGENTS.md into an existing CLAUDE.md)
+```
+
+The repository is public (no token or SSH key). The service provider and the `Content` facade are auto-discovered. Publishing the config is **not**
+needed: every switch has an env var. Publish `config/content.php` (`php artisan vendor:publish --tag=content-config`) only for settings without one
+(`blocks`, `devmode.scripts`, `devmode.aliases`, `forms.labels`, middleware lists). Verify: `php artisan list fsc` shows `fsc:agents` and `fsc:doctor`.
+
+### A2. Environment (runtime only, never in the repository)
+
+| Variable | Value | Note |
+|---|---|---|
+| `FSC_SERVER_TOKEN` | `fsc_srv_...` | Required. Server token of the Hub project. |
+| `FSC_API_URL` | `https://content.fullstackstudio.nl` | The default; keep it, also on the FSS cluster (media URLs are built from it). |
+| `FSC_WEBHOOK_ENABLED` | `true` | Registers `POST /content/webhook` (A8). |
+| `FSC_WEBHOOK_SECRET` | `fsc_whsec_...` | Shown once when the webhook is created in the Hub. |
+| `FSC_FORMS_ENABLED` | `true` | Registers `POST /content/forms/{key}` (A9). |
+| `APP_KEY` | `base64:...` | One per site: `php artisan key:generate --show`. |
+| `APP_ENV` / `APP_DEBUG` / `APP_URL` | `production` / `false` / `https://<live host>` | `APP_URL` must be https (A4). |
+| `SESSION_DRIVER` / `CACHE_STORE` / `QUEUE_CONNECTION` | `file` / `file` / `sync` | Never `SESSION_DRIVER=cookie` (A4). |
+| `LOG_CHANNEL` | `stderr` | Container logs. |
+| `FSC_IP_HEADER` | `cf-connecting-ip` | The default. Only a header your proxy overwrites; empty = Laravel's `$request->ip()`. |
+
+Optional: `FSC_UPLOAD_MAX_MB` (forms with file fields, only read by the FSS Docker image), the `FSC_INTELLIGENCE_*` switches (module
+`intelligence`), `FSC_CACHE_STORE=redis` with several replicas. The full list is under "Environment" below.
+
+- Secrets (`FSC_SERVER_TOKEN`, `FSC_WEBHOOK_SECRET`, `APP_KEY`) live only in the runtime env: never in the repo, a committed `.env`, the Docker
+  image, a build arg, a view, JavaScript or a response. `.env` is in `.gitignore`. At FullStack Studio they go into the secrets vault first.
+- The FSS image runs `php artisan config:cache` when the container STARTS (the env only exists at runtime). So: call `env()` only inside `config/*.php`,
+  read `config(...)` everywhere else, and put no closures in config files.
+- Missing a scope? Change the rights of the existing token in the Hub (see "Environment"), do not mint a new one.
+
+Verify: `php artisan fsc:doctor` (lines `FSC_SERVER_TOKEN`, `FSC_WEBHOOK_SECRET`, `APP_KEY`, `FSC_API_URL`); `git ls-files | grep -x .env` prints nothing.
+
+### A3. Error handling for every Hub call
+
+A 404 from the Hub is a 404 on the site; anything else is `report($e)` and a 503, never a stack trace and never a silently empty page. A server
+token reads drafts, so public pages show `status: published` only.
+
+```php
+try {
+    $page = $this->content->getPage($path);
+} catch (ContentException $e) {
+    if ($e->isNotFound()) { abort(404); }   // also 404 `module_disabled`
+    report($e);
+    abort(503);
+}
+```
+
+Verify: with a wrong `FSC_API_URL` locally a Hub page answers 503 (not 500); an unknown path answers 404.
+
+### A4. https, proxy and sessions
+
+Behind Cloudflare and the ingress every request arrives as plain http. Without these three, `redirect('/bedankt')` became `http://...`, the CSP
+`form-action 'self'` blocked it and forms hung on "versturen"; and a cookie session gave 502 "upstream sent too big header" on every form error.
+
+```php
+// bootstrap/app.php
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->trustProxies(at: '*');
+    $middleware->web(prepend: [\FullStackStudio\Content\Laravel\RedirectMiddleware::class]);   // A7
+})
+```
+
+```php
+// app/Providers/AppServiceProvider.php
+use Illuminate\Support\Facades\URL;
+
+public function boot(): void
+{
+    if ($this->app->environment('production')) {
+        URL::forceScheme('https');
+    }
+}
+```
+
+`.env`: `SESSION_DRIVER=file`, `APP_URL=https://...`. nginx in front of PHP-FPM: `fastcgi_buffer_size 32k; fastcgi_buffers 16 16k;` in the PHP
+`location` and `large_client_header_buffers 4 16k;` in the `server` block (the `examples/laravel/docker/nginx.conf` has them).
+Verify: `fsc:doctor` lines `SESSION_DRIVER`, `APP_URL`, `forceScheme`, `trustProxies`; `curl -sI -X POST https://<site>/content/forms/x` never shows
+`Location: http://`.
+
+### A5. Layout: five components
+
+`resources/views/layouts/app.blade.php`; every public page extends it. Order matters: meta first in `<head>`, analytics last in `<body>`.
 
 ```blade
+<!doctype html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     @isset($page)
         <x-content::meta :page="$page" :path="$path ?? null" />
+    @elseif (isset($article))
+        <x-content::meta :page="$article" :path="'/blog/' . $article['slug']" type="article" />
     @else
         <x-content::meta :path="request()->getPathInfo()" />
     @endisset
-    <x-content::head />      {{-- verificatie (Google, Bing, Facebook, Pinterest), favicon, apple-touch-icon, theme-color, LocalBusiness JSON-LD, eigen head-code --}}
-    <x-content::errors />    {{-- browserfouten naar GlitchTip (module errors) --}}
-    @vite(['resources/css/app.css'])
+    <x-content::head />      {{-- site standards: verification metas, favicon, theme colour, LocalBusiness JSON-LD, the owner's head code (consent-gated), dev panel --}}
+    <x-content::errors />    {{-- browser errors to GlitchTip through /_fsc/e (module errors) --}}
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body>
     ...
-    <x-content::body-end />  {{-- eigen body-code en klik-events (tel:, mailto:, WhatsApp) naar Umami --}}
-    <x-content::analytics /> {{-- Umami (module analytics) --}}
+    @include('partials.consent-banner')                          {{-- A10 --}}
+    <x-content::body-end />                                      {{-- the owner's body code (consent-gated) and tel:/mailto:/WhatsApp click events --}}
+    <x-content::analytics :status="$fscStatus ?? null" />        {{-- analytics (module analytics); load before any other tag script --}}
 </body>
+</html>
 ```
 
-`<x-content::meta>` valt zonder eigen afbeelding terug op de deelafbeelding van de site (`social.ogImage`). Alles komt uit één `GET /api/v1/site`
-per verzoek (cache-tag `content:site`, webhook `site.updated`). Valt Content uit, dan wordt het laatste goede antwoord gebruikt of niets, met één
-waarschuwing in de log en een pauze van 15 s.
+| Component | Renders | With its module off |
+|---|---|---|
+| `<x-content::meta>` | title (with the project template), description, canonical, robots (`noindex` on a test site), Open Graph, Twitter | the page's own fields |
+| `<x-content::head />` | `@layer fsc-rich;`, verification, favicon, apple-touch-icon, theme-color, LocalBusiness JSON-LD, own head code, dev panel tags (only with the devmode cookie) | only the layer line |
+| `<x-content::errors />` | config block + `/_fsc/e/reporter.js` | nothing |
+| `<x-content::body-end />` | own body code, click events | nothing |
+| `<x-content::analytics />` | Umami and/or the native tracker, attribution, conversion helper | nothing |
 
-**2. Routes** (`routes/web.php`): sitemap, robots en als laatste de catch-all voor pagina's uit Content. Verwijder `public/robots.txt` (de
-webserver serveert een statisch bestand eerst).
+- The canonical comes from the `path` you pass, never from the request URL. Never use `request()->fullUrl()` or `url()->full()` for canonical,
+  `og:url` or share links: the query can hold `?fscn=` (newsletter click token) and utm values.
+- hreflang is **not** rendered by the SDK. A multilingual site adds `<link rel="alternate" hreflang="...">` itself (see "Meertalige site" under the
+  module sections).
+- The components put the CSP nonce (`Vite::cspNonce()`) on every `<script>`/`<style>` they print, or pass `nonce="..."`.
+- All five survive a Hub outage: the last good answer or nothing, one warning in the log and a short pause (15 s) before the next try.
+
+Verify: `fsc:doctor` line `Layout ... heeft meta, head, errors, body-end en analytics`; `curl -s https://<site>/ | grep -c 'rel="canonical"'` is 1.
+
+### A6. Routes: sitemap, robots, health, catch-all
 
 ```php
+// routes/web.php
 use App\Http\Controllers\PageController;
 use FullStackStudio\Content\Laravel\Robots;
 use FullStackStudio\Content\Laravel\Sitemap;
 
 Route::get('/sitemap.xml', fn () => Sitemap::response([
-    'extra' => [['url' => url('/')]],                       // je eigen routes
+    'extra' => [['url' => url('/')], ['url' => url('/blog')], ['url' => url('/contact')]],   // your own routes; Hub pages and articles come by themselves
 ]));
-Route::get('/robots.txt', fn () => Robots::response());     // Disallow: / als robotsIndex uit staat (testsite), anders Allow + Sitemap
+Route::get('/robots.txt', fn () => Robots::response());   // `Disallow: /` while the project's robotsIndex is off (test site), else Allow + Sitemap
 
-// ... je eigen routes ...
+// ... your own routes, legal pages (A11) ...
 
-Route::get('/{path}', [PageController::class, 'show'])->where('path', '.*');   // ALTIJD als laatste
+Route::get('/{path}', [PageController::class, 'show'])->where('path', '.*');   // ALWAYS LAST: pages from the Hub
 ```
 
 ```php
+// routes/api.php (the api group: no session, no CSRF, prefix /api)
+Route::get('/health', fn () => response()->json(['ok' => true]));   // container HEALTHCHECK: no session, no cache, no Hub call
+```
+
+```php
+// app/Http/Controllers/PageController.php
 public function show(string $path): View
 {
     $path = trim($path, '/');
     if ($path === '' || strlen($path) > 200) { abort(404); }
     try {
-        $page = $this->content->getPage($path);
+        $page = $this->content->getPage($path);          // by path; 404 when missing or unpublished
     } catch (ContentException $e) {
-        if ($e->isNotFound()) { abort(404); }      // ook 404 `module_disabled`: pagina's staan uit
+        if ($e->isNotFound()) { abort(404); }
         report($e);
         abort(503);
     }
@@ -73,76 +219,589 @@ public function show(string $path): View
 }
 ```
 
-`Sitemap::response()` geeft met de SEO-module uit alleen je `extra`-regels en bij een storing een 503 met `Retry-After`; zonder `canonicalOrigin`
-in Content gebruikt hij de eigen origin van de app. `Robots::response()` staat met de module uit alles toe, en ook als Content onbereikbaar is (200,
-`no-store`): een korte storing mag het crawlen niet stilleggen; een testsite blijft dan afgeschermd door de `noindex` van `<x-content::meta>`.
+- Delete `public/robots.txt` (and never add `public/sitemap.xml`): the web server serves a static file before Laravel sees the route.
+- The home page: a Hub page with path `/` (`getPage('/')`), with your own fallback when it is missing (`examples/laravel` `PageController::home`).
+- `Sitemap::response()` uses `canonicalOrigin` from the Hub's SEO settings (else the app origin); article paths follow the path template of the
+  project's SEO settings, so your article route must match it (default `/blog/{slug}`).
+- Keep every URL 1:1 with the Hub (and with the old site when rebuilding one, trailing slashes included); redirects for what disappears go in the
+  Hub (A7), not in code.
 
-**3. Redirects** (`bootstrap/app.php`), vóór alles in de web-groep:
+Verify: `curl -s https://<site>/sitemap.xml | head -3` (XML), `curl -s https://<site>/robots.txt` (has `Sitemap:`), `curl -s https://<site>/api/health`
+gives `{"ok":true}`, `curl -s -o /dev/null -w '%{http_code}' https://<site>/bestaat-niet` gives 404; `fsc:doctor` lines for each route.
 
-```php
-->withMiddleware(function (Middleware $middleware): void {
-    $middleware->trustProxies(at: '*');
-    $middleware->web(prepend: [\FullStackStudio\Content\Laravel\RedirectMiddleware::class]);
-})
+### A7. Redirects from the Hub
+
+`RedirectMiddleware` first in the web group (snippet in A4). It looks up GET/HEAD paths (skips `/api`, `/build`, `/storage` and files with an
+extension), caches every answer (also "no redirect"), keeps the query string (utm, click ids) and pauses 15 s when the Hub is down.
+Your own redirects (route redirects, `www` to apex) must keep the query string too (`$request->getQueryString()`; nginx `return 301
+https://example.nl$request_uri;`). Verify: `fsc:doctor` line `RedirectMiddleware staat vooraan`; a redirect made in the Hub answers
+`curl -sI https://<site>/oud?utm_source=x` with `Location: .../nieuw?utm_source=x`.
+
+### A8. Webhook (cache invalidation)
+
+Reads are cached under tags (default TTL 3600 s). The webhook clears them at once. `FSC_WEBHOOK_ENABLED=true` + `FSC_WEBHOOK_SECRET` registers
+`POST /content/webhook` (api group, no CSRF); in the Hub create a webhook to `https://<site>/content/webhook` with `events: ["*"]` (or at least
+include `site.updated`). Do not build your own cache layer or webhook handler; listen to `FullStackStudio\Content\Laravel\Events\ContentWebhookReceived`
+for extra work. With several replicas use a shared cache store (`FSC_CACHE_STORE=redis`).
+Verify: `fsc:doctor` lines `Webhookroute` and `FSC_WEBHOOK_SECRET`; the signature test under "Controleer je site" answers 200; an unsigned POST 401.
+
+### A9. Forms through the Hub
+
+`FSC_FORMS_ENABLED=true`, then `<x-content::form form-key="contact" />` where the form goes. The package route validates, submits server-side with
+the visitor IP, keeps the honeypot and Turnstile, sends the attribution (utm, click ids) and the consented browser id along, and redirects back with
+errors or the success message. **The site sends no mail and has no SMTP**: the Hub mails the owner and confirms to the visitor. Custom form UI:
+"Forms" in the recipes below.
+
+- 🚨 Never send a test submission that reaches the customer. Point the form's notify recipients in the Hub to an address of your own (FullStack
+  Studio: `info@fullstackstudio.nl`) and check that before a single test; a confirmation to the visitor goes to the address you type.
+- File fields need nothing extra (the component makes the form multipart); raise the upload limit of the image (`FSC_UPLOAD_MAX_MB`) when needed.
+
+Verify: `fsc:doctor` line `Formulierroute`; the form page shows the fields; submitting it empty shows Dutch field errors and no 502.
+
+### A10. Cookie banner (consent contract)
+
+There is no banner component in the package (it needs page JavaScript). Every site has one anyway: without a stored choice nothing that needs
+consent runs (the owner's own `analytics`/`marketing`/`preferences` code, heatmaps, session replay, the consented browser id), so a site without a
+banner silently loses all of that. The contract:
+
+```js
+const choice = { choice: 'custom', categories: ['analytics'], version: '1' };   // or { choice: 'all' } / { choice: 'none' }
+localStorage.setItem('fsc-consent', JSON.stringify(choice));                    // later pages read this
+window.dispatchEvent(new CustomEvent('fsc:consent', { detail: choice }));        // this page activates at once
 ```
 
-Met de module uit pauzeert de lookup 60 s per keer; bij een storing 15 s. De querystring (utm, click ids) blijft behouden.
+Texts, labels, `policyUrl` and the offered categories come from the Hub (`$content->getConsentConfig()`, module `privacy`); record each choice as proof
+through your own route (`$content->recordConsent($choice, ['clientIp' => ..., 'userAgent' => ...])`). A working pair to copy (style the classes
+yourself):
 
-**4. Webhook**: `FSC_WEBHOOK_ENABLED=true` en `FSC_WEBHOOK_SECRET=fsc_whsec_...` (runtime-env). De route `POST /content/webhook` leegt de cache-tags,
-ook `content:site` bij `site.updated`. Maak in Content een webhook naar `https://<site>/content/webhook` met `events: ["*"]` (alle events), of
-neem `site.updated` expliciet op naast de andere events: zonder dat event zie je een wijziging van de site-standaarden pas na de cache-TTL.
+`resources/views/partials/consent-banner.blade.php`: renders nothing when the config is unavailable; shows the banner when there is no stored choice
+or the stored `version` differs from the Hub's; all / none / custom; writes `fsc-consent`, dispatches `fsc:consent`, posts to `/api/consent`; any link
+with `data-fsc-consent-open` (footer "Cookie-instellingen") reopens it.
 
-**5. Content-Security-Policy.** Heeft de site een CSP, voeg dan de bronnen van de eigen code en analytics toe. De componenten gebruiken de nonce;
-gebruik dus een nonce-gebaseerde `script-src` (en `style-src` voor eigen `<style>`-blokken):
+```blade
+{{--
+    Cookie banner on the consent contract of the package (AGENTS.md, "Cookiebanner"): texts and categories come from the Hub (module `privacy`),
+    the choice goes to localStorage `fsc-consent` and the window event `fsc:consent` (consent-gated own code, heatmaps and replay start at once),
+    and is recorded as proof through this site's POST /api/consent. Without the module (or with the Hub down) nothing renders and nothing that
+    needs consent ever runs. A link with `data-fsc-consent-open` (footer "Cookie-instellingen") opens the banner again.
+--}}
+@php
+    try {
+        $consent = app(\FullStackStudio\Content\ContentClient::class)->getConsentConfig();
+    } catch (\Throwable) {
+        $consent = [];
+    }
+    $categoryLabels = ['analytics' => 'Statistieken', 'marketing' => 'Marketing', 'preferences' => 'Voorkeuren'];
+    $nonce = \Illuminate\Support\Facades\Vite::cspNonce();
+@endphp
+@if (($consent['bannerText'] ?? '') !== '')
+    <div id="fsc-consent" class="consent" role="dialog" aria-labelledby="fsc-consent-title" data-version="{{ $consent['version'] ?? '1' }}" hidden>
+        <p id="fsc-consent-title" class="consent__title">{{ $consent['bannerTitle'] ?? 'Cookies' }}</p>
+        <p>
+            {{ $consent['bannerText'] }}
+            @if (! empty($consent['policyUrl']))
+                <a href="{{ $consent['policyUrl'] }}">{{ $consent['policyLabel'] ?? 'Privacyverklaring' }}</a>
+            @endif
+        </p>
+        <fieldset class="consent__choices" data-fsc-choices hidden>
+            <label><input type="checkbox" checked disabled> Noodzakelijk</label>
+            @foreach ($consent['categories'] ?? [] as $category)
+                <label><input type="checkbox" value="{{ $category }}" data-fsc-category> {{ $categoryLabels[$category] ?? ucfirst($category) }}</label>
+            @endforeach
+        </fieldset>
+        <div class="consent__buttons">
+            <button type="button" data-fsc-choice="none">{{ $consent['rejectAllLabel'] ?? 'Alleen noodzakelijk' }}</button>
+            <button type="button" data-fsc-customize>{{ $consent['customizeLabel'] ?? 'Instellen' }}</button>
+            <button type="button" data-fsc-choice="custom" hidden>{{ $consent['saveLabel'] ?? 'Opslaan' }}</button>
+            <button type="button" data-fsc-choice="all">{{ $consent['acceptAllLabel'] ?? 'Alles accepteren' }}</button>
+        </div>
+    </div>
+    <script @if ($nonce) nonce="{{ $nonce }}" @endif>
+        (() => {
+            const box = document.getElementById('fsc-consent');
+            const version = box.dataset.version;
+            let stored = null;
+            try { stored = JSON.parse(localStorage.getItem('fsc-consent') || 'null'); } catch (e) { stored = null; }
+            if (!stored || stored.version !== version) box.hidden = false;
+
+            const save = (choice) => {
+                const categories = choice === 'custom'
+                    ? [...box.querySelectorAll('[data-fsc-category]:checked')].map((input) => input.value)
+                    : [];
+                const detail = choice === 'custom' ? { choice, categories, version } : { choice, version };
+                localStorage.setItem('fsc-consent', JSON.stringify(detail));
+                window.dispatchEvent(new CustomEvent('fsc:consent', { detail }));
+                box.hidden = true;
+                fetch('/api/consent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                    body: JSON.stringify(detail),
+                    keepalive: true,
+                }).catch(() => {});
+            };
+
+            box.querySelectorAll('[data-fsc-choice]').forEach((button) => button.addEventListener('click', () => save(button.dataset.fscChoice)));
+            box.querySelector('[data-fsc-customize]').addEventListener('click', (event) => {
+                box.querySelector('[data-fsc-choices]').hidden = false;
+                box.querySelector('[data-fsc-choice="custom"]').hidden = false;
+                event.currentTarget.hidden = true;
+            });
+            document.querySelectorAll('[data-fsc-consent-open]').forEach((link) => link.addEventListener('click', (event) => {
+                event.preventDefault();
+                box.hidden = false;
+            }));
+        })();
+    </script>
+@endif
+```
+
+`app/Http/Controllers/ConsentController.php`, routed in `routes/api.php` as `Route::post('/consent', ConsentController::class)->middleware('throttle:20,1');`:
 
 ```php
-// app/Http/Middleware/ContentSecurityPolicy.php, in de web-groep
-use FullStackStudio\Content\Laravel\Facades\Content;
-use Illuminate\Support\Facades\Vite;
+<?php
 
-public function handle(Request $request, Closure $next): Response
+namespace App\Http\Controllers;
+
+use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\ContentException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+/** `POST /api/consent`: records the visitor's cookie choice in the Hub as proof (no IP is stored there; it only counts for the rate limit). */
+class ConsentController extends Controller
 {
-    Vite::useCspNonce();                                      // vóór het renderen: de componenten nemen deze nonce over
-    $response = $next($request);
-    $nonce = Vite::cspNonce();
-    $csp = "default-src 'self'; script-src 'self' 'nonce-{$nonce}'; style-src 'self' 'nonce-{$nonce}'; "
-        . "img-src 'self' data: https://content.fullstackstudio.nl; connect-src 'self'; frame-ancestors 'self'";
-    $csp = Content::analyticsCspMerge(Content::siteCspMerge($csp));   // string in, string uit; een array kan ook
-    $response->headers->set('Content-Security-Policy', $csp);
+    public function __construct(private readonly ContentClient $content)
+    {
+    }
 
-    return $response;
+    public function __invoke(Request $request): JsonResponse
+    {
+        $input = $request->validate([
+            'choice' => ['required', 'in:all,none,custom'],
+            'categories' => ['array', 'max:10'],
+            'categories.*' => ['string', 'max:40'],
+            'version' => ['nullable', 'string', 'max:40'],
+        ]);
+
+        $body = ['choice' => $input['choice']];
+        if ($input['choice'] === 'custom') {
+            $body['categories'] = array_values($input['categories'] ?? []);
+        }
+        if (! empty($input['version'])) {
+            $body['version'] = $input['version'];
+        }
+
+        try {
+            $this->content->recordConsent($body, [
+                'clientIp' => $request->header('cf-connecting-ip') ?: $request->ip(),
+                'userAgent' => (string) $request->userAgent(),
+            ]);
+        } catch (ContentException $e) {
+            // The choice already works in the browser; a failed proof is not the visitor's problem.
+            if (! $e->isRateLimited() && $e->status() !== 400 && $e->status() !== 404) {
+                report($e);
+            }
+        }
+
+        return response()->json(['ok' => true], 202);
+    }
 }
 ```
 
-`siteCspMerge()` neemt een array (geeft een array terug) of een CSP-string (geeft een string terug). Een ontbrekende directive begint bij
-`default-src`; zonder `default-src` blijft hij weg (toevoegen zou de rest verbieden). Een bestaande `script-src-elem`/`style-src-elem` krijgt de
-bronnen ook. Hosts die een script pas later zelf laadt staan niet in de snippet: voeg die met de hand toe. Voor Google Analytics 4 / Google Tag Manager
-is dat in `connect-src` (en `img-src`): `https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com`.
+Rules: no cookie for the choice (localStorage only, the server always renders the same HTML); do not name heatmaps or replay in the banner (the
+privacy statement does); bump `version` in the Hub when texts or categories change. More detail: "Cookiebanner: the consent contract" below.
+Verify: `fsc:doctor` line `Cookiebanner gevonden`; in a private window the banner shows; after "Alleen noodzakelijk" no `recorder.js` request and
+no consent-gated `<script>` runs; after "Alles accepteren" they do; `localStorage['fsc-consent']` holds the choice.
 
-**6. Cookiebanner: het toestemmingscontract.** Eigen code met toestemming `necessary` draait altijd. Code voor `analytics`, `marketing` of
-`preferences` staat als inerte `<template data-fsc-code data-consent="...">` in de pagina en draait pas na toestemming voor die categorie; heatmaps en
-session replay van analytics volgen hetzelfde contract. De banner van de site doet bij elke keuze twee dingen:
+### A11. Legal pages and the privacy statement
 
-```js
-const choice = { choice: 'custom', categories: ['analytics'] };          // of { choice: 'all' } / { choice: 'none' }
-localStorage.setItem('fsc-consent', JSON.stringify(choice));             // volgende pagina's lezen dit
-window.dispatchEvent(new CustomEvent('fsc:consent', { detail: choice })); // deze pagina activeert meteen
+Every site has a privacy statement (and, when it sells or books, terms) linked from the footer and set as `policyUrl` of the banner. The text lives
+in the Hub, not in the repo: module `legal` (`$content->legal->get('privacy_statement')`, kinds `terms`, `privacy_statement`, `cookie_statement`, ...;
+render `bodyHtml` with `<x-content::article-body>`) or an ordinary Hub page. Route it before the catch-all,
+`Route::get('/privacyverklaring', [LegalController::class, 'privacy'])->name('privacy');`, with a controller that tries the legal document first and
+falls back to a Hub page with the same path:
+
+```php
+<?php
+
+namespace App\Http\Controllers;
+
+use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\ContentException;
+use Illuminate\Contracts\View\View;
+
+/**
+ * Legal texts from the Hub (module `legal`): the current version of a document kind. Without the module (or before a version is in force)
+ * the same path falls back to an ordinary page from the Hub, so the owner can also keep the text as a page.
+ */
+class LegalController extends Controller
+{
+    public function __construct(private readonly ContentClient $content)
+    {
+    }
+
+    public function privacy(): View
+    {
+        return $this->show('privacy_statement', 'privacyverklaring');
+    }
+
+    private function show(string $kind, string $path): View
+    {
+        try {
+            $document = $this->content->legal->get($kind);
+
+            return view('legal', ['document' => $document, 'path' => '/' . $path]);
+        } catch (ContentException $e) {
+            if (! $e->isNotFound()) {
+                report($e);
+                abort(503);
+            }
+        }
+
+        try {
+            $page = $this->content->getPage($path);
+        } catch (ContentException $e) {
+            if ($e->isNotFound()) {
+                abort(404);
+            }
+            report($e);
+            abort(503);
+        }
+
+        return view('page', ['page' => $page, 'path' => '/' . $path]);
+    }
+}
 ```
 
-- Sleutel en event: `fsc-consent` en `fsc:consent` (aan te passen met `FSC_CONSENT_KEY` / `FSC_CONSENT_EVENT`; geldt voor site en analytics).
-- Begrepen waarden: `{categories: [...]}`, `{choice: 'all'|'none'|'custom', categories}`, `{analytics: true, marketing: false, preferences: true}`,
-  `'accepted'`/`'all'`/`true` (alles), `'declined'`/`'necessary'`/`'none'`/`false` (niets), ook als JSON-tekst. Onbekende categorieën tellen niet.
-- Geen cookie: de keuze staat alleen in `localStorage` (de server rendert altijd dezelfde HTML; de browser beslist). Geen keuze = niets dan `necessary`.
-- Intrekken werkt vanaf de volgende pagina: code die al draaide kan niet worden uitgeladen. Herlaad de pagina na intrekken als dat nodig is.
-- Leg de keuze ook vast als bewijs: `recordConsent(['choice' => ..., 'categories' => [...]], ['clientIp' => ..., 'userAgent' => ...])` vanuit je
-  eigen route (`POST /api/v1/consent`). De categorieën die de banner moet tonen komen uit `getConsentConfig()['categories']`.
-- Eigen code met `document.write` werkt niet na toestemming (de pagina is dan al geladen); gebruik de asynchrone variant van de leverancier.
-- Scripts draaien in de volgorde van de bron: een extern script zonder `async` wordt afgewacht (geladen of fout, hooguit 15 s) voordat het volgende
-  script erin gaat, ook over fragmenten heen. Een inline `Lib.init()` na `<script src=".../lib.js">` werkt dus gewoon.
+`resources/views/legal.blade.php` extends the layout and prints `<h1>{{ $document['title'] }}</h1>` and
+`<x-content::article-body :html="$document['bodyHtml'] ?? null" />`; give the layout's meta a title for it
+(`@elseif (isset($document)) <x-content::meta :page="['title' => $document['title'] ?? null]" :path="$path ?? null" />`).
 
-Checklist: `<x-content::meta>`, `<x-content::head />`, `<x-content::errors />` in `<head>`; `<x-content::body-end />` en `<x-content::analytics />` vóór
-`</body>`; catch-all als laatste route; `RedirectMiddleware` vooraan in de web-groep; `/sitemap.xml` en `/robots.txt` via het pakket; webhook aan;
-CSP gemerged; de banner schrijft `fsc-consent` en stuurt `fsc:consent`.
+The statement must name what this package does on the site. Give the owner these sentences (Dutch sites; translate for others) for every
+feature that is on:
+
+| When | Sentence |
+|---|---|
+| Always (forms) | "Wat je via een formulier stuurt, slaan we op in ons websitebeheer (FullStack Hub) en sturen we per e-mail naar ons door. We bewaren daarbij ook via welke campagne of link je op de site kwam, zonder cookies." |
+| Module `analytics`, engine Umami | "We meten bezoeken met Umami, een privacyvriendelijke statistiekdienst zonder cookies; IP-adressen worden niet opgeslagen. Alleen als je cookies accepteert, analyseren we ook anoniem klikken en navigatie (heatmaps en sessie-opnames, waarbij alles wat je typt verborgen blijft)." |
+| Module `analytics`, engine native | "We meten bezoeken met onze eigen statistieken, zonder cookies; IP-adressen worden niet opgeslagen. Alleen als je cookies accepteert, onthouden we je browser met een willekeurig nummer, zodat we terugkerende bezoeken zien, en analyseren we klikken (heatmaps). We maken geen opnames." (engine `both`: both sentences) |
+| Module `errors` | "Technische fouten op deze site melden we aan onze foutmonitoring, zonder persoonsgegevens." |
+| Intelligence recognition (members or chat) | "Log je in, dan herkennen we je bij latere bezoeken (cookie fsi_rec, 6 maanden) om relevante inhoud te tonen. Dat doen we alleen als je toestemming hebt gegeven voor statistieken." |
+| Personalisation or recommendations | "Heb je toestemming gegeven voor statistieken, dan kunnen de inhoud en producten die je ziet afhangen van de pagina's die je eerder bekeek." |
+| Newsletter click links | "Klik je op een link in onze nieuwsbrief, dan registreren we welke link in welke verzending is aangeklikt, om te zien welke onderwerpen aanslaan. Heb je op deze site toestemming gegeven voor statistieken, dan koppelen we je bezoek ook aan je inschrijving voor de nieuwsbrief, zodat we je relevantere inhoud kunnen tonen." |
+| Account data via the chat (own portal) | "Ben je ingelogd, dan kan de chat op jouw vraag gegevens uit je eigen account opzoeken (zoals facturen of tickets) om je vraag te beantwoorden. De chat bewaart die gegevens niet." |
+| `FSC_PID_COOKIE_DOMAIN` set | name the shared cookie `fsa_pid` and the sibling host that reads it |
+
+Verify: `curl -s https://<site>/privacyverklaring` answers 200 with the sentences above; the footer and the banner link to it.
+
+### A12. Error pages
+
+- `resources/views/errors/404.blade.php` in the site's style: `@extends('layouts.app', ['fscStatus' => 404])` (the layout passes it to
+  `<x-content::analytics :status>`, so the native tracker counts a 404).
+- `resources/views/errors/503.blade.php` **standalone**: plain HTML with `<meta name="robots" content="noindex">`, no layout and no `content::`
+  components. A 503 usually means the Hub is unreachable; a layout would call it again and wait for its timeouts.
+- `APP_DEBUG=false` in production: no stack traces.
+
+Verify: `fsc:doctor` lines `errors/404` and `errors/503`; `curl -s -o /dev/null -w '%{http_code}' https://<site>/bestaat-niet` is 404 and shows
+your page.
+
+### A13. Content-Security-Policy (only when the site sends one)
+
+A site without a CSP needs nothing here. With one, use a nonce-based `script-src`/`style-src` and merge the SDK sources:
+
+```php
+// app/Http/Middleware/ContentSecurityPolicy.php, appended to the web group
+Vite::useCspNonce();                                      // before rendering: the components take this nonce
+$response = $next($request);
+$nonce = Vite::cspNonce();
+$csp = "default-src 'self'; script-src 'self' 'nonce-{$nonce}'; style-src 'self' 'nonce-{$nonce}'; "
+    . "img-src 'self' data: https://content.fullstackstudio.nl; connect-src 'self'; worker-src 'self' blob: data:; "
+    . "form-action 'self'; frame-ancestors 'self'";
+$response->headers->set('Content-Security-Policy', Content::analyticsCspMerge(Content::siteCspMerge($csp)));
+```
+
+- `form-action` also applies to the redirect after a POST: `'self'` only works with A4 (https). A payment form redirects to the checkout of
+  the payment provider: add that host (look at one `payment.checkoutUrl`).
+- The chat widget (module `chatbot`) needs `https://content.fullstackstudio.nl` in `script-src` and `connect-src`.
+- First-party analytics, error reporting, the address field and the dev panel need nothing beyond `'self'`.
+
+`siteCspMerge()` takes an array (returns an array) or a CSP string (returns a string). A missing directive starts from `default-src`; without
+`default-src` it stays out (adding it would forbid the rest). An existing `script-src-elem`/`style-src-elem` gets the sources too. Hosts that a script
+loads later by itself are not in the snippet: add those by hand. For Google Analytics 4 / Google Tag Manager that is `connect-src` (and `img-src`):
+`https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com`.
+
+Verify: the browser console shows no CSP errors on a page, after accepting cookies and after submitting a form.
+
+### A14. Built in: nothing to do, do not break it
+
+The provider registers these itself; do not copy, wrap or block them:
+
+| What | Where | Note |
+|---|---|---|
+| Analytics proxy and native collector | `/_fsc/a/*` | no session, no CSRF; do not put auth or a CDN cache on `/_fsc/a/api/*` and `/_fsc/a/e` |
+| Error reporter and tunnel | `/_fsc/e/reporter.js`, `POST /_fsc/e/envelope` | also reports backend exceptions through Laravel's handler; do not add `sentry/sentry-laravel` |
+| Address autocomplete | `/_fsc/address/*` | for `<x-content::address-field>` |
+| Dev panel | `?fsc_devmode=1`, `/_fsc/d/*` | off for everybody; a CDN that caches HTML must bypass it for the cookie `fsc_devmode=1` |
+| Newsletter click links | global middleware `NewsletterClickLink` | never read, strip or store `?fscn=` yourself |
+| Cookie encryption exceptions | `fsi_rec`, `fsi_sess` | the provider calls `EncryptCookies::except()`; a cookie of your own that JavaScript writes and PHP reads needs `$middleware->encryptCookies(except: [...])` too |
+| Intelligence routes | `/_fsc/i/*` | only while `FSC_INTELLIGENCE_ENABLED=true` |
+
+### A15. Staff and office traffic
+
+Office IPs and staff browsers must not build Intelligence profiles. With module `intelligence` on: `FSC_INTELLIGENCE_EXCLUDE_IPS=<IPs/CIDRs, comma-separated>`;
+the staff marker cookie `fsi_staff` (set by the FSS admin at staff login on `.fullstackstudio.nl`) is honoured automatically. Their visits still count in
+analytics, marked `fsi_ex`. Nothing to do while Intelligence is off.
+
+### A16. Hosting checklist (FSS platform)
+
+One container with nginx + PHP-FPM on port 3000, `HEALTHCHECK` on `/api/health`, `config:cache route:cache view:cache` at start, no secrets or `.env`
+in the image: copy `examples/laravel/Dockerfile` and `docker/`. Details: "Deploying on the FSS platform" in `README.md`.
+
+## Als de module X aanstaat
+
+Which modules are on: `php artisan fsc:doctor --online` (line `Modules aan:`) or `$content->getProject()['modules']`. A module that is off answers
+404 `module_disabled` (`isNotFound()` is true). Each section: what to build, where, how to verify. Modules without a section (`email`, `webhooks`,
+`customers`, `invoicing` for staff use) need nothing on a public site.
+
+### `site` (site standards) and `seo`
+
+Nothing beyond A5/A6: `<x-content::head />` and `<x-content::meta>` read them. Make sure `canonicalOrigin` in the SEO settings is the live https origin
+and the article path template matches your article route. Verify: `fsc:doctor --online` line `canonicalOrigin`; `curl -s https://<site>/ | grep -E
+'og:title|rel="canonical"|application/ld\+json'`.
+
+### `pages`
+
+The catch-all (A6) and `resources/views/page.blade.php`:
+
+```blade
+@extends('layouts.app')
+@section('content')
+    <x-content::page-blocks :blocks="$page['blocks'] ?? []" :media="$page['media'] ?? null" />
+@endsection
+```
+
+Two block types need your own view (set `config('content.blocks')` after publishing the config, or `:views="[...]"`): `articleList` (fetch the
+articles in your view) and `legalDocument` (`$content->legal->get($block['kind'])`). Verify: a published Hub page opens at its path; a draft is 404.
+
+### `articles`
+
+`/blog` (list) and `/blog/{slug}` (detail), matching the SEO path template; add `url('/blog')` to the sitemap `extra`. Recipe: "Articles and categories"
+below. Verify: the article URL in `/sitemap.xml` opens; `<link rel="canonical">` on it is that URL.
+
+### `media`
+
+`<x-content::image :media="$media" sizes="..." />` for every Hub image (responsive variants, never upscaled); `:eager="true"` only for the LCP image.
+Recipe: "Media and images". Verify: `<img srcset=` in the HTML.
+
+### `forms`
+
+A9. Use the form keys from the Hub (`<x-content::form form-key="...">`). Verify as in A9.
+
+### `redirects`
+
+A7. Nothing else.
+
+### `analytics`
+
+A5 (`<x-content::analytics />`), A10 (banner), A11 (privacy sentence). Webshop and appointments also fire conversion events (sections below).
+Full checklist: "Analytics" in the recipes. Verify: `curl -s https://<site>/ | grep -E '_fsc/a/(fsc|fsa|script)\.js'` and in the browser
+network tab `POST /_fsc/a/api/send` (Umami) or `POST /_fsc/a/e` (native) answers 200/202 on a page view.
+
+### `errors`
+
+A5 (`<x-content::errors />`); the server token needs scope `errors:read`; the image passes the Git SHA as `FSS_RELEASE`. Verify: `curl -s
+https://<site>/_fsc/e/reporter.js | head -c 80` returns JavaScript. Recipe: "Error monitoring".
+
+### `privacy`
+
+Supplies the banner texts and categories (A10) and stores the proof (`GET`/`POST /api/v1/consent`, scope `privacy:consent`). Set `policyUrl` in the
+Hub to the privacy statement path. While the module is off the banner partial renders nothing and nothing consent-gated ever runs (privacy-safe, but
+heatmaps, replay and the owner's marketing code stay off): ask for it to be switched on for every site with such code. Verify: the banner shows the
+Hub's texts.
+
+### `legal`
+
+A11 routes for each document kind in force (`$content->legal->list()` lists them). At checkout or registration record acceptance with
+`$content->legal->accept([...])`. Verify: each legal URL answers 200 and shows the current version.
+
+### `search`
+
+A search page (for example `GET /zoeken?q=`) that calls `$content->search(['q' => $q], ['clientIp' => $ip])` and links each hit to its URL. Mark it
+`noindex`. Verify: a known word returns hits.
+
+### `faq`
+
+`$content->faq->list()` (categories and items) on a FAQ page or in a section. Verify: the FAQ texts of the Hub appear.
+
+### `newsletter`
+
+A subscribe form posting to your own route that calls `$content->newsletter->subscribe(['email' => ..., ...], ['clientIp' => $ip])` (double opt-in:
+the Hub mails the confirmation; it answers the same for a known address, so show one neutral success message). Optional own pages for
+`confirmUrl`/`unsubscribeUrl` (then `confirm($token)` / `unsubscribe($token)`, both via POST); without them the Hub's hosted pages are used.
+Click links in campaign mails need no code (A14) but do need the privacy sentence (A11). Verify: subscribing shows the message and the Hub lists a
+pending subscriber.
+
+### `members`
+
+Login, logout, register, password reset and an account page (README "Members"; `examples/laravel` `MemberController`). Keep the member session token in
+an httpOnly, Secure, SameSite=Lax cookie, never in a URL or the page. Recognition (`fsi_rec`) is automatic when Intelligence recognition is on
+(section "Member recognition"); add its privacy sentence. Verify: login sets your session cookie (HttpOnly), logout removes it, a wrong password shows an error, no 502.
+
+### Webshop (`products`, `orders`, `payments`, `discounts`, `shipping`, `returns`, `reviews`, `downloads`)
+
+Product list and detail, cart, checkout and a thank-you page (README "Webshop": `cart->applyCode`, `orders->place` with `expectedTotalCents`,
+`payments->startForOrder`, redirect to `payment.checkoutUrl`; keep `accessToken` out of URLs). With `analytics` on, place the conversion markers:
+`<x-content::begin-checkout>` on the checkout page and `<x-content::purchase :order="$order" />` on the thank-you page ("Conversion events").
+Optional "Misschien ook interessant": `$content->products->recommendedProducts($pid, 4)` ("Recommended products"). Verify: a test order in a test
+project reaches the payment provider's test checkout; the thank-you page fires `purchase` once.
+
+### `appointments`
+
+A booking page (`appointments->services`, `availability`, `book`) and a confirmation; with `analytics` on `<x-content::appointment-booked
+:service :reference page="/afspraak-maken" />` on the confirmation. Verify: free times load; a booking in a test project shows the confirmation.
+
+### `events`
+
+Event list and detail with registration (`$content->events`). Verify: a published event shows; registration in a test project succeeds.
+
+### `tickets`
+
+A support form or a member area that creates tickets (`$content->tickets->create(..., ['files' => [...], 'idempotencyKey' => ..., 'clientIp' => ...])`).
+Verify: a test ticket appears in the Hub (test project only).
+
+### `chatbot`
+
+The widget on every page where the bot should be, with a publishable token (`fsc_pub_...`, scope `chat:converse`, the site's origin in its
+`allowedOrigins`). A publishable token may be in the page; read it via `config()` (for example `config('services.fsc.publishable_token')` filled
+from `FSC_PUBLISHABLE_TOKEN` in `config/services.php`), never `env()` in a view.
+
+```blade
+<script src="https://content.fullstackstudio.nl/widget/chat.v1.js" defer></script>
+<fsc-chat token="{{ config('services.fsc.publishable_token') }}" lang="nl" @if (config('content.intelligence.enabled')) open-url="/_fsc/i/chat" @endif></fsc-chat>
+```
+
+Set `siteOrigins` in the bot settings to the site's origin (else links in answers stay text). Logged-in members: `window.FscChat?.init({ memberSession })`
+from a server route of yours. Verify: the bubble opens and answers; with Intelligence on the network tab shows `POST /_fsc/i/chat`.
+
+### `intelligence` (paid add-on, off by default)
+
+Only when FullStack Studio switched it on for the project. `.env`: `FSC_INTELLIGENCE_ENABLED=true`, `FSC_INTELLIGENCE_EXCLUDE_IPS` (A15); for slots
+also `FSC_INTELLIGENCE_PERSONALIZATION=true`. Then, as the project needs: personalisation slots (`<x-content::slot>`), chat `open-url` (above),
+member recognition (automatic), newsletter click links (automatic), recommended products, and `content.devmode.portal_url` for the dev panel. Add the
+privacy sentences (A11). Recipes: "FullStack Intelligence" and its subsections. Verify: `POST /_fsc/i/me` answers JSON; with consent the
+`fsa_pid` cookie exists; a page with a slot sends `Cache-Control: private, no-cache` when a variant was decided.
+
+### Account data via the chat (only for a site with its own customer portal)
+
+Only when the site runs its own customer login with invoices, tickets or services. Build the signed provider route of "Accountgegevens via de chat"
+below and the session handle cookie `fsi_sess`; add the privacy sentence. A brochure site skips this.
+
+### Meertalige site (project `locales` has more than one language)
+
+Route prefix per language (for example `/en/...`), pass `['locale' => ...]` to reads, `localePrefix` in `Sitemap::response()`. hreflang yourself
+in the layout from the page's `translations` (`[{ id, locale, slug, status }]`) or `$content->getTranslations($page['translationGroupId'])`:
+
+```blade
+@foreach (($page['translations'] ?? []) as $t)
+    @if (($t['status'] ?? null) === 'published')
+        <link rel="alternate" hreflang="{{ $t['locale'] }}" href="{{ url(($t['locale'] === 'nl' ? '' : '/' . $t['locale']) . '/' . ltrim($t['slug'], '/')) }}">
+    @endif
+@endforeach
+```
+
+Verify: each language version links to the others and to itself.
+
+## Controleer je site
+
+### `php artisan fsc:doctor`
+
+Checks the "Altijd verplicht" items it can see from the app and prints one Dutch line per check (`OK`, `LET OP`, `FOUT`, `INFO`), exit code 1 on any
+`FOUT`. Read-only; the only request it makes is `GET /api/health` through the app's own kernel.
+
+| Option | Use |
+|---|---|
+| (none) | full check, needs the real env (`FSC_SERVER_TOKEN`, `FSC_WEBHOOK_SECRET`, `APP_KEY`) |
+| `--skip-env` | skip the secret checks (CI, a checkout without `.env`) |
+| `--online` | also call the Hub once: token valid, project name, `Modules aan: ...`, `canonicalOrigin` |
+| `--strict` | exit 1 on `LET OP` too |
+
+It checks: env keys and token type, `FSC_API_URL` https, `SESSION_DRIVER` not cookie, `APP_URL` https and `URL::forceScheme('https')` (FOUT in
+production), routes `/sitemap.xml`, `/robots.txt`, `/api/health` (200 `{"ok":true}`), the webhook and form routes, the catch-all, `RedirectMiddleware`
+first in the web group, `trustProxies`, every layout with `</head>` (outside `errors/` and mail views) has the five components in the right place, a
+cookie banner (`fsc:consent`), `errors/404` and `errors/503`, no `fullUrl()` in views, no `public/robots.txt`/`public/sitemap.xml`, `.env` in
+`.gitignore`, no `fsc_srv_`/`fsc_whsec_` in `resources/`, `public/` or the views, and that `config:cache` will work.
+
+### Checks against the running site
+
+Run these against the test address (`*.fullstackonline.nl`) and again on the live domain. `S=https://<site>`.
+
+```bash
+curl -s $S/ | grep -E 'rel="canonical"|<title>|og:title|_fsc/a/|_fsc/e/reporter'      # meta, analytics, errors
+curl -s $S/ | grep -c 'fsc_srv_\|fsc_whsec_'                                          # 0: no secrets in HTML
+curl -s $S/sitemap.xml | head -5                                                      # XML with live https URLs
+curl -s $S/robots.txt                                                                 # Allow + Sitemap (Disallow: / on a test site)
+curl -s $S/api/health                                                                 # {"ok":true}
+curl -s -o /dev/null -w '%{http_code}\n' $S/bestaat-niet                              # 404
+curl -sI "$S/?utm_source=test" | grep -i '^location' || true                           # no redirect, or one that keeps ?utm_source
+curl -sI http://<host>/ | grep -i location                                            # http goes to https (Cloudflare)
+curl -s "$S/?fscn=x" | grep -c 'fscn'                                                 # 0: the token never reaches canonical/og:url
+```
+
+Webhook signature (locally against `php artisan serve`, or on the site):
+
+```bash
+BODY='{"id":"evt_check","type":"site.updated","createdAt":"2026-01-01T00:00:00Z","projectId":"check","data":{}}'
+SIG=$(php -r 'require "vendor/autoload.php"; echo FullStackStudio\Content\Webhooks\WebhookVerifier::sign(getenv("FSC_WEBHOOK_SECRET"), $argv[1]);' "$BODY")
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $S/content/webhook -H 'Content-Type: application/json' -H "X-FSC-Signature: $SIG" -d "$BODY"   # 200 {"received":true,...,"revalidated":["content:site"]}
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $S/content/webhook -H 'Content-Type: application/json' -d "$BODY"                             # 401
+```
+
+Consent, in a private browser window: the banner shows; "Alleen noodzakelijk" stores `{"choice":"none",...}` in `localStorage['fsc-consent']` and no
+`recorder.js`/`fsa_pid` appears; "Alles accepteren" starts them without a reload; the footer link reopens the banner. Forms: submit empty (Dutch
+errors, no 502), then once to a Hub form whose recipients you checked (A9).
+
+### Common mistakes (each broke a live site)
+
+| Mistake | Symptom | Fix |
+|---|---|---|
+| `SESSION_DRIVER=cookie` | 502 "upstream sent too big header" on a form error | `file` (A4) |
+| No `URL::forceScheme('https')` behind the proxy | form hangs on "versturen"; `Location: http://` | A4 |
+| `public/robots.txt` left in place | robots.txt ignores the Hub (a test site gets indexed) | delete it (A6) |
+| Catch-all not last | own routes 404 or show a Hub page | move it to the end (A6) |
+| `request()->fullUrl()` in canonical/og:url | `?fscn=` and utm values in canonical and shares | build from the path (A5) |
+| Layout without `<x-content::head />` | no favicon, verification or owner code; dev panel missing | A5 |
+| No cookie banner | heatmaps, replay and owner's marketing code never run | A10 |
+| Secrets in `.env` committed or baked into the image | leaked token | runtime env only, rotate in the Hub (A2) |
+| `env()` outside config files | empty values after `config:cache` | `config()` (A2) |
+| 503 page extends the layout | 503 takes the Hub's timeouts again | standalone page (A12) |
+| SMTP or mail code in the site | double mails, spam, leaked credentials | the Hub mails (A9) |
+| Own redirect drops the query string | campaigns lost | keep `$request->getQueryString()` (A7) |
+| Test submission to the customer's address | the customer gets test mail | recipients to your own address first (A9) |
+| `Http::fake()` in tests | real network calls | fake `Transport` ("Testing") |
+
+## Cookiebanner: the consent contract
+
+The owner's own code with consent `necessary` always runs. Code for `analytics`, `marketing` or `preferences` sits in the page as an inert
+`<template data-fsc-code data-consent="...">` and runs only after consent for that category; heatmaps and session replay follow the same contract.
+The site's banner does two things on every choice:
+
+```js
+const choice = { choice: 'custom', categories: ['analytics'] };          // or { choice: 'all' } / { choice: 'none' }
+localStorage.setItem('fsc-consent', JSON.stringify(choice));             // later pages read this
+window.dispatchEvent(new CustomEvent('fsc:consent', { detail: choice })); // this page activates at once
+```
+
+- Key and event: `fsc-consent` and `fsc:consent` (change with `FSC_CONSENT_KEY` / `FSC_CONSENT_EVENT`; applies to site code and analytics).
+- Understood values: `{categories: [...]}`, `{choice: 'all'|'none'|'custom', categories}` (extra keys such as `version` are ignored),
+  `{analytics: true, marketing: false, preferences: true}`, `'accepted'`/`'all'`/`true` (everything), `'declined'`/`'necessary'`/`'none'`/`false`
+  (nothing), also as JSON text. Unknown categories do not count.
+- No cookie: the choice lives only in `localStorage` (the server always renders the same HTML; the browser decides). No choice = only `necessary`.
+- Revoking works from the next page: code that already ran cannot be unloaded. Reload the page after revoking if needed.
+- Record the choice as proof: `recordConsent(['choice' => ..., 'categories' => [...]], ['clientIp' => ..., 'userAgent' => ...])` from your own route
+  (`POST /api/v1/consent`). The categories the banner must offer come from `getConsentConfig()['categories']`.
+- Own code with `document.write` does not work after consent (the page has loaded by then); use the vendor's async snippet.
+- Scripts run in source order: an external script without `async` is awaited (loaded or failed, at most 15 s) before the next one goes in, also
+  across fragments. An inline `Lib.init()` after `<script src=".../lib.js">` therefore just works.
 
 ## What it is
 
@@ -159,7 +818,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.15.0" }
+    "require": { "fullstackstudio/content": "^0.22" }
 }
 ```
 
@@ -171,6 +830,7 @@ php artisan vendor:publish --tag=content-config   # optional: config/content.php
 php artisan vendor:publish --tag=content-assets   # optional: public/vendor/content/content.css (the fsc-* classes)
 php artisan vendor:publish --tag=content-views    # optional: copy the Blade views to resources/views/vendor/content
 php artisan fsc:agents                            # writes the short pointer block to AGENTS.md (and @AGENTS.md to an existing CLAUDE.md)
+php artisan fsc:doctor                            # checks the "Altijd verplicht" items (see "Controleer je site")
 ```
 
 ### Environment
@@ -238,23 +898,7 @@ Branch on `errorCode()`/`status()`, never on the message.
 
 ### Pages by path: catch-all route, 404, SEO
 
-```php
-// routes/web.php: keep the catch-all LAST
-Route::get('/{path}', [PageController::class, 'show'])->where('path', '.*');
-
-public function show(string $path): View
-{
-    $path = trim($path, '/');
-    if ($path === '' || strlen($path) > 200) { abort(404); }
-    try {
-        $page = $this->content->getPage($path);      // by id or path; throws 404 when missing or unpublished
-    } catch (ContentException $e) {
-        if ($e->isNotFound()) { abort(404); }
-        report($e); abort(503);
-    }
-    return view('page', ['page' => $page, 'path' => '/' . $path]);
-}
-```
+Route, controller and error handling: A6 and A3 above. In the views:
 
 ```blade
 {{-- layout <head> --}}
@@ -297,20 +941,15 @@ Route::get('/sitemap.xml', fn () => Sitemap::response([
 ```
 
 Empty when the project's `robotsIndex` is off (a test site). The origin comes from `canonicalOrigin` in Content's SEO settings or the `baseUrl` option.
-Article paths come from the path template in the project's SEO settings (it must match your real URLs). robots.txt: serve your own static file or route;
-`$content->getSeo()['robotsIndex']` tells whether the project allows indexing.
+Article paths come from the path template in the project's SEO settings (it must match your real URLs). robots.txt: always `Robots::response()` (A6), never a
+static `public/robots.txt`; `$content->getSeo()['robotsIndex']` tells whether the project allows indexing. With the SEO module off the sitemap has only your
+`extra` lines; during a Hub outage it answers 503 with `Retry-After`. `Robots::response()` allows everything with the module off and also when the Hub is
+unreachable (200, `no-store`): a short outage must not stop crawling, and a test site stays shielded by the `noindex` of `<x-content::meta>`.
 
 ### Redirects
 
-```php
-// bootstrap/app.php
-->withMiddleware(function (Middleware $middleware): void {
-    $middleware->web(prepend: [\FullStackStudio\Content\Laravel\RedirectMiddleware::class]);
-})
-```
-
-Looks up GET/HEAD paths (skips `/api`, `/build`, `/storage` and files with an extension), caches answers (including "no redirect") under the
-`content:redirects` tag and pauses lookups for 15 s when Content is down (`content.redirects.*`). Redirects are managed in Content, not in the repo.
+Wiring and query-string rules: A7. Answers are cached under the `content:redirects` tag; a lookup times out after `content.redirects.timeout_ms` (1500)
+and pauses `failure_cooldown_seconds` (15) after a failure, 60 s while the module is off. Redirects are managed in the Hub, never in the repo.
 
 ### Forms (server-side, works without JavaScript)
 
@@ -367,10 +1006,10 @@ above the fold. Plain URLs: `$content->mediaUrl($id)`, `$content->assetUrl($path
 
 ### Blade components (namespace `content::`)
 
-`meta`, `head` and `body-end` (see "Altijd in elke site"), `analytics` (see Analytics), `errors` (see Error monitoring), `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
+`meta`, `head` and `body-end` (see A5), `analytics` (see Analytics), `errors` (see Error monitoring), `article-body` (prints `bodyHtml` unescaped: safe only for HTML from Content, which sanitizes on save; never pass other HTML), `page-blocks`,
 `image`, `form`, `address-field` (see Address autocomplete), `begin-checkout`, `appointment-booked`, `purchase` (see "Conversion events"). Override a block type with your own view: `:views="['articleList' => 'blocks.articles']"` or `config('content.blocks')`; your view receives
 `$block`, `$index`, `$baseUrl`, `$resolve($mediaId)`. The `articleList` block only says what to show: fetch the articles in your view. There is no cookie banner
-component (needs JS): build one on `getConsentConfig()` / `recordConsent()` and follow the consent contract in "Altijd in elke site".
+component (needs JS): build one on `getConsentConfig()` / `recordConsent()` (A10, "Cookiebanner: the consent contract").
 
 ### Analytics (module `analytics`, Umami and/or the Hub's native engine): pageviews, events, heatmaps, session replay, campaign attribution
 
@@ -404,7 +1043,7 @@ window.dispatchEvent(new CustomEvent('fsc:consent', { detail: 'accepted' })); //
 localStorage.setItem('fsc-consent', 'accepted');                              // so later pages know it (or 'declined')
 ```
 
-This is the same contract as for the site's own code (section "Altijd in elke site"); prefer `{ choice, categories }` there, the helper understands
+This is the same contract as for the site's own code (A10); prefer `{ choice, categories }` there, the helper understands
 both. `window.fscAnalytics.setConsent(true|false)` does the same as the event. If your banner already stores its choice under another key, set
 `FSC_CONSENT_KEY=<that key>` (values like `accepted`/`declined`, `true`/`false` or JSON `{"analytics":true}` are understood). Do not name heatmaps or replay
 in the banner itself; the privacy text covers them (below). Custom events: `data-umami-event="signup"` on an element, or `window.fscAnalytics.track('signup', {...})`.
@@ -474,10 +1113,7 @@ direct mode (then `Content::analyticsCsp()` adds `'self'`). The pod needs networ
 target has its own query or is absolute). Your own redirects (`redirect()->to(...)`, route redirects, `www` to apex in nginx/Traefik) must pass the query along too
 (`$request->getQueryString()`; nginx `return 301 https://example.nl$request_uri;`).
 
-**Privacy text** (privacy page, not the banner): "We measure visits with Umami, a privacy-friendly statistics tool without cookies; IP addresses are not stored.
-Only if you accept cookies do we also analyse clicks and navigation anonymously (heatmaps and session recordings, with everything you type hidden)."
-With the native engine: "We measure visits with our own statistics, without cookies; IP addresses are not stored. Only if you accept cookies do we remember
-your browser with a random number, so we can see return visits, and analyse clicks (heatmaps). No recordings."
+**Privacy text** (privacy page, not the banner): the Umami and native sentences in the table of A11.
 
 Checklist "analytics correct ingericht":
 
@@ -731,7 +1367,7 @@ cache store (default TTL 3600 s as safety net). Writes and `submitForm` are neve
 Do not write your own cache layer on top and do not cache Content responses in views for long. With a file cache and several replicas the webhook only clears the replica it
 reaches: use a shared store (`FSC_CACHE_STORE=redis`) or accept the TTL.
 
-### Other modules (brief)
+### Other modules (brief; what to build per module: "Als de module X aanstaat")
 
 Properties on the client, inputs/outputs plain arrays, call options last: `products`, `cart`, `orders`, `payments`, `discounts`, `shipping`
 (webshop: price with `cart->applyCode`, then `orders->place`, then `payments->startForOrder` and redirect to `payment.checkoutUrl`; pass `expectedTotalCents`; keep `accessToken` out of URLs),
@@ -788,12 +1424,7 @@ Checklist for a site:
 
 ## Laravel-site pitfalls
 
-- **Force https.** In `AppServiceProvider::boot()` call `URL::forceScheme('https')` when `app()->environment('production')`. Behind Cloudflare and the
-  ingress the request arrives as http, so `redirect('/bedankt')` produced `http://...`; the CSP `form-action 'self'` blocked that redirect from an
-  https page and the form hung on "versturen".
-- **Sessions in files.** Use `SESSION_DRIVER=file`, never `cookie`. A cookie session grows past nginx's 4k fastcgi buffer and gives a 502 "upstream
-  sent too big header" on form errors. Also set the buffers in the nginx `location` that passes to PHP-FPM: `fastcgi_buffer_size 32k;` and
-  `fastcgi_buffers 16 16k;`. `examples/laravel` has both.
+Moved to A4 (https, proxy, sessions, nginx buffers) and "Common mistakes" under "Controleer je site".
 
 ## Testing
 
@@ -808,5 +1439,6 @@ $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' 
 
 ## Version and docs
 
-This guide: version 0.10.1 of the package (see `CHANGELOG.md`). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
-Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`.
+This guide describes the installed version of the package (see `CHANGELOG.md`, newest first). Full docs: `README.md` (Quick start, Modules, Tokens, Cache and webhooks, Laravel, Blade components,
+Errors, Transports). API reference: `docs/api-v1.md` in the Content repository. `php artisan fsc:agents` (re)writes the pointer block in the site's `AGENTS.md`;
+`php artisan fsc:doctor` checks a site against "Altijd verplicht".
