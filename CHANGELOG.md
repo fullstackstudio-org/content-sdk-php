@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `fsa.js` (rebuilt `fsa.min.js`): video tracking (plan analytics-complete I1, feature 37). `data-fsa-video` on a `<video>` sends the `event`s `video_start`, `video_progress` (`percent` 25/50/75, seeks are not counted) and `video_complete` with `label` (the attribute value, else the source path without query) and `player`; a YouTube `<iframe data-fsa-video>` whose `src` has `enablejsapi=1` is followed through the player's `postMessage` channel (no YouTube script is loaded). No consent needed, nothing stored. Outbound links and downloads (feature 27) were already tracked (`outbound`, `download`); only documented now. AGENTS.md: "Video" and "Outbound links and downloads".
+
 ## 0.24.0
 
 - `fsa.js` (rebuilt `fsa.min.js`): own-visit exclusion, site search and the 404 hook (plan analytics-complete D13/D14, features 80, 29, 28). `?fsa_exclude=1` stores `localStorage['fsa-exclude'] = '1'` (never a cookie) and the browser then sends nothing (also without a sitekey, so the flag can be set from any page); `?fsa_exclude=0` clears it; the parameter leaves the address bar. `fsc.js` and the first-party Umami tracker (`AnalyticsController::overlayGuard`) stand down for such a browser as well (`window.fsaExcluded`, the stored flag, or the parameter on the first visit). A search parameter (`data-search-params`, default `q, s, search, zoeken`) sends an `event` `site_search` with `term` (trimmed, lower case, max 80 characters, e-mail addresses, phone numbers, IBANs and long numbers replaced); a new term on the same page (SPA) is a new event; the parameter stays out of the page URL as before. `data-fsa-404` on `<html>` or `<body>` (besides `data-status="404"` and the navigation status) sends one `not_found` with `path` and `referrer_host`.

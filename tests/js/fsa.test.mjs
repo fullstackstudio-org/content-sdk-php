@@ -56,7 +56,7 @@ function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100
 }
 
 /** A page running the tracker. Timers are manual (`advance`), beacons are captured as parsed JSON batches. */
-function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, ttfb = 0, beacon = true, stub, navigationApi = false, marker404 = '' } = {}) {
+function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, ttfb = 0, beacon = true, stub, navigationApi = false, marker404 = '', iframes = [] } = {}) {
     const observers = {};
     let clock = 1_800_000_000_000;
     const timers = [];
@@ -75,6 +75,7 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
         currentScript: { dataset: { sitekey: KEY, endpoint: '/_fsc/a/e', ...dataset } },
         documentElement: { scrollHeight: 4000, hasAttribute: (name) => marker404 === 'html' && name === 'data-fsa-404' },
         body: { scrollHeight: 4000, hasAttribute: (name) => marker404 === 'body' && name === 'data-fsa-404' },
+        querySelectorAll: (selector) => (selector === 'iframe[data-fsa-video]' ? iframes : []),
         addEventListener: (type, fn) => { (docListeners[type] ||= []).push(fn); },
         appended: [],
         createElement: (tag) => ({ tagName: tag.toUpperCase() }),
@@ -1098,6 +1099,72 @@ test_('an SPA navigation starts a new form journey: the form starts again, with 
     assert.deepEqual(forms.map((e) => [e.t, e.p.field || null, e.p.seconds ?? null]), [
         ['form_start', null, null], ['event', 'email', 0], ['form_start', null, null], ['event', 'email', 0], ['form_submit', null, 3],
     ]);
+});
+
+test_('video: data-fsa-video sends start, 25/50/75 and complete once, with a sanitized label; seeks and unmarked videos are ignored', async () => {
+    const p = page();
+    const video = el('video', { 'data-fsa-video': ' Intro  jan@x.nl ' });
+    video.duration = 100;
+    const fire = (type, time) => { video.currentTime = time; p.fireDoc(type, { type, target: video }); };
+    fire('playing', 0);
+    fire('playing', 0);
+    for (let t = 1; t <= 52; t++) fire('timeupdate', t); // normal playback: about one update per second or faster
+    fire('timeupdate', 95); // a seek past the 75% mark: closed silently
+    fire('timeupdate', 96);
+    fire('ended', 100);
+    fire('ended', 100);
+    const plain = el('video', { src: 'https://cdn.studio.nl/media/film.mp4?token=abc' });
+    plain.duration = 10;
+    p.fireDoc('playing', { type: 'playing', target: plain });
+    const marked = el('video', { src: '/media/hero%20loop.mp4?x=1#t=2', 'data-fsa-video': '' });
+    marked.duration = 10;
+    p.fireDoc('playing', { type: 'playing', target: marked });
+    p.advance(1000);
+    const events = (await p.events()).filter((e) => e.t === 'event');
+    assert.deepEqual(events.map((e) => [e.n, e.p.label, e.p.percent ?? null, e.p.player]), [
+        ['video_start', 'Intro  [email]', null, 'html5'],
+        ['video_progress', 'Intro  [email]', 25, 'html5'],
+        ['video_progress', 'Intro  [email]', 50, 'html5'],
+        ['video_complete', 'Intro  [email]', null, 'html5'],
+        ['video_start', '/media/hero%20loop.mp4', null, 'html5'],
+    ]);
+    assert.equal(JSON.stringify(events).includes('token'), false);
+});
+
+test_('video: a YouTube iframe is only watched with data-fsa-video and enablejsapi=1, through postMessage (no script loaded)', async () => {
+    const posted = [];
+    const frame = (src, attrs = {}) => {
+        const node = el('iframe', { src, 'data-fsa-video': 'Promo', ...attrs });
+        node.contentWindow = { postMessage: (msg, origin) => posted.push([JSON.parse(msg).event, origin]) };
+        node.addEventListener = () => {};
+        return node;
+    };
+    const watched = frame('https://www.youtube.com/embed/abc123?enablejsapi=1&origin=https%3A%2F%2Fstudio.nl');
+    const noApi = frame('https://www.youtube.com/embed/zzz');
+    const other = frame('https://evil.example/embed/x?enablejsapi=1');
+    const p = page({ iframes: [watched, noApi, other] });
+    assert.deepEqual(posted, [['listening', 'https://www.youtube.com']]);
+    assert.equal(p.doc.appended.length, 0, 'no script is added to the page');
+    const msg = (source, origin, data) => p.fireWin('message', { source, origin, data: JSON.stringify(data) });
+    msg(watched.contentWindow, 'https://www.youtube.com', { event: 'onStateChange', info: 1 });
+    msg(watched.contentWindow, 'https://www.youtube.com', { event: 'infoDelivery', info: { currentTime: 30, duration: 100, playerState: 1 } });
+    msg(watched.contentWindow, 'https://attacker.example', { event: 'onStateChange', info: 0 });
+    msg(noApi.contentWindow, 'https://www.youtube.com', { event: 'onStateChange', info: 1 });
+    msg(watched.contentWindow, 'https://www.youtube.com', { event: 'onStateChange', info: 0 });
+    p.advance(1000);
+    const events = (await p.events()).filter((e) => e.t === 'event');
+    assert.deepEqual(events.map((e) => [e.n, e.p.label, e.p.percent ?? null, e.p.player]), [
+        ['video_start', 'Promo', null, 'youtube'],
+        ['video_progress', 'Promo', 25, 'youtube'],
+        ['video_complete', 'Promo', null, 'youtube'],
+    ]);
+});
+
+test_('video: a page without video markers registers no YouTube message listener', async () => {
+    const p = page();
+    p.fireWin('message', { source: {}, origin: 'https://www.youtube.com', data: '{"event":"onStateChange","info":1}' });
+    p.advance(1000);
+    assert.deepEqual((await p.events()).filter((e) => e.t === 'event'), []);
 });
 
 for (const [label, source] of VARIANTS) {

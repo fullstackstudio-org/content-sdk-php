@@ -34,6 +34,9 @@
  * - Heatmap overlay: a page opened from the portal with `#fsa_overlay=<token>` is not measured; `/_fsc/a/overlay.js` draws the heatmap.
  *   No browser id either: `fsa.pid()` is null there, so a staff view never links to a FullStack Intelligence profile.
  *
+ * - Video (no consent needed): `data-fsa-video` on <video> sends video_start, video_progress (25/50/75) and video_complete with a label and
+ *   player; also on a YouTube iframe that has enablejsapi=1 (see the Video section).
+ *
  * API: fsa.track(name, props), fsa.revenue(amount, currency, props), fsa.pageview(), fsa.setConsent(value), fsa.pid() (the browser id,
  * only with consent and without Global Privacy Control, else null: a site form may send it along so FullStack Intelligence links the
  * submission to the visitor's profile).
@@ -669,6 +672,116 @@
         flush();
     }
 
+    // --- Video (feature 37): <video data-fsa-video> and, opt-in, YouTube iframes --------------------------------------------------
+    // Events (type `event`, no consent needed, nothing is stored on the device): video_start (first playback), video_progress (percent 25,
+    // 50, 75; marks skipped by seeking are not counted) and video_complete (ended), each with the props `label` and `player`
+    // (html5|youtube). The label is the data-fsa-video value, else the path of the source without query. Once per element per page load.
+    // YouTube: only an <iframe data-fsa-video src="https://www.youtube.com/embed/ID?enablejsapi=1"> is watched, through the player's own
+    // postMessage channel. No YouTube script is ever loaded; a page without such an iframe does nothing here.
+
+    var VIDEO_MARKS = [25, 50, 75];
+    var YT_HOST_RE = /^(www\.)?youtube(-nocookie)?\.com$/;
+    var videoStates = typeof WeakMap === 'function' ? new WeakMap() : null;
+    var ytFrames = [];
+    var ytListening = false;
+
+    function videoLabel(el, fallback) {
+        var label = str(scrub(String(el.getAttribute('data-fsa-video') || '').trim()), 100);
+        if (label) return label;
+        var u = parse(fallback);
+        return u && u.pathname ? str(cleanPath(u.pathname), 100) : 'video';
+    }
+
+    function videoEvent(st, name, percent) {
+        var props = { label: st.label, player: st.player };
+        if (percent) props.percent = percent;
+        push({ t: 'event', n: name, p: cleanProps(props) });
+    }
+
+    function videoStart(st) {
+        if (st.started) return;
+        st.started = true;
+        videoEvent(st, 'video_start');
+    }
+
+    function videoEnd(st) {
+        if (st.ended) return;
+        st.ended = true;
+        videoStart(st);
+        videoEvent(st, 'video_complete');
+        flush();
+    }
+
+    function videoTime(st, time, duration) {
+        if (!(duration > 0) || !isFinite(duration) || !isFinite(time)) return;
+        // A jump of more than a few seconds is a seek: the marks it passes are closed silently instead of reported.
+        var jumped = st.last != null && Math.abs(time - st.last) > 2.5;
+        st.last = time;
+        var pct = time / duration * 100;
+        VIDEO_MARKS.forEach(function (mark) {
+            if (st.done[mark] || pct < mark) return;
+            st.done[mark] = 1;
+            if (jumped) return;
+            videoStart(st);
+            videoEvent(st, 'video_progress', mark);
+        });
+    }
+
+    function onMedia(event) {
+        var el = event && event.target;
+        if (!videoStates || !el || el.tagName !== 'VIDEO' || !el.hasAttribute || !el.hasAttribute('data-fsa-video')) return;
+        var st = videoStates.get(el);
+        if (!st) {
+            st = { label: videoLabel(el, el.getAttribute('src') || el.currentSrc || ''), player: 'html5', done: {} };
+            videoStates.set(el, st);
+        }
+        if (event.type === 'playing') videoStart(st);
+        else if (event.type === 'timeupdate') videoTime(st, el.currentTime, el.duration);
+        else if (event.type === 'ended') videoEnd(st);
+    }
+
+    function ytHello(st) {
+        try { st.frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), st.origin); } catch (e) { /* ignore */ }
+    }
+
+    function onYouTube(event) {
+        var st = null;
+        for (var i = 0; i < ytFrames.length; i++) {
+            if (ytFrames[i].frame.contentWindow && ytFrames[i].frame.contentWindow === event.source) st = ytFrames[i];
+        }
+        var from = st && parse(event.origin);
+        if (!st || !from || !YT_HOST_RE.test(from.hostname)) return;
+        var msg = event.data;
+        try { if (typeof msg === 'string') msg = JSON.parse(msg); } catch (e) { return; }
+        if (!msg || typeof msg !== 'object') return;
+        var info = msg.info;
+        var state = msg.event === 'onStateChange' ? info : info && typeof info === 'object' ? info.playerState : undefined;
+        if (info && typeof info === 'object' && info.duration > 0) st.dur = info.duration;
+        if (state === 1) videoStart(st);
+        if (info && typeof info === 'object' && typeof info.currentTime === 'number') videoTime(st, info.currentTime, st.dur);
+        if (state === 0) videoEnd(st);
+    }
+
+    function watchFrames() {
+        var list;
+        try { list = d.querySelectorAll ? d.querySelectorAll('iframe[data-fsa-video]') : []; } catch (e) { return; }
+        for (var i = 0; i < list.length; i++) {
+            var frame = list[i];
+            var seen = false;
+            for (var j = 0; j < ytFrames.length; j++) if (ytFrames[j].frame === frame) seen = true;
+            var src = parse(frame.getAttribute('src') || '');
+            if (seen || !src || !YT_HOST_RE.test(src.hostname) || src.searchParams.get('enablejsapi') !== '1') continue;
+            var st = { frame: frame, origin: src.origin, label: videoLabel(frame, src.href), player: 'youtube', done: {} };
+            ytFrames.push(st);
+            if (frame.addEventListener) frame.addEventListener('load', function (s) { return function () { ytHello(s); }; }(st));
+            ytHello(st);
+        }
+        if (ytFrames.length && !ytListening) {
+            ytListening = true;
+            w.addEventListener('message', onYouTube);
+        }
+    }
+
     // --- Forms: started (first interaction), submitted, and with consent the field a visitor last entered --------------------------
     // Never a field value. `form_start` / `form_submit` carry the form id; `form_submit` also `seconds` since `form_start` (a number, so
     // the Hub reads it as `num.seconds`). With analytics consent (and no Global Privacy Control) an `event` named `form_field` follows the
@@ -863,6 +976,10 @@
         w.addEventListener(type, function () { tick(); lastInput = now(); }, { passive: true });
     });
     d.addEventListener('click', onClick, true);
+    // Media events do not bubble: the capture phase on the document sees every <video>, also ones added later.
+    ['playing', 'timeupdate', 'ended'].forEach(function (type) { d.addEventListener(type, onMedia, true); });
+    if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', watchFrames); else watchFrames();
+    w.addEventListener('load', watchFrames);
     d.addEventListener('auxclick', onClick, true);
     d.addEventListener('focusin', onFocus, true);
     d.addEventListener('submit', onSubmit, true);

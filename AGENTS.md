@@ -1106,6 +1106,18 @@ entered (`event` `form_field`: the form name, the field's `name` or `id` attribu
 show after which field visitors leave a form unsent. Never a value, never the label, never password or hidden inputs; at most 40 fields per form and
 page view. Give fields real `name` attributes (`telefoon`, `bericht`); generated ids (`input_8f3a9c1d2e4b`) are not reported. Do not put personal data in
 a `name`/`id` or in `data-fsa-form` (the tracker drops names that hold an address or phone number, but you are the first line).
+**Video (`video_start`, `video_progress`, `video_complete`).** Put `data-fsa-video` on a `<video>` and the tracker reports playback as three `event` names
+(no consent needed, nothing stored on the device): `video_start` (first playback), `video_progress` with the number prop `percent` 25, 50 and 75, and
+`video_complete` (ended), each once per video and page load, with the props `label` and `player` (`html5`). Use a short readable label
+(`data-fsa-video="Introfilm"`); empty or absent, the label is the path of the source without query. Seeking past a mark does not count it. A video without
+the attribute is never tracked. Example: `<video src="/media/intro.mp4" data-fsa-video="Introfilm" controls></video>`.
+A YouTube embed is tracked only when the iframe has **both** `data-fsa-video` and `enablejsapi=1` in its `src`:
+`<iframe src="https://www.youtube-nocookie.com/embed/ID?enablejsapi=1" data-fsa-video="Promo" ...>` (`player` = `youtube`). The tracker talks to the player
+over its own `postMessage` channel and loads no YouTube script; an iframe without the attribute or `enablejsapi=1` is left alone. Iframes added to the page
+after load are not picked up. Mention in the privacy statement only what you already say about embedded YouTube.
+**Outbound links and downloads (`outbound`, `download`)** need no markup: a click on a link to another host sends `outbound` (`kind` `link`, `host`, scrubbed
+`path`; `mailto`, `tel` and WhatsApp links send only `kind`), a link to a file with a known extension (pdf, zip, docx, xlsx, csv, mp3, mp4, ...) or with the
+`download` attribute sends `download` (`file`, `ext`, `host`). Never a query string.
 **Site search (`site_search`).** When the URL carries a search parameter the tracker sends one `event` named `site_search` with the prop `term` after the
 pageview (no consent needed). The parameter names come from the Hub (`GET /api/v1/analytics` -> `analytics.searchParams`, default `q`, `s`, `search`,
 `zoeken`; set per project in the module config `analytics.searchParams`, up to 10 names of `[A-Za-z0-9_.-]`, max 32 characters) and reach the page as
