@@ -510,13 +510,17 @@ Verify: `curl -s https://<site>/privacyverklaring` answers 200 with the sentence
 ### A12. Error pages
 
 - `resources/views/errors/404.blade.php` in the site's style: `@extends('layouts.app', ['fscStatus' => 404])` (the layout passes it to
-  `<x-content::analytics :status>`, so the native tracker counts a 404).
+  `<x-content::analytics :status>`, so the native tracker counts a 404). That is the **404 hook**: the tracker then sends one `not_found` event per
+  page load with the scrubbed `path` and the `referrer_host` (never a query or a full referrer URL), no consent needed, so the Hub can list broken
+  links. An equivalent marker works too: `data-fsa-404` on `<html>` or `<body>` of the 404 view (when the layout cannot take a variable). Keep the
+  real HTTP status 404 (`abort(404)`), never render the error view with a 200.
 - `resources/views/errors/503.blade.php` **standalone**: plain HTML with `<meta name="robots" content="noindex">`, no layout and no `content::`
   components. A 503 usually means the Hub is unreachable; a layout would call it again and wait for its timeouts.
 - `APP_DEBUG=false` in production: no stack traces.
 
-Verify: `fsc:doctor` lines `errors/404` and `errors/503`; `curl -s -o /dev/null -w '%{http_code}' https://<site>/bestaat-niet` is 404 and shows
-your page.
+Verify: `fsc:doctor` lines `errors/404`, `errors/404 meldt zich bij de tracker` (`LET OP` when the view has neither `fscStatus`, `status="404"` nor
+`data-fsa-404`) and `errors/503`; `curl -s -o /dev/null -w '%{http_code}' https://<site>/bestaat-niet` is 404 and shows your page, and
+`curl -s https://<site>/bestaat-niet | grep -c 'data-status="404"\|data-fsa-404'` is at least 1.
 
 ### A13. Content-Security-Policy (only when the site sends one)
 
@@ -564,6 +568,11 @@ The provider registers these itself; do not copy, wrap or block them:
 Office IPs and staff browsers must not build Intelligence profiles. With module `intelligence` on: `FSC_INTELLIGENCE_EXCLUDE_IPS=<IPs/CIDRs, comma-separated>`;
 the staff marker cookie `fsi_staff` (set by the FSS admin at staff login on `.fullstackstudio.nl`) is honoured automatically. Their visits still count in
 analytics, marked `fsi_ex`. Nothing to do while Intelligence is off.
+
+Your own visits: open any page of the site once with `?fsa_exclude=1` (the Hub portal has the link, "Eigen bezoeken uitsluiten"). The native tracker then
+stores `localStorage['fsa-exclude'] = '1'` (never a cookie) and that browser sends nothing at all: no pageview, no event, no browser id; the first-party
+Umami tracker and `fsc.js` stand down too. The parameter leaves the address bar at once. `?fsa_exclude=0` clears it. The flag is per browser and per site
+(origin); it needs no consent and no setup on the site, only the tracker.
 
 ### A16. Hosting checklist (FSS platform)
 
@@ -1097,6 +1106,15 @@ entered (`event` `form_field`: the form name, the field's `name` or `id` attribu
 show after which field visitors leave a form unsent. Never a value, never the label, never password or hidden inputs; at most 40 fields per form and
 page view. Give fields real `name` attributes (`telefoon`, `bericht`); generated ids (`input_8f3a9c1d2e4b`) are not reported. Do not put personal data in
 a `name`/`id` or in `data-fsa-form` (the tracker drops names that hold an address or phone number, but you are the first line).
+**Site search (`site_search`).** When the URL carries a search parameter the tracker sends one `event` named `site_search` with the prop `term` after the
+pageview (no consent needed). The parameter names come from the Hub (`GET /api/v1/analytics` -> `analytics.searchParams`, default `q`, `s`, `search`,
+`zoeken`; set per project in the module config `analytics.searchParams`, up to 10 names of `[A-Za-z0-9_.-]`, max 32 characters) and reach the page as
+`data-search-params` on the tracker tag (`Analytics::searchParams()`); nothing to build when your search form is a GET form with one of those names. A
+different name: ask for it to be added in the module config (a name that is not in the list is simply not measured). The term is trimmed, lower-cased and
+cut to 80 characters; e-mail addresses, phone numbers, IBANs and long numbers in it are replaced before it leaves the page, and the collector scrubs it
+again. The search parameter is never part of the page URL that is stored (only the path and the utm/click id parameters are), so `/zoeken?q=boot` is
+the page `/zoeken`. A new term on the same page (SPA navigation) is a new search; the same term twice in a row is one. Do not put personal data in a
+search form on purpose; tell visitors in the privacy statement that search terms are measured (cookieless, without link to a person).
 **Privacy statement (the site owner must add this when forms and the native engine are on):** "Bij formulieren meten we of je het formulier start en
 verstuurt en hoe lang dat duurt, zonder wat je invult. Heb je toestemming gegeven voor statistieken, dan zien we ook bij welk veld je afhaakt (alleen de
 naam van het veld, nooit wat je typt)."

@@ -56,7 +56,7 @@ function el(tag, attrs = {}, parent = null, rect = { left: 0, top: 0, width: 100
 }
 
 /** A page running the tracker. Timers are manual (`advance`), beacons are captured as parsed JSON batches. */
-function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, ttfb = 0, beacon = true, stub, navigationApi = false } = {}) {
+function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', consent = null, gpc = false, dataset = {}, stored = {}, navStatus = 0, ttfb = 0, beacon = true, stub, navigationApi = false, marker404 = '' } = {}) {
     const observers = {};
     let clock = 1_800_000_000_000;
     const timers = [];
@@ -73,8 +73,8 @@ function page({ url = 'https://studio.nl/', referrer = '', title = 'Home', conse
         set cookie(value) { this.cookies.push(value); },
         visibilityState: 'visible',
         currentScript: { dataset: { sitekey: KEY, endpoint: '/_fsc/a/e', ...dataset } },
-        documentElement: { scrollHeight: 4000 },
-        body: { scrollHeight: 4000 },
+        documentElement: { scrollHeight: 4000, hasAttribute: (name) => marker404 === 'html' && name === 'data-fsa-404' },
+        body: { scrollHeight: 4000, hasAttribute: (name) => marker404 === 'body' && name === 'data-fsa-404' },
         addEventListener: (type, fn) => { (docListeners[type] ||= []).push(fn); },
         appended: [],
         createElement: (tag) => ({ tagName: tag.toUpperCase() }),
@@ -481,6 +481,134 @@ test_('404 from data-status or the navigation timing; calls queued before load a
     const c = page({ stub });
     c.advance(1000);
     assert.deepEqual((await c.events()).map((e) => e.n || e.t), ['pageview', 'early', 'purchase']);
+});
+
+test_('feature 80: ?fsa_exclude=1 stores a flag in localStorage (no cookie), takes the parameter out of the URL and sends nothing; the flag keeps later visits quiet', async () => {
+    const a = page({ url: 'https://studio.nl/prijzen?fsa_exclude=1&utm_source=mail', consent: 'accepted' });
+    a.advance(5000);
+    assert.equal(a.local.data['fsa-exclude'], '1');
+    assert.equal(a.win.location.search, '?utm_source=mail', 'only the exclusion parameter leaves the address bar');
+    assert.deepEqual(a.doc.cookies, [], 'no cookie, ever');
+    assert.equal(a.win.fsaExcluded, true);
+    assert.equal(a.win.fsa.pid(), null);
+    a.run(() => { a.win.fsa.track('signup', {}); a.win.fsa.revenue(10, 'EUR'); a.win.fsa.pageview(); a.win.fsa.flush(); });
+    a.fireWin('pagehide');
+    assert.equal(a.beacons.length + a.fetched.length, 0, 'nothing leaves an excluded browser');
+
+    // A later visit without the parameter: the stored flag is enough.
+    const b = page({ stored: { 'fsa-exclude': '1' } });
+    b.advance(5000);
+    assert.equal(b.beacons.length + b.fetched.length, 0);
+    assert.equal(b.win.fsa.excluded, true);
+
+    // Also on a page without a sitekey, so the flag can be set from any page of the site.
+    const c = page({ url: 'https://studio.nl/?fsa_exclude=1', dataset: { sitekey: '' } });
+    assert.equal(c.local.data['fsa-exclude'], '1');
+});
+
+test_('feature 80: ?fsa_exclude=0 clears the flag and the visit is measured again; other values change nothing', async () => {
+    const a = page({ url: 'https://studio.nl/?fsa_exclude=0', stored: { 'fsa-exclude': '1' } });
+    a.advance(1000);
+    assert.equal('fsa-exclude' in a.local.data, false);
+    assert.equal(a.win.location.search, '');
+    assert.equal((await a.events())[0].t, 'pageview');
+
+    const b = page({ url: 'https://studio.nl/?fsa_exclude=2' });
+    b.advance(1000);
+    assert.equal('fsa-exclude' in b.local.data, false, 'only 1 sets the flag');
+    assert.equal((await b.events())[0].t, 'pageview');
+
+    const c = page({ url: 'https://studio.nl/?x_fsa_exclude=1' });
+    c.advance(1000);
+    assert.equal('fsa-exclude' in c.local.data, false);
+});
+
+test_('feature 80: without working storage ?fsa_exclude=1 still holds for that page', async () => {
+    const p = page({ url: 'https://studio.nl/?fsa_exclude=1' });
+    assert.equal(p.local.data['fsa-exclude'], '1');
+    const blocked = page({ url: 'https://studio.nl/?fsa_exclude=1', stored: {}, beacon: true });
+    blocked.advance(1000);
+    assert.equal(blocked.beacons.length, 0);
+});
+
+test_('feature 29: a search parameter sends one site_search event after the pageview; the term is cleaned and the parameter stays out of the page URL', async () => {
+    const p = page({ url: 'https://studio.nl/zoeken?q=%20Rode%20%20Schoenen%20&utm_source=mail' });
+    p.advance(1000);
+    const events = await p.events();
+    assert.deepEqual(events.map((e) => [e.t, e.n]), [['pageview', undefined], ['event', 'site_search']]);
+    assert.equal(events[0].u, 'https://studio.nl/zoeken?utm_source=mail');
+    assert.deepEqual(events[1].p, { term: 'rode schoenen' });
+    assert.equal(events[1].u, events[0].u);
+});
+
+test_('feature 29: personal data in a search term is replaced, the term is capped, and an empty term sends nothing', async () => {
+    const cases = [
+        ['jan%40example.nl', '[email]'],
+        ['bel%200612345678', 'bel [tel]'],
+        ['NL91ABNA0417164300', '[iban]'],
+        ['klant%2012345678', 'klant [nr]'],
+        ['a'.repeat(200), 'a'.repeat(80)],
+    ];
+    for (const [raw, expected] of cases) {
+        const p = page({ url: `https://studio.nl/zoeken?q=${raw}` });
+        p.advance(1000);
+        assert.equal((await p.events()).find((e) => e.n === 'site_search').p.term, expected, raw);
+    }
+    for (const empty of ['?q=', '?q=%20%20', '?other=x']) {
+        const p = page({ url: `https://studio.nl/zoeken${empty}` });
+        p.advance(1000);
+        assert.equal((await p.events()).some((e) => e.n === 'site_search'), false, empty);
+    }
+});
+
+test_('feature 29: the search parameter names come from data-search-params; the default is q, s, search and zoeken', async () => {
+    for (const name of ['q', 's', 'search', 'zoeken']) {
+        const p = page({ url: `https://studio.nl/?${name}=boot` });
+        p.advance(1000);
+        assert.equal((await p.events()).find((e) => e.n === 'site_search').p.term, 'boot', name);
+    }
+    const other = page({ url: 'https://studio.nl/?query=boot&zoek=laars', dataset: { searchParams: 'zoek, term' } });
+    other.advance(1000);
+    assert.deepEqual((await other.events()).filter((e) => e.n === 'site_search').map((e) => e.p.term), ['laars']);
+    const off = page({ url: 'https://studio.nl/?q=boot', dataset: { searchParams: 'bad name,"x' } });
+    off.advance(1000);
+    assert.equal((await off.events()).some((e) => e.n === 'site_search'), false, 'invalid names are ignored');
+});
+
+test_('feature 29: a new search on the same results page (SPA) sends a new event, the same term twice in a row does not', async () => {
+    const p = page({ url: 'https://studio.nl/zoeken?q=boot' });
+    p.advance(1000);
+    p.run(() => p.win.history.pushState({}, '', '/zoeken?q=laars'));
+    p.advance(1000);
+    p.run(() => p.win.history.replaceState({}, '', '/zoeken?q=laars'));
+    p.advance(1000);
+    p.run(() => p.win.history.pushState({}, '', '/zoeken?q=boot'));
+    p.advance(1000);
+    const events = await p.events();
+    assert.deepEqual(events.filter((e) => e.n === 'site_search').map((e) => e.p.term), ['boot', 'laars', 'boot']);
+    assert.equal(events.filter((e) => e.t === 'pageview').length, 1, 'the query is not part of the page URL: still one pageview');
+});
+
+test_('feature 28: data-fsa-404 on <html> or <body> sends not_found with the path and the referrer host', async () => {
+    for (const marker404 of ['html', 'body']) {
+        const p = page({ url: 'https://studio.nl/oude-pagina/jan@example.nl?x=1', referrer: 'https://www.google.com/search?q=studio', marker404 });
+        p.advance(1000);
+        const events = await p.events();
+        assert.deepEqual(events.map((e) => [e.t, e.n]), [['pageview', undefined], ['event', 'not_found']], marker404);
+        assert.deepEqual(events[1].p, { path: '/oude-pagina/[email]', referrer_host: 'google.com' }, marker404);
+    }
+});
+
+test_('feature 28: one not_found per load whatever signals the page gives; no referrer host without a referrer; ordinary pages send none', async () => {
+    const both = page({ url: 'https://studio.nl/weg', dataset: { status: '404' }, navStatus: 404, marker404: 'html' });
+    both.advance(1000);
+    const events = await both.events();
+    assert.equal(events.filter((e) => e.n === 'not_found').length, 1);
+    assert.deepEqual(events.find((e) => e.n === 'not_found').p, { path: '/weg' });
+
+    const ordinary = page({ url: 'https://studio.nl/', referrer: 'https://www.google.com/' });
+    ordinary.advance(1000);
+    assert.equal((await ordinary.events()).some((e) => e.n === 'not_found'), false);
 });
 
 test_('falls back to fetch with keepalive and no credentials when sendBeacon is missing; does nothing without a sitekey', async () => {

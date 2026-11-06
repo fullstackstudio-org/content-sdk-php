@@ -218,7 +218,7 @@ final class AnalyticsTest extends LaravelTestCase
         $guarded = AnalyticsController::overlayGuard('!function(){/*umami*/}();');
         $first = $this->get('/_fsc/a/script.js')->assertOk();
         self::assertSame($guarded, $first->getContent());
-        self::assertStringStartsWith("(function(){if(window.fsaOverlayMode||/(?:^#|&)fsa_overlay=/.test(String(location.hash||'')))return;", $guarded);
+        self::assertStringStartsWith('(function(){if(window.fsaOverlayMode||window.fsaExcluded||', $guarded);
         self::assertSame('max-age=3600, public', $first->headers->get('Cache-Control'));
         $this->get('/_fsc/a/script.js')->assertOk();
         self::assertCount(1, $this->umami->requests);
@@ -256,5 +256,29 @@ final class AnalyticsTest extends LaravelTestCase
 
         $js = 'var window={fsaOverlayMode:true};var location={hash:""};' . $guarded . ';process.stdout.write(String(window.__counted||0));';
         self::assertSame('0', shell_exec(escapeshellarg($node) . ' -e ' . escapeshellarg($js)), 'flag set by fsa.js');
+    }
+
+    public function testTheFirstPartyUmamiTrackerStandsDownForAnExcludedBrowser(): void
+    {
+        $guarded = AnalyticsController::overlayGuard("window.__counted = (window.__counted || 0) + 1;");
+        $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+
+        if ($node === '') {
+            self::markTestSkipped('node is not installed');
+        }
+
+        $cases = [
+            'flag in storage' => ['var window={};var localStorage={getItem:function(k){return k==="fsa-exclude"?"1":null}};var location={hash:"",search:""};', '0'],
+            'storage without the flag' => ['var window={};var localStorage={getItem:function(){return null}};var location={hash:"",search:"?q=a"};', '1'],
+            'first visit with ?fsa_exclude=1' => ['var window={};var location={hash:"",search:"?a=1&fsa_exclude=1"};', '0'],
+            'fsa_exclude=0 counts' => ['var window={};var location={hash:"",search:"?fsa_exclude=0"};', '1'],
+            'flag set by fsa.js' => ['var window={fsaExcluded:true};var location={hash:"",search:""};', '0'],
+            'storage blocked' => ['var window={};var localStorage={getItem:function(){throw new Error("blocked")}};var location={hash:"",search:""};', '1'],
+        ];
+
+        foreach ($cases as $name => [$setup, $expected]) {
+            $js = $setup . $guarded . ';process.stdout.write(String(window.__counted||0));';
+            self::assertSame($expected, shell_exec(escapeshellarg($node) . ' -e ' . escapeshellarg($js)), $name);
+        }
     }
 }

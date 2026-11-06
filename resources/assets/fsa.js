@@ -23,6 +23,14 @@
  *   and, on submit, `seconds` since the start. With consent and without GPC also `form_field` events (the form id, the NAME of the field a
  *   visitor enters, seconds since the start): never a value, never password or hidden inputs. `data-fsa-ignore` on a form opts it out.
  *
+ * - Site search (no consent needed): when the URL carries one of the site's search parameters (`data-search-params`, default q,s,search,zoeken)
+ *   an `event` named `site_search` with the trimmed term (lower case, max 80 characters, e-mail addresses, phone numbers, IBANs and long
+ *   numbers replaced) follows the pageview. The parameter itself is never part of the page URL (only utm_* / click ids are kept).
+ * - Not found (no consent needed): `data-fsa-404` on <html> or <body> (or data-status="404", or a 404 navigation status) sends one
+ *   `event` named `not_found` with the scrubbed path and the referrer host.
+ * - Own visits: opening any page with `?fsa_exclude=1` stores `localStorage['fsa-exclude'] = '1'`; this browser then sends nothing at all
+ *   (and the first-party Umami tracker and fsc.js stand down too). `?fsa_exclude=0` clears it. The parameter leaves the address bar at once.
+ *
  * - Heatmap overlay: a page opened from the portal with `#fsa_overlay=<token>` is not measured; `/_fsc/a/overlay.js` draws the heatmap.
  *   No browser id either: `fsa.pid()` is null there, so a staff view never links to a FullStack Intelligence profile.
  *
@@ -79,6 +87,34 @@
         return;
     }
 
+    // Own visits (plan analytics-complete D13, feature 80): `?fsa_exclude=1` sets a flag in localStorage (never a cookie), `?fsa_exclude=0`
+    // clears it. A flagged browser sends nothing: no pageview, no event, no browser id. Also without a sitekey, so the flag can be set
+    // from any page of the site. `fsaExcluded` makes fsc.js and the first-party Umami tracker stand down as well.
+    var EXCLUDE_KEY = 'fsa-exclude';
+    var excluded = false;
+    try {
+        var excludeSearch = String((w.location || {}).search || '');
+        var excludeMatch = /(?:^\?|&)fsa_exclude=([01])(?=&|$)/.exec(excludeSearch);
+        var excludeStore = null;
+        try { excludeStore = w.localStorage || null; } catch (e) { excludeStore = null; }
+        if (excludeMatch) {
+            try {
+                if (excludeStore) { if (excludeMatch[1] === '1') excludeStore.setItem(EXCLUDE_KEY, '1'); else excludeStore.removeItem(EXCLUDE_KEY); }
+            } catch (e) { /* storage blocked: the flag only holds for this page */ }
+            excluded = excludeMatch[1] === '1';
+            var excludeKept = excludeSearch.replace(/^\?/, '').split('&').filter(function (part) { return part !== '' && part.indexOf('fsa_exclude=') !== 0; }).join('&');
+            try { w.history.replaceState(w.history.state, '', w.location.pathname + (excludeKept ? '?' + excludeKept : '') + (w.location.hash || '')); } catch (e) { /* not fatal */ }
+        } else {
+            excluded = !!excludeStore && excludeStore.getItem(EXCLUDE_KEY) === '1';
+        }
+    } catch (e) { excluded = false; }
+    if (excluded) {
+        w.fsaExcluded = true;
+        var none = function () {};
+        w.fsa = { __loaded: true, excluded: true, track: none, revenue: none, pageview: none, setConsent: none, hasConsent: function () { return false; }, pid: function () { return null; }, flush: none };
+        return;
+    }
+
     if (!KEY) return;
 
     var ENDPOINT = data.endpoint || '/_fsc/a/e';
@@ -87,6 +123,10 @@
     var CONSENT_EVENT = data.consentEvent || 'fsc:consent';
     var ID_KEY = 'fsa-id';
     var PARAMS = (data.params || 'utm_source,utm_medium,utm_campaign,utm_term,utm_content,gclid,gbraid,wbraid,dclid,gclsrc,fbclid,msclkid,ttclid,li_fat_id,twclid,rdt_cid,epik,sccid').split(',');
+    // The query parameters that hold a site search term (Hub config `analytics.searchParams`, rendered by the SDK as `data-search-params`).
+    var SEARCH_PARAMS = String(data.searchParams || 'q,s,search,zoeken').split(',').map(function (p) { return p.trim(); })
+        .filter(function (p) { return /^[A-Za-z0-9_.-]{1,32}$/.test(p); }).slice(0, 10);
+    var MAX_TERM = 80;
     var nav = w.navigator || {};
     var loc = w.location;
     var stub = w.fsa;
@@ -375,9 +415,38 @@
         scrollSentMax = scrollMax;
     }
 
+    var lastTerm = '';
+
+    /** The search term of the current URL, cleaned for sending, or ''. Dutch/English names in `SEARCH_PARAMS`; the first non-empty one wins. */
+    function searchTerm() {
+        var u = parse(loc.href);
+        if (!u) return '';
+        for (var i = 0; i < SEARCH_PARAMS.length; i++) {
+            var raw = u.searchParams.get(SEARCH_PARAMS[i]);
+            if (raw == null) continue;
+            // A search box can receive anything a visitor types: besides e-mail addresses and phone numbers also IBANs and long numbers
+            // (customer, order, ID numbers) are replaced before the term leaves the page.
+            var spaced = raw.replace(/\s+/g, ' ').trim().replace(EMAIL_RE, '[email]').replace(/\b[A-Za-z]{2}\d{2}[A-Za-z0-9]{10,30}\b/g, '[iban]');
+            var term = str(scrub(spaced).replace(/\d[\d .-]{5,}\d/g, '[nr]'), MAX_TERM).trim().toLowerCase();
+            if (term) return term;
+        }
+        return '';
+    }
+
+    /** Feature 29: one `site_search` event per new term (a reload is a new page load; the same term twice in a row on one page is one search). */
+    function siteSearch() {
+        var term = searchTerm();
+        if (!term) { lastTerm = ''; return; }
+        if (term === lastTerm) return;
+        lastTerm = term;
+        push({ t: 'event', n: 'site_search', p: { term: term } });
+    }
+
     function pageview() {
         var next = pageUrl(loc.href);
-        if (!next || next === current) return;
+        if (!next) return;
+        // The query is not part of the page URL, so a new search on the same results page is no new pageview, but it is a new search.
+        if (next === current) { siteSearch(); return; }
         var referrer = current ? href : d.referrer;
         if (current) { heartbeat(); sendScrollMax(true); }
         current = next;
@@ -399,6 +468,7 @@
         var view = { t: 'pageview', u: current, r: refUrl(referrer), ti: str(scrub(d.title || ''), 200) };
         if (newsletterLanding) { view.nl = 1; newsletterLanding = false; }
         push(view);
+        siteSearch();
     }
 
     /** Updates scrollMax (percent of the document seen) and returns it. */
@@ -819,7 +889,17 @@
 
     pageview();
 
-    // 404: the SDK renders data-status="404" on error pages; modern browsers also report the navigation status.
+    // 404 (feature 28): the site's 404 view marks itself with `data-fsa-404` on <html> or <body> (the SDK's <x-content::analytics :status="404">
+    // sets data-status="404" on the tracker tag; modern browsers also report the navigation status). One `not_found` per page load with the
+    // scrubbed path and the host of the referrer (a broken link on another site, or on this one). No query, no full referrer URL.
+    function marked404() {
+        var found = false;
+        [d.documentElement, d.body].forEach(function (node) {
+            try { if (node && typeof node.hasAttribute === 'function' && node.hasAttribute('data-fsa-404')) found = true; } catch (e) { /* ignore */ }
+        });
+        return found;
+    }
+
     var status = parseInt(data.status || '0', 10);
     if (!status) {
         try {
@@ -827,7 +907,12 @@
             status = entry && entry.responseStatus ? entry.responseStatus : 0;
         } catch (e) { status = 0; }
     }
-    if (status === 404) track('not_found', {});
+    if (status === 404 || marked404()) {
+        var notFound = { path: cleanPath(loc.pathname || '/') };
+        var from = d.referrer ? parse(d.referrer) : null;
+        if (from && /^https?:$/.test(from.protocol) && from.hostname) notFound.referrer_host = bareHost(from.hostname);
+        track('not_found', notFound);
+    }
 
     w.fsa = {
         __loaded: true,

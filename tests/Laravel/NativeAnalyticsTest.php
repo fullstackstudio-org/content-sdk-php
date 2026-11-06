@@ -101,7 +101,7 @@ final class NativeAnalyticsTest extends LaravelTestCase
         $html = Blade::render('<x-content::analytics status="404" />');
 
         self::assertStringContainsString('<script id="fsc-analytics" defer src="/_fsc/a/script.js" data-website-id="' . self::WEBSITE . '"', $html);
-        self::assertStringContainsString('<script id="fsa" defer src="/_fsc/a/fsa.js?v=' . ContentClient::VERSION . '" data-sitekey="' . self::SITEKEY . '" data-endpoint="/_fsc/a/e" data-consent-key="fsc-consent" data-consent-event="fsc:consent" data-params="utm_source,gclid" data-status="404"></script>', $html);
+        self::assertStringContainsString('<script id="fsa" defer src="/_fsc/a/fsa.js?v=' . ContentClient::VERSION . '" data-sitekey="' . self::SITEKEY . '" data-endpoint="/_fsc/a/e" data-consent-key="fsc-consent" data-consent-event="fsc:consent" data-params="utm_source,gclid" data-search-params="q,s,search,zoeken" data-status="404"></script>', $html);
         self::assertSame(1, substr_count($html, '/_fsc/a/fsc.js'));
         self::assertStringNotContainsString(self::SIGNING_KEY, $html, 'the signing key never reaches the page');
     }
@@ -119,13 +119,30 @@ final class NativeAnalyticsTest extends LaravelTestCase
         self::assertStringContainsString('<script defer src="/_fsc/a/fsc.js"', $html);
     }
 
+    public function testTheSearchParametersComeFromTheHubConfigAndOnlyPlainNamesReachThePage(): void
+    {
+        $config = self::config('native');
+        $config['analytics']['searchParams'] = ['zoek', 'term', 'zoek', 'bad name', '"><script>', 5, str_repeat('x', 33)];
+        $this->content->always(FakeTransport::json($config));
+        self::assertStringContainsString('data-search-params="zoek,term"', Blade::render('<x-content::analytics />'));
+
+    }
+
+    public function testNothingUsableInTheSearchParametersFallsBackToTheDefaults(): void
+    {
+        $config = self::config('native');
+        $config['analytics']['searchParams'] = ['bad name'];
+        $this->content->always(FakeTransport::json($config));
+        self::assertStringContainsString('data-search-params="q,s,search,zoeken"', Blade::render('<x-content::analytics />'));
+    }
+
     public function testThePidCookieDomainIsRenderedOnlyWhenConfiguredAndWellFormed(): void
     {
         $this->content->always(FakeTransport::json(self::config('native')));
         self::assertStringNotContainsString('data-pid-domain', Blade::render('<x-content::analytics />'), 'host-only by default');
 
         config(['content.analytics.pid_cookie_domain' => '.Example.nl']);
-        self::assertStringContainsString('data-params="utm_source,gclid" data-pid-domain=".example.nl"></script>', Blade::render('<x-content::analytics />'));
+        self::assertStringContainsString('data-params="utm_source,gclid" data-search-params="q,s,search,zoeken" data-pid-domain=".example.nl"></script>', Blade::render('<x-content::analytics />'));
 
         foreach (['nl', '"><script>', 'example.nl; Secure', ' '] as $bad) {
             config(['content.analytics.pid_cookie_domain' => $bad]);

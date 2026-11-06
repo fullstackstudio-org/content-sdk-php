@@ -222,7 +222,10 @@ final class AnalyticsController
      */
     public static function overlayGuard(string $source): string
     {
-        return "(function(){if(window.fsaOverlayMode||/(?:^#|&)fsa_overlay=/.test(String(location.hash||'')))return;\n" . $source . "\n})();";
+        // An excluded browser (`?fsa_exclude=1`, flag `localStorage['fsa-exclude']`, written by fsa.js) is not counted by Umami either; the query
+        // check covers the first visit, when the flag is only being set.
+        return "(function(){if(window.fsaOverlayMode||window.fsaExcluded||/(?:^#|&)fsa_overlay=/.test(String(location.hash||''))||/(?:^\\?|&)fsa_exclude=1(?:&|$)/.test(String(location.search||'')))return;"
+            . "try{if(localStorage.getItem('fsa-exclude')==='1')return}catch(e){}\n" . $source . "\n})();";
     }
 
     private function visitorIp(Request $request): ?string

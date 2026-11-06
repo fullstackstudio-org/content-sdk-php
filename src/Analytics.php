@@ -40,6 +40,9 @@ final class Analytics
         'gclid', 'gbraid', 'wbraid', 'dclid', 'gclsrc', 'fbclid', 'msclkid', 'ttclid', 'li_fat_id', 'twclid', 'rdt_cid', 'epik', 'sccid',
     ];
 
+    /** Used when Content does not send `searchParams` (older server): the query parameters that hold a site search term. */
+    public const DEFAULT_SEARCH_PARAMS = ['q', 's', 'search', 'zoeken'];
+
     /**
      * The HTML for the page: the tracker tag(s) for the engine (deferred) and the helper script. Empty when nothing is ready (module off,
      * not provisioned yet, or Content unreachable): a page must never get a broken tag.
@@ -66,6 +69,7 @@ final class Analytics
         $nonce = isset($options['nonce']) && is_string($options['nonce']) && $options['nonce'] !== '' ? ' nonce="' . self::e($options['nonce']) . '"' : '';
         $domains = array_values(array_filter(is_array($config['domains'] ?? null) ? $config['domains'] : [], 'is_string'));
         $params = is_array($config['attribution']['params'] ?? null) ? array_values(array_filter($config['attribution']['params'], 'is_string')) : self::DEFAULT_PARAMS;
+        $searchParams = self::searchParams($config);
         $consentKey = (string) ($options['consentKey'] ?? 'fsc-consent');
         $consentEvent = (string) ($options['consentEvent'] ?? 'fsc:consent');
         $html = [];
@@ -104,6 +108,7 @@ final class Analytics
                 . ' data-consent-key="' . self::e($consentKey) . '"'
                 . ' data-consent-event="' . self::e($consentEvent) . '"'
                 . ' data-params="' . self::e(implode(',', $params)) . '"'
+                . ' data-search-params="' . self::e(implode(',', $searchParams)) . '"'
                 . ($status !== null ? ' data-status="' . $status . '"' : '')
                 . (self::cookieDomain($options['pidCookieDomain'] ?? null) !== null ? ' data-pid-domain="' . self::e((string) self::cookieDomain($options['pidCookieDomain'])) . '"' : '')
                 . $nonce . '></script>';
@@ -118,6 +123,21 @@ final class Analytics
             . $nonce . '></script>';
 
         return implode("\n", $html);
+    }
+
+    /**
+     * The query parameters that hold a site search term (Hub config `analytics.searchParams`, default `q, s, search, zoeken`). Only plain
+     * parameter names reach the page; the tracker sends a `site_search` event for them and never keeps the parameter in the page URL.
+     *
+     * @param array<string, mixed> $config
+     * @return list<string>
+     */
+    public static function searchParams(array $config): array
+    {
+        $names = is_array($config['searchParams'] ?? null) ? $config['searchParams'] : [];
+        $names = array_values(array_unique(array_filter($names, static fn ($name): bool => is_string($name) && preg_match('/^[A-Za-z0-9_.-]{1,32}$/D', $name) === 1)));
+
+        return $names !== [] ? array_slice($names, 0, 10) : self::DEFAULT_SEARCH_PARAMS;
     }
 
     /**

@@ -88,7 +88,7 @@ final class DoctorCommandTest extends LaravelTestCase
 
         file_put_contents($this->views . '/layouts/app.blade.php', self::LAYOUT);
         file_put_contents($this->views . '/partials/consent.blade.php', "<script>window.dispatchEvent(new CustomEvent('fsc:consent', {detail: c}));</script>");
-        file_put_contents($this->views . '/errors/404.blade.php', '404');
+        file_put_contents($this->views . '/errors/404.blade.php', "@extends('layouts.app', ['fscStatus' => 404])");
         file_put_contents($this->views . '/errors/503.blade.php', '<html><head><title>503</title></head><body>Even niet bereikbaar</body></html>');
         file_put_contents($this->views . '/contact.blade.php', '<x-content::form form-key="contact" />');
     }
@@ -133,10 +133,27 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::OK, $this->statusOf($results, 'Layout'));
         self::assertSame(Doctor::OK, $this->statusOf($results, 'Cookiebanner'));
         self::assertSame(Doctor::OK, $this->statusOf($results, 'forceScheme'));
+        self::assertSame(Doctor::OK, $this->statusOf($results, 'errors/404 meldt zich bij de tracker'));
 
         $this->artisan('fsc:doctor')
             ->expectsOutputToContain('0 fout.')
             ->assertExitCode(0);
+    }
+
+    public function testANotFoundViewWithoutTheTrackerHookIsAWarningAndEachHookIsAccepted(): void
+    {
+        $this->completeSite();
+        $view = $this->views . '/errors/404.blade.php';
+
+        file_put_contents($view, '<h1>Niet gevonden</h1>');
+        $results = $this->results();
+        self::assertSame(Doctor::WARN, $this->statusOf($results, 'errors/404 meldt zich niet bij de tracker'));
+        self::assertSame([], $this->failures($results), 'a warning, never a failure');
+
+        foreach (['<html data-fsa-404><body>x</body></html>', '<body data-fsa-404="">x</body>', '<x-content::analytics status="404" />', "@extends('layouts.app', ['fscStatus' => 404])"] as $hooked) {
+            file_put_contents($view, $hooked);
+            self::assertSame(Doctor::OK, $this->statusOf($this->results(), 'errors/404 meldt zich bij de tracker'), $hooked);
+        }
     }
 
     public function testABareSiteFailsWithDutchLines(): void

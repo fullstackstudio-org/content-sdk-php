@@ -312,6 +312,28 @@ final class Doctor
         return $views;
     }
 
+    /**
+     * The 404 view has to tell the native tracker it is a 404 (feature 28): `['fscStatus' => 404]` for the layout, `<x-content::analytics status="404">`,
+     * or `data-fsa-404` on `<html>` or `<body>`. Only checked with the native engine possible; a site without the analytics component is
+     * already reported by the layout check, so a missing marker is a warning, not a failure.
+     */
+    private function checkNotFoundHook(): void
+    {
+        try {
+            $file = $this->app['view']->getFinder()->find('errors.404');
+        } catch (\Throwable) {
+            return;
+        }
+
+        $contents = is_string($file) && is_file($file) ? (string) file_get_contents($file) : '';
+
+        if (preg_match('/fscStatus|data-fsa-404|status\s*=\s*[\'"]?404/', $contents) === 1) {
+            $this->add(self::OK, 'errors/404 meldt zich bij de tracker (not_found)');
+        } else {
+            $this->add(self::WARN, 'errors/404 meldt zich niet bij de tracker', 'Zonder dat telt de native analytics geen niet-gevonden-pagina\'s: gebruik @extends(\'layouts.app\', [\'fscStatus\' => 404]) of zet data-fsa-404 op <html> of <body>.');
+        }
+    }
+
     private function viewsContain(string $needle): bool
     {
         foreach ($this->views() as $contents) {
@@ -385,9 +407,13 @@ final class Doctor
         foreach (['404', '503'] as $code) {
             if ($this->app['view']->exists("errors.{$code}")) {
                 $this->add(self::OK, "Eigen foutpagina errors/{$code}.blade.php");
+
+                if ($code === '404') {
+                    $this->checkNotFoundHook();
+                }
             } else {
                 $this->add(self::WARN, "Geen eigen foutpagina errors/{$code}.blade.php", $code === '404'
-                    ? 'Laravel toont dan zijn kale standaardpagina; maak er een in de huisstijl: @extends(\'layouts.app\', [\'fscStatus\' => 404]).'
+                    ? 'Laravel toont dan zijn kale standaardpagina; maak er een in de huisstijl: @extends(\'layouts.app\', [\'fscStatus\' => 404]) of data-fsa-404 op <html>.'
                     : 'Maak een losse pagina zonder layout en zonder content::-componenten: een 503 betekent meestal dat de Hub onbereikbaar is.');
             }
         }
