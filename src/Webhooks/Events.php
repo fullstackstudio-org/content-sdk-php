@@ -122,6 +122,9 @@ final class Events
         'intelligence.visitor.warm',
         'intelligence.visitor.signal',
         'order.abandoned',
+        'analytics.report.weekly',
+        'analytics.alert',
+        'analytics.alert.resolved',
         'webhook.test',
     ];
 }
