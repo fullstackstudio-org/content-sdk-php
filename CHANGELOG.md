@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `fsa.js` (rebuilt `fsa.min.js`): the pageview of a landing that had `?fscn=` sets `nl: 1` (a boolean, never the token; plan analytics-complete D6). The collector turns it into the `newsletter` channel. Only the landing view carries it, not later views of the visit.
+
 ## 0.23.0
 
 - New command `php artisan fsc:doctor` (`Laravel\Doctor`, `Laravel\Console\DoctorCommand`): checks a site against the always-required items and prints one Dutch line per check (`OK`, `LET OP`, `FOUT`, `INFO`); exit code 1 on any `FOUT`. It checks `FSC_SERVER_TOKEN` (a server token), `FSC_WEBHOOK_SECRET`, `APP_KEY`, `FSC_API_URL` https, `SESSION_DRIVER` not `cookie`, `APP_URL` https and `URL::forceScheme('https')` (failures in production), the routes `/sitemap.xml`, `/robots.txt` and `/api/health` (dispatched through the app's own kernel, must answer 200 `{"ok":true}`), the webhook and form routes (a view with `<x-content::form>` needs the latter), a catch-all, `RedirectMiddleware` first in the web group, `trustProxies`, the five layout components in the right place in every layout (outside `errors/` and mail views), a cookie banner (`fsc:consent`), `errors/404` and `errors/503`, `fullUrl()` in views, a static `public/robots.txt` or `public/sitemap.xml`, `.env` in `.gitignore`, `fsc_srv_`/`fsc_whsec_` in `resources/`, `public/` or the views, and closures in config (`config:cache`). Read-only and offline; `--online` also asks the Hub once (token, project name, modules that are on, `canonicalOrigin`), `--skip-env` skips the secret checks, `--strict` fails on warnings.

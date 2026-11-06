@@ -37,9 +37,13 @@
     // Newsletter click links (plan ootb-integrations D9): the Hub's redirect adds `fscn=<token>` to a link to this site. The site server
     // already read it (the PHP SDK links a consenting browser after the response); it leaves the address bar at once, before any pageview,
     // so it is never bookmarked, shared, copied into a form or reported. Always, also without consent or a sitekey.
+    // The landing view remembers that the parameter was there (a boolean only, never the token) and reports it as `nl: 1` on that pageview
+    // (plan analytics-complete D6), so the collector can count it as the newsletter channel.
+    var newsletterLanding = false;
     try {
         var search = String((w.location || {}).search || '');
         if (/[?&]fscn=/.test(search)) {
+            newsletterLanding = true;
             var kept = search.replace(/^\?/, '').split('&').filter(function (part) { return part !== '' && part.indexOf('fscn=') !== 0; }).join('&');
             w.history.replaceState(w.history.state, '', w.location.pathname + (kept ? '?' + kept : '') + (w.location.hash || ''));
         }
@@ -387,7 +391,9 @@
         pageStart = now();
         engaged = 0;
         lastTick = now();
-        push({ t: 'pageview', u: current, r: refUrl(referrer), ti: str(scrub(d.title || ''), 200) });
+        var view = { t: 'pageview', u: current, r: refUrl(referrer), ti: str(scrub(d.title || ''), 200) };
+        if (newsletterLanding) { view.nl = 1; newsletterLanding = false; }
+        push(view);
     }
 
     /** Updates scrollMax (percent of the document seen) and returns it. */

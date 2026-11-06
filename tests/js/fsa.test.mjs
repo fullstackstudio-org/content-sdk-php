@@ -774,6 +774,26 @@ test_('a newsletter click token (fscn) leaves the address bar before the first p
     assert.equal(none.win.location.href, 'https://studio.nl/?xfscn=1');
 });
 
+test_('nl: 1 rides on the landing pageview that had fscn, a boolean without the token, and on no other view (plan analytics-complete D6)', async () => {
+    const token = 'AQ' + 'k'.repeat(66);
+    const p = page({ url: 'https://studio.nl/aanbod?fscn=' + token });
+    p.advance(1000);
+    const first = (await p.events()).filter((e) => e.t === 'pageview');
+    assert.equal(first.length, 1);
+    assert.equal(first[0].nl, 1);
+    assert.equal(JSON.stringify(first).includes(token), false);
+    // A later view of the same visit (SPA navigation) is not a newsletter landing.
+    p.run(() => p.win.history.pushState({}, '', '/prijzen'));
+    p.advance(1000);
+    const views = (await p.events()).filter((e) => e.t === 'pageview');
+    assert.equal(views.at(-1).u.includes('prijzen'), true);
+    assert.equal('nl' in views.at(-1), false);
+    // Without fscn the field is absent.
+    const plain = page({ url: 'https://studio.nl/?utm_source=nieuwsbrief' });
+    plain.advance(1000);
+    assert.equal('nl' in (await plain.events()).find((e) => e.t === 'pageview'), false);
+});
+
 test_('the minified build is the current source', () => {
     const hash = createHash('sha256').update(SOURCE).digest('hex');
     assert.ok(MINIFIED.startsWith(`/*! fsa.js sha256:${hash} */`), 'run scripts/build-fsa.sh');
