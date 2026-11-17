@@ -85,6 +85,69 @@ final class AnalyticsTest extends LaravelTestCase
         self::assertStringContainsString('src="/_fsc/a/fsc.js"', $html);
     }
 
+    public function testStripParamsHookTheTrackerBeforeSendAndOnlyThen(): void
+    {
+        $this->content->always(FakeTransport::json(self::config(['stripParams' => ['gpu', 'cpu', 'utm_source', 'GCLID', 'bad name', '"><x', 'gpu']])));
+        $html = $this->render('<x-content::analytics nonce="n0nce" />');
+
+        self::assertStringContainsString('<script id="fsc-analytics" defer src="/_fsc/a/script.js" data-website-id="' . self::WEBSITE . '" data-host-url="/_fsc/a" data-do-not-track="true" data-domains="studio.nl,www.studio.nl" data-before-send="fscUmamiBeforeSend" data-fsc-strip-params="gpu,cpu" data-fsc-recorder-src="/_fsc/a/recorder.js" nonce="n0nce"></script>', $html, 'utm_*, click ids and invalid names never reach the list');
+        self::assertStringNotContainsString('data-exclude-search', $html, 'utm_* must keep reaching Umami');
+
+        self::assertSame([], Analytics::stripParams([]));
+        self::assertSame([], Analytics::stripParams(['stripParams' => 'gpu']));
+        self::assertCount(Analytics::MAX_STRIP_PARAMS, Analytics::stripParams(['stripParams' => array_map(fn (int $i) => "p{$i}", range(1, 40))]));
+        self::assertStringNotContainsString('data-before-send', Analytics::tags([...self::config(['stripParams' => []])['analytics']]));
+        self::assertStringNotContainsString('data-before-send', Analytics::tags([...self::config(['stripParams' => ['utm_medium', 'fbclid']])['analytics']]), 'nothing left: no hook');
+    }
+
+    public function testStripQueryKeepsEverythingElse(): void
+    {
+        $names = ['gpu', 'cpu', 'ram'];
+
+        self::assertSame('https://dontlag.com/?utm_source=x&gclid=G#plan', Analytics::stripQuery('https://dontlag.com/?gpu=rtx-4060&utm_source=x&cpu=r5&gclid=G&ram=16#plan', $names));
+        self::assertSame('/detect', Analytics::stripQuery('/detect?cpu=i5&gpu=gtx', $names));
+        self::assertSame('/a?b=1', Analytics::stripQuery('/a?b=1', $names), 'untouched when nothing matches');
+        self::assertSame('/a?gpux=1&xgpu=2', Analytics::stripQuery('/a?gpux=1&xgpu=2', $names), 'whole names only');
+        self::assertSame('/a?b=1', Analytics::stripQuery('/a?g%70u=1&b=1', $names), 'percent-encoded names too');
+        self::assertSame('/a?x=1', Analytics::stripQuery('/a?gpu&x=1', $names), 'a name without a value');
+        self::assertSame('{"u":"/p","v":"/q?x=1","w":"say \"\""}', Analytics::stripQuery('{"u":"/p?gpu=1","v":"/q?cpu=2&x=1","w":"say \"?gpu=1\""}', $names), 'never past a quote or backslash');
+        self::assertSame('/a?gpu=1', Analytics::stripQuery('/a?gpu=1', []));
+    }
+
+    public function testTheProxyStripsTheParametersFromPageviewsAndRecorderUploads(): void
+    {
+        $this->content->always(FakeTransport::json(self::config(['stripParams' => ['gpu', 'cpu']])));
+        $this->umami->always(FakeTransport::json(['ok' => true]));
+
+        $send = json_encode(['type' => 'event', 'payload' => [
+            'website' => self::WEBSITE, 'hostname' => 'studio.nl', 'url' => 'https://studio.nl/?gpu=rtx&utm_source=reddit&cpu=r5', 'referrer' => '/detect?cpu=i5&w=1',
+            'title' => 'Planner', 'data' => new \stdClass(),
+        ]], JSON_UNESCAPED_SLASHES);
+        $this->call('POST', '/_fsc/a/api/send', [], [], [], ['CONTENT_TYPE' => 'application/json'], $send)->assertOk();
+        $sent = json_decode($this->umami->last()->body, true);
+        self::assertSame('https://studio.nl/?utm_source=reddit', $sent['payload']['url']);
+        self::assertSame('/detect?w=1', $sent['payload']['referrer']);
+        self::assertStringContainsString('"data":{}', $this->umami->last()->body, 'an empty object stays an object');
+
+        $external = json_encode(['type' => 'event', 'payload' => ['website' => self::WEBSITE, 'hostname' => 'studio.nl', 'url' => 'https://studio.nl/', 'referrer' => 'https://other.example/?gpu=x']], JSON_UNESCAPED_SLASHES);
+        $this->call('POST', '/_fsc/a/api/send', [], [], [], ['CONTENT_TYPE' => 'application/json'], $external)->assertOk();
+        self::assertSame($external, $this->umami->last()->body, 'another site\'s referrer and an unchanged body go through byte for byte');
+
+        $record = json_encode(['type' => 'heatmap', 'payload' => ['website' => self::WEBSITE, 'events' => [['type' => 'click', 'url' => 'https://studio.nl/games/x?cpu=r5&sort=new', 'x' => 1]]]], JSON_UNESCAPED_SLASHES);
+        $this->call('POST', '/_fsc/a/api/record', [], [], [], ['CONTENT_TYPE' => 'application/json'], $record)->assertOk();
+        self::assertSame('https://studio.nl/games/x?sort=new', json_decode($this->umami->last()->body, true)['payload']['events'][0]['url']);
+    }
+
+    public function testWithoutStripParamsTheProxyForwardsTheBodyAsIs(): void
+    {
+        $this->content->always(FakeTransport::json(self::config()));
+        $this->umami->always(FakeTransport::json(['ok' => true]));
+        $body = json_encode(['type' => 'event', 'payload' => ['website' => self::WEBSITE, 'url' => 'https://studio.nl/?gpu=rtx']], JSON_UNESCAPED_SLASHES);
+
+        $this->call('POST', '/_fsc/a/api/send', [], [], [], ['CONTENT_TYPE' => 'application/json'], $body)->assertOk();
+        self::assertSame($body, $this->umami->last()->body);
+    }
+
     public function testRendersNothingWhenTheModuleIsOffAndCachesThat(): void
     {
         $this->content->always(FakeTransport::json(['error' => ['code' => 'module_disabled', 'message' => 'x']], 404));

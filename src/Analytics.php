@@ -43,6 +43,18 @@ final class Analytics
     /** Used when Content does not send `searchParams` (older server): the query parameters that hold a site search term. */
     public const DEFAULT_SEARCH_PARAMS = ['q', 's', 'search', 'zoeken'];
 
+    /** At most this many names in `stripParams` (the Hub refuses more). */
+    public const MAX_STRIP_PARAMS = 30;
+
+    /** The global function the Umami tracker calls before every send (`data-before-send`), defined by the helper script. */
+    public const BEFORE_SEND = 'fscUmamiBeforeSend';
+
+    /** The query parameter names that are never stripped, whatever the config says: attribution must keep reaching Umami. */
+    private const ATTRIBUTION_CLICK_IDS = ['gclid', 'gbraid', 'wbraid', 'dclid', 'gclsrc', 'fbclid', 'msclkid', 'ttclid', 'li_fat_id', 'twclid', 'rdt_cid', 'epik', 'sccid'];
+
+    /** A query string inside any text: from `?` up to a fragment, whitespace, quote, angle bracket or backslash (so never past a JSON string). */
+    private const QUERY_IN_TEXT = '/\?([^#\s"\'<>\\\\]*)/';
+
     /**
      * The HTML for the page: the tracker tag(s) for the engine (deferred) and the helper script. Empty when nothing is ready (module off,
      * not provisioned yet, or Content unreachable): a page must never get a broken tag.
@@ -70,6 +82,7 @@ final class Analytics
         $domains = array_values(array_filter(is_array($config['domains'] ?? null) ? $config['domains'] : [], 'is_string'));
         $params = is_array($config['attribution']['params'] ?? null) ? array_values(array_filter($config['attribution']['params'], 'is_string')) : self::DEFAULT_PARAMS;
         $searchParams = self::searchParams($config);
+        $stripParams = self::stripParams($config);
         $consentKey = (string) ($options['consentKey'] ?? 'fsc-consent');
         $consentEvent = (string) ($options['consentEvent'] ?? 'fsc:consent');
         $html = [];
@@ -89,11 +102,14 @@ final class Analytics
             }
 
             // No data-exclude-search: the query (utm_*) has to reach Umami. data-do-not-track: a browser with DNT on is not counted.
+            // With `stripParams` the tracker calls the helper's `fscUmamiBeforeSend` before every send, which takes those parameters out
+            // of the url and a same-site referrer; the helper also strips them from the recorder's uploads. The address bar is untouched.
             $html[] = '<script id="' . self::TRACKER_ID . '" defer src="' . self::e($script) . '"'
                 . ' data-website-id="' . self::e($websiteId) . '"'
                 . ' data-host-url="' . self::e($hostUrl) . '"'
                 . ' data-do-not-track="true"'
                 . ($domains !== [] ? ' data-domains="' . self::e(implode(',', $domains)) . '"' : '')
+                . ($stripParams !== [] ? ' data-before-send="' . self::BEFORE_SEND . '" data-fsc-strip-params="' . self::e(implode(',', $stripParams)) . '"' : '')
                 . ' data-fsc-recorder-src="' . self::e($recorder) . '"'
                 . $nonce . '></script>';
         }
@@ -138,6 +154,66 @@ final class Analytics
         $names = array_values(array_unique(array_filter($names, static fn ($name): bool => is_string($name) && preg_match('/^[A-Za-z0-9_.-]{1,32}$/D', $name) === 1)));
 
         return $names !== [] ? array_slice($names, 0, 10) : self::DEFAULT_SEARCH_PARAMS;
+    }
+
+    /**
+     * The query parameters kept away from Umami (Hub config `analytics.stripParams`, default none): the tracker's url and same-site
+     * referrer and the recorder's uploads lose them; the visible page URL keeps them. Plain names only, at most `MAX_STRIP_PARAMS`;
+     * `utm_*` and the ad click ids are never stripped (attribution), even if the config lists them.
+     *
+     * @param array<string, mixed> $config
+     * @return list<string>
+     */
+    public static function stripParams(array $config): array
+    {
+        $names = is_array($config['stripParams'] ?? null) ? $config['stripParams'] : [];
+        $names = array_values(array_unique(array_filter($names, static fn ($name): bool => is_string($name)
+            && preg_match('/^[A-Za-z0-9_.-]{1,32}$/D', $name) === 1
+            && preg_match('/^utm_/i', $name) !== 1
+            && !in_array(strtolower($name), self::ATTRIBUTION_CLICK_IDS, true))));
+
+        return array_slice($names, 0, self::MAX_STRIP_PARAMS);
+    }
+
+    /**
+     * `$text` with the parameters `$names` removed from every query string in it (a URL, or a JSON body with URLs anywhere inside). Other
+     * parameters, their order and the fragment stay; a query that ends up empty loses its `?`. A match never crosses a quote or a
+     * backslash, so a JSON text stays valid JSON. Same rule as `stripQuery` in the helper script (`resources/assets/fsc-analytics.js`).
+     *
+     * @param list<string> $names
+     */
+    public static function stripQuery(string $text, array $names): string
+    {
+        if ($names === [] || !str_contains($text, '?')) {
+            return $text;
+        }
+
+        $strip = array_fill_keys($names, true);
+
+        return (string) preg_replace_callback(self::QUERY_IN_TEXT, static function (array $match) use ($strip): string {
+            $kept = [];
+            $changed = false;
+
+            foreach (explode('&', $match[1]) as $part) {
+                $key = explode('=', $part, 2)[0];
+
+                if (isset($strip[$key]) || isset($strip[rawurldecode(str_replace('+', ' ', $key))])) {
+                    $changed = true;
+
+                    continue;
+                }
+
+                $kept[] = $part;
+            }
+
+            if (!$changed) {
+                return $match[0];
+            }
+
+            $kept = array_values(array_filter($kept, static fn (string $part): bool => $part !== ''));
+
+            return $kept === [] ? '' : '?' . implode('&', $kept);
+        }, $text);
     }
 
     /**

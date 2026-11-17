@@ -35,6 +35,67 @@
         return;
     }
 
+    // --- Parameters kept away from Umami (Hub config `analytics.stripParams`) ---------------------------------------------------
+    // The SDK renders them on the tracker tag as `data-fsc-strip-params` together with `data-before-send="fscUmamiBeforeSend"`: the
+    // tracker calls that function before every send (pageview, event, identify, performance) and sends what it returns. The recorder
+    // has no such hook, so its uploads are cleaned in the fetch guard below. The address bar is never changed (reload and share keep
+    // working). utm_* and the ad click ids are never stripped. Defined before the overlay stand-down: a tracker loaded in direct mode
+    // still calls it.
+    var STRIP = (function () {
+        var tag = d.getElementById(TRACKER_ID);
+        var raw = (tag && tag.getAttribute('data-fsc-strip-params')) || '';
+        var CLICK_IDS = ['gclid', 'gbraid', 'wbraid', 'dclid', 'gclsrc', 'fbclid', 'msclkid', 'ttclid', 'li_fat_id', 'twclid', 'rdt_cid', 'epik', 'sccid'];
+        var out = {};
+        var count = 0;
+        raw.split(',').forEach(function (name) {
+            name = name.trim();
+            if (count >= 30 || !/^[A-Za-z0-9_.-]{1,32}$/.test(name) || /^utm_/i.test(name) || CLICK_IDS.indexOf(name.toLowerCase()) !== -1 || out[name]) return;
+            out[name] = true;
+            count++;
+        });
+        return count ? out : null;
+    })();
+
+    /** Same rule as `Analytics::stripQuery()` in the PHP SDK: never crosses a quote or backslash, so a JSON text stays valid JSON. */
+    function stripQuery(text) {
+        if (!STRIP || typeof text !== 'string' || text.indexOf('?') === -1) return text;
+        return text.replace(/\?([^#\s"'<>\\]*)/g, function (match, query) {
+            var kept = [];
+            var changed = false;
+            query.split('&').forEach(function (part) {
+                var key = part.split('=')[0];
+                var decoded = key;
+                try { decoded = decodeURIComponent(key.replace(/\+/g, ' ')); } catch (e) { /* malformed escape: compare as written */ }
+                if (STRIP[key] === true || STRIP[decoded] === true) { changed = true; return; }
+                kept.push(part);
+            });
+            if (!changed) return match;
+            kept = kept.filter(function (part) { return part !== ''; });
+            return kept.length ? '?' + kept.join('&') : '';
+        });
+    }
+
+    function sameSiteReferrer(ref) {
+        if (ref.charAt(0) === '/' && ref.charAt(1) !== '/') return true;
+        try { return new URL(ref).origin === w.location.origin; } catch (e) { return false; }
+    }
+
+    if (STRIP) {
+        w.fscUmamiBeforeSend = function (type, payload) {
+            if (!payload || typeof payload !== 'object') return payload;
+            try {
+                var out = {};
+                Object.keys(payload).forEach(function (key) { out[key] = payload[key]; });
+                if (typeof out.url === 'string') out.url = stripQuery(out.url);
+                if (typeof out.referrer === 'string' && sameSiteReferrer(out.referrer)) out.referrer = stripQuery(out.referrer);
+                return out;
+            } catch (e) {
+                // Rather no event than one with the parameters in it.
+                return null;
+            }
+        };
+    }
+
     // Newsletter click links (plan ootb-integrations D9): `fscn=<token>` from the Hub's redirect leaves the address bar before the landing
     // URL is kept for attribution (fsa.js does the same; whichever runs first). The site server already read it.
     try {
@@ -109,6 +170,14 @@
         var guarded = function (input, init) {
             if (!consent && isRecordUrl(input)) {
                 return Promise.resolve(new w.Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+            }
+            // The recorder sends its heatmap and replay batches as a JSON string: strip the parameters from every URL in it (heatmap
+            // `url`, the replay's page href and url-change events, links in the snapshot).
+            if (STRIP && isRecordUrl(input) && init && typeof init.body === 'string') {
+                var copy = {};
+                Object.keys(init).forEach(function (key) { copy[key] = init[key]; });
+                copy.body = stripQuery(init.body);
+                return nativeFetch.call(this, input, copy);
             }
             return nativeFetch.apply(this, arguments);
         };

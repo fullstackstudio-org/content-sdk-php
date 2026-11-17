@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Laravel;
 
+use FullStackStudio\Content\Analytics;
 use FullStackStudio\Content\Http\CurlTransport;
 use FullStackStudio\Content\Http\Request as UpstreamRequest;
 use FullStackStudio\Content\Http\Transport;
@@ -138,6 +139,10 @@ final class AnalyticsController
             return $this->json('{}', 400);
         }
 
+        // Second line behind the helper script (`stripParams`): what goes through this proxy loses those parameters too, also when the
+        // helper did not load or site code sent before it ran.
+        $body = $this->stripBody($body, $path, Analytics::stripParams($settings->current() ?? []));
+
         $headers = [
             'Content-Type' => 'application/json',
             'Accept' => 'application/json',
@@ -167,6 +172,68 @@ final class AnalyticsController
         }
 
         return $this->json('{}', 202);
+    }
+
+    /**
+     * The collect body without the `stripParams` parameters. `api/send`: only the page `url` and a same-site `referrer` (Umami sends those
+     * as a path), re-encoded only when something changed. `api/record`: every query string in the body (heatmap urls, replay meta and
+     * url-change events, links in the snapshot); the text rule keeps the JSON valid, so the body is rewritten in place.
+     *
+     * @param list<string> $names
+     */
+    private function stripBody(string $body, string $path, array $names): string
+    {
+        if ($names === [] || !str_contains($body, '?')) {
+            return $body;
+        }
+
+        if ($path !== 'api/send') {
+            return Analytics::stripQuery($body, $names);
+        }
+
+        $decoded = json_decode($body);
+
+        if (!$decoded instanceof \stdClass || !($decoded->payload ?? null) instanceof \stdClass) {
+            return $body;
+        }
+
+        $payload = $decoded->payload;
+        $changed = false;
+
+        foreach (['url', 'referrer'] as $key) {
+            $value = $payload->{$key} ?? null;
+
+            if (!is_string($value) || ($key === 'referrer' && !$this->sameSite($value, $payload->hostname ?? null))) {
+                continue;
+            }
+
+            $stripped = Analytics::stripQuery($value, $names);
+
+            if ($stripped !== $value) {
+                $payload->{$key} = $stripped;
+                $changed = true;
+            }
+        }
+
+        if (!$changed) {
+            return $body;
+        }
+
+        $encoded = json_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+
+        return is_string($encoded) ? $encoded : $body;
+    }
+
+    /** A referrer of this site: a path (how the tracker sends a same-origin referrer) or an absolute URL on the page's own hostname. */
+    private function sameSite(string $referrer, mixed $hostname): bool
+    {
+        if (str_starts_with($referrer, '/') && !str_starts_with($referrer, '//')) {
+            return true;
+        }
+
+        $host = parse_url($referrer, PHP_URL_HOST);
+
+        return is_string($host) && is_string($hostname) && $hostname !== '' && strcasecmp($host, $hostname) === 0;
     }
 
     private function upstreamScript(string $file): Response

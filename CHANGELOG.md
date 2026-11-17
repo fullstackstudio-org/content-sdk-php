@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.26.0
 
+- Query parameters kept away from Umami: the Hub config `analytics.stripParams` (`Analytics::stripParams()`: plain names, at most 30, default none; `utm_*` and the ad click ids are never stripped) makes `Analytics::tags()` add `data-before-send="fscUmamiBeforeSend"` and `data-fsc-strip-params` to the Umami tracker tag. The helper script (`fsc.js`) defines `fscUmamiBeforeSend`, which the Umami tracker calls before every send: the page `url` and a same-site `referrer` lose those parameters (pageviews, events, identify, performance). The recorder (heatmaps, replay) has no such hook, so the helper's fetch guard strips them from every URL in its `/api/record` uploads (only after consent, as before). The first-party proxy strips them again server-side (`api/send`: url and same-site referrer; `api/record`: the whole body), so a page where the helper did not run is covered too. The address bar is never changed. Without the setting nothing changes (no attribute, body forwarded byte for byte). `Analytics::stripQuery()` is the shared rule.
 - Webhook event type `appointment.rescheduled` in `Webhooks\Events::ALL` (an appointment was moved to another time; ids, status and times only).
 
 ## 0.25.0

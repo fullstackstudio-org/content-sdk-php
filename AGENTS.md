@@ -1127,6 +1127,15 @@ cut to 80 characters; e-mail addresses, phone numbers, IBANs and long numbers in
 again. The search parameter is never part of the page URL that is stored (only the path and the utm/click id parameters are), so `/zoeken?q=boot` is
 the page `/zoeken`. A new term on the same page (SPA navigation) is a new search; the same term twice in a row is one. Do not put personal data in a
 search form on purpose; tell visitors in the privacy statement that search terms are measured (cookieless, without link to a person).
+**Keeping query parameters away from Umami (`stripParams`).** Umami stores the whole query of every page URL (and the recorder captures the full address
+bar). When your URLs carry data you do not want in analytics (configurator state, hardware specs, filters with personal meaning), ask for the names to be
+set in the module config `analytics.stripParams` (up to 30 names of `[A-Za-z0-9_.-]`, max 32 characters; `utm_*` and the ad click ids are refused, they
+carry the attribution). The SDK then renders `data-before-send="fscUmamiBeforeSend"` and `data-fsc-strip-params` on the Umami tag
+(`Analytics::stripParams()`): the helper script takes the parameters out of the url and a same-site referrer of every Umami send, and out of every URL in
+the recorder's heatmap and replay uploads; the first-party proxy strips them again server-side. The address bar, links, reloads and sharing are not
+touched. Nothing to build; do not add your own `data-before-send`. The native tracker (`fsa.js`) needs no setting: it never sends a query besides the
+utm/click id parameters. Text on the page itself (a heading that shows the GPU) is still in a session replay: give that element the class `rr-mask`
+(text masked) or `rr-block` (left out) if it matters; the recorder honours both.
 **Privacy statement (the site owner must add this when forms and the native engine are on):** "Bij formulieren meten we of je het formulier start en
 verstuurt en hoe lang dat duurt, zonder wat je invult. Heb je toestemming gegeven voor statistieken, dan zien we ook bij welk veld je afhaakt (alleen de
 naam van het veld, nooit wat je typt)."
