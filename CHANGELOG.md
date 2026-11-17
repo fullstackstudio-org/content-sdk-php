@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Webhook event type `appointment.rescheduled` in `Webhooks\Events::ALL` (an appointment was moved to another time; ids, status and times only).
+
 ## 0.25.0
 
 - `fsa.js` (rebuilt `fsa.min.js`): video tracking (plan analytics-complete I1, feature 37). `data-fsa-video` on a `<video>` sends the `event`s `video_start`, `video_progress` (`percent` 25/50/75, seeks are not counted) and `video_complete` with `label` (the attribute value, else the source path without query) and `player`; a YouTube `<iframe data-fsa-video>` whose `src` has `enablejsapi=1` is followed through the player's `postMessage` channel (no YouTube script is loaded). No consent needed, nothing stored. Outbound links and downloads (feature 27) were already tracked (`outbound`, `download`); only documented now. AGENTS.md: "Video" and "Outbound links and downloads".

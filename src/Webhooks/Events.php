@@ -125,6 +125,7 @@ final class Events
         'analytics.report.weekly',
         'analytics.alert',
         'analytics.alert.resolved',
+        'appointment.rescheduled',
         'webhook.test',
     ];
 }
