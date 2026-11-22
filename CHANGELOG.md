@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.28.0
 
 Page builder phase 2 and 3 on the site (plan page-builder C and D, tasks 2.2 and 3.2; released as 0.28.0, the Hub registry offers these
 types from `minSdk` 0.28.0).
