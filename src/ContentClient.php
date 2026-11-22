@@ -117,6 +117,9 @@ final class ContentClient
     /** @var (\Closure(string): (array<string, mixed>|null))|null set only while a portal preview renders, see overridePages() */
     private ?\Closure $pageOverride = null;
 
+    /** @var array<string, list<array<string, mixed>>> the html blocks of the last pages `getPage()` returned, by page id (at most 20) */
+    private array $htmlBlocksByPage = [];
+
     /** @param array<string, mixed>|ClientOptions $options see {@see ClientOptions}; throws {@see ContentException} (`invalid_config`) on misuse */
     public function __construct(array|ClientOptions $options)
     {
@@ -279,7 +282,59 @@ final class ContentClient
             ? $this->context->get('/pages/' . ModuleContext::seg($ref), $tags, $query, $options)
             : $this->context->get('/pages', $tags, ['path' => '/' . Tags::normalizePagePath($ref), ...$query], $options);
 
-        return $reply->data['page'] ?? [];
+        $page = $reply->data['page'] ?? [];
+        $this->rememberHtmlBlocks($page);
+
+        return $page;
+    }
+
+    /**
+     * Where an `html` block of a page this client returned lives: `{pageId, key}` for the site route `/_fsc/h/{pageId}/{key}` that serves an
+     * isolated block as its own document. `key` is the block id, or `~<index>` for a block without one. Null when no page returned by
+     * {@see getPage()} in this process holds that block (or the page is not published).
+     *
+     * @internal used by the page builder's `html` block
+     * @param array<string, mixed> $block
+     * @return array{pageId: string, key: string}|null
+     */
+    public function htmlBlockLocation(array $block): ?array
+    {
+        $id = is_string($block['id'] ?? null) ? $block['id'] : null;
+        $html = $block['html'] ?? null;
+
+        foreach (array_reverse($this->htmlBlocksByPage, true) as $pageId => $blocks) {
+            foreach ($blocks as $candidate) {
+                if ($id !== null ? $candidate['id'] === $id : ($candidate['id'] === null && $candidate['html'] === $html)) {
+                    return ['pageId' => (string) $pageId, 'key' => $candidate['id'] ?? '~' . $candidate['index']];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /** @param mixed $page */
+    private function rememberHtmlBlocks(mixed $page): void
+    {
+        if (!is_array($page) || !is_string($page['id'] ?? null) || preg_match(self::UUID, $page['id']) !== 1 || ($page['status'] ?? 'published') !== 'published') {
+            return;
+        }
+
+        $blocks = [];
+
+        foreach (array_values(is_array($page['blocks'] ?? null) ? $page['blocks'] : []) as $index => $block) {
+            if (is_array($block) && ($block['type'] ?? null) === 'html') {
+                $blocks[] = ['id' => is_string($block['id'] ?? null) ? $block['id'] : null, 'index' => $index, 'html' => $block['html'] ?? null];
+            }
+        }
+
+        $key = strtolower($page['id']);
+        unset($this->htmlBlocksByPage[$key]);
+
+        if ($blocks !== []) {
+            $this->htmlBlocksByPage[$key] = $blocks;
+            $this->htmlBlocksByPage = array_slice($this->htmlBlocksByPage, -20, null, true);
+        }
     }
 
     /**

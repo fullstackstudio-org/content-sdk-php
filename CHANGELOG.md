@@ -24,28 +24,42 @@ types from `minSdk` 0.28.0).
   Dutch message (double opt-in by the Hub, the same answer for a known address). The block's list id is encrypted with the app key in the form;
   a tampered value is refused. No Turnstile (the Hub's subscribe call has none). Without the route the block renders nothing; in a preview the
   form is disabled.
-- The `html` block ("HTML-code", `Laravel\HtmlBlock`, bound `scoped`): the code is never sanitized or rewritten, only the page nonce goes on its
-  `<script>` and `<style>` tags. `isolate: true` (default, and always in a portal preview) renders `<iframe sandbox="allow-scripts allow-popups
-  allow-forms" srcdoc loading="lazy">` without `allow-same-origin`, with a height reporter inside (`html-block-frame.js`) and a sizer on the page
-  (`html-block.js`, once per page, with the nonce) that resizes only the iframe whose `contentWindow` sent the message, only from origin `null`,
-  at most 20000 px. `isolate: false` prints the code in place (`Site::withNonce`). Consent other than `necessary` wraps either in `<template
-  data-fsc-code data-consent>` with a neutral placeholder and prints the snippets' consent loader once per page. Empty code, code over 20,000
-  characters and gated inline code containing `</template` are not printed.
-- CSP: `HtmlBlock` collects the code of every rendered block per request; `Content::siteCsp()` and `siteCspMerge()` now include its sources
-  (`Site::cspForHtml()`, the extraction of `Site::csp()` for any HTML). `Site::consentLoader()` and `Site::asset()` are public.
+- The `html` block ("HTML-code", `Laravel\HtmlBlock`, bound `scoped`): the code is never sanitized or rewritten. An isolated block (`isolate`
+  anything but `false`) renders `<iframe sandbox="allow-scripts allow-popups allow-forms allow-popups-to-escape-sandbox" loading="lazy">`
+  without `allow-same-origin`, whose `src` is the new route `GET /_fsc/h/{pageId}/{key}` (`Laravel\HtmlBlockController`, route
+  `content.html-block`, `content.html_blocks.path`, always on, no middleware group; `key` = block id or `~<index>`). It reads the published page
+  through the cached client and serves the block as its own document (code unchanged, no page nonce, plus the height reporter
+  `html-block-frame.js`) with its own `Content-Security-Policy` (permissive sources for that block, `sandbox` as above, `frame-ancestors
+  'self'`), `X-Robots-Tag: noindex, nofollow`, `nosniff` and `Cache-Control: public, max-age=60, stale-while-revalidate=300`; 404 for a
+  malformed path, an unknown or unpublished page and a missing, non-html, inline or empty block, 503 (not cached) when the Hub fails. The
+  block finds its page through the pages `getPage()` returned (`ContentClient::htmlBlockLocation()`, `@internal`); without that it renders
+  nothing (logged once). In a portal preview the frame is a `srcdoc` document (unsaved blocks), with the preview response's nonce. The page's
+  sizer (`html-block.js`, once per page, with the nonce) resizes only the iframe whose `contentWindow` sent the message, only from origin
+  `null`, at most 20000 px, with damping (the same growth step five times in a row stops growth until the frame shrinks; at most 4000 px growth
+  per second, the rest a second later). `isolate: false` prints the code in place (`Site::withNonce`). Consent other than `necessary` wraps
+  either in `<template data-fsc-code data-consent>` with a neutral placeholder and prints the snippets' consent loader once per page. Empty
+  code, code over 20,000 characters and gated inline code containing `</template` are not printed.
+- CSP: `Content::siteCsp()` and `siteCspMerge()` now include what the rendered `html` blocks need in the PAGE policy: `frame-src 'self'` for
+  isolated blocks and the hosts of inline (`isolate: false`) code only (`Site::cspForHtml()`, the extraction of `Site::csp()` for any HTML),
+  never the hosts of isolated code. `Site::consentLoader()` and `Site::asset()` are public.
+- `StrictHtml::sanitize()`: a strict, `DOMDocument` based allowlist (`p, br, strong, em, u, s, a, ul, ol, li, h2-h4, blockquote`; only `href`
+  with http, https or mailto, always `rel="noopener nofollow"`; scripts, styles, frames, media and forms dropped with their content). The
+  `event` block runs the event description through it before `<x-content::article-body>` (defence in depth: the Hub served that field raw
+  before Hub PR #158).
 - The consent loader (`fsc-code.js`) removes an element with `data-fsc-code-placeholder` right before a template when it activates it; site
   snippets are unchanged.
 - `preview.js`: the portal can grant consent categories inside the preview frame (`{type: 'consent', categories}`, through
   `window.fscCode.grant`, nothing stored); after a soft swap the loader scans the new blocks again; a swap that brings an `html` block or a gated
   template while the page lacks the sizer or the loader becomes a full reload.
 - `$content->events->list()` / `get()` cache their answer under the new tag `content:events` when called with `['cache' => true]` (default
-  unchanged: not cached); `list()` passes `status`. `Tags::forEvent()` clears `content:events` on every `event.*` webhook except
+  unchanged: not cached); `list()` passes `status`. The event blocks cache for 300 s (`ModuleBlockData::EVENTS_TTL`; sales states change
+  without a webhook) and ignore inactive ticket types for the price. `Tags::forEvent()` clears `content:events` on every `event.*` webhook except
   `event.checked_in`. `$content->appointments->bookingPageUrl()` returns the Hub booking page from the (cached) services answer.
 - `content.css`: mobile first styles for the module blocks, the newsletter form, the HTML-code frame and placeholder, after the unchanged JS SDK
   base.
 - `fsc:doctor`: the newsletter route (`OK`, or `INFO` when switched off), `LET OP` for a `Content-Security-Policy` in `app/`,
-  `bootstrap/app.php`, `routes/` or `config/` without `siteCspMerge()`/`siteCsp()`, and `LET OP` for one in `docker/`, `nginx.conf` or
-  `public/.htaccess`.
+  `bootstrap/app.php`, `routes/` or `config/` without `siteCspMerge()`/`siteCsp()`, `LET OP` for a CSP middleware appended to the global
+  stack (it would replace the policy of `/_fsc/h`), and `LET OP` for one in `docker/`, `nginx.conf` or `public/.htaccess`.
 - AGENTS.md: the module blocks, `content.links`, the newsletter route, the HTML-code block (isolation, consent, preview) and its CSP in A13,
   the doctor lines, and pointers in the sections `faq`, `newsletter`, the webshop, `appointments` and `events`.
 

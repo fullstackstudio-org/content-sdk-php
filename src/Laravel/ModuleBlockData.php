@@ -7,6 +7,7 @@ namespace FullStackStudio\Content\Laravel;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\ContentException;
 use FullStackStudio\Content\Laravel\Preview\Preview;
+use FullStackStudio\Content\StrictHtml;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
@@ -36,6 +37,12 @@ final class ModuleBlockData
 
     private const HUB_URL = '#^https://[^\s"\'<>\\\\]+$#D';
 
+    /**
+     * Seconds the event reads are cached: shorter than the client's default, because the sales state (open, sold out, closed) changes with
+     * time and with registrations even when no webhook arrives.
+     */
+    public const EVENTS_TTL = 300;
+
     /** @var array<string, true> type + reason pairs already logged in this process */
     private static array $logged = [];
 
@@ -51,7 +58,7 @@ final class ModuleBlockData
         $limit = self::int($block['limit'] ?? null, 1, 12, 6);
 
         try {
-            $list = app(ContentClient::class)->events->list(['upcoming' => true, 'status' => 'published', 'limit' => $limit], ['cache' => true]);
+            $list = app(ContentClient::class)->events->list(['upcoming' => true, 'status' => 'published', 'limit' => $limit], ['cache' => true, 'ttl' => self::EVENTS_TTL]);
         } catch (Throwable $e) {
             return self::failed('eventList', $e);
         }
@@ -85,7 +92,7 @@ final class ModuleBlockData
         }
 
         try {
-            $event = app(ContentClient::class)->events->get($ref, ['cache' => true]);
+            $event = app(ContentClient::class)->events->get($ref, ['cache' => true, 'ttl' => self::EVENTS_TTL]);
         } catch (Throwable $e) {
             // A deleted event is an expected state, not an error worth a log line.
             return $e instanceof ContentException && $e->isNotFound() && !$e->isModuleDisabled() ? null : self::failed('event', $e);
@@ -339,7 +346,8 @@ final class ModuleBlockData
             'external' => $template === null && $hub !== null,
             'state' => $state,
             'summary' => is_string($event['summary'] ?? null) ? $event['summary'] : '',
-            'descriptionHtml' => is_string($event['descriptionHtml'] ?? null) ? $event['descriptionHtml'] : '',
+            // Defence in depth: the strict allowlist again, even though the Hub sanitizes (it once served this field raw).
+            'descriptionHtml' => is_string($event['descriptionHtml'] ?? null) ? StrictHtml::sanitize($event['descriptionHtml']) : '',
         ];
     }
 
@@ -349,7 +357,8 @@ final class ModuleBlockData
         $prices = [];
 
         foreach (is_array($event['ticketTypes'] ?? null) ? $event['ticketTypes'] : [] as $type) {
-            if (is_array($type) && is_int($type['priceCents'] ?? null)) {
+            // A server token also sees inactive ticket types (`active: false`): they cannot be bought, so they do not set the price.
+            if (is_array($type) && is_int($type['priceCents'] ?? null) && ($type['active'] ?? true) !== false) {
                 $prices[] = $type['priceCents'];
             }
         }

@@ -303,6 +303,23 @@ final class DoctorCommandTest extends LaravelTestCase
         file_put_contents($app . '/Http/Middleware/Csp.php', '<?php $response->headers->set("Content-Security-Policy", Content::siteCspMerge("default-src \'self\'"));');
         self::assertSame(Doctor::OK, $this->statusOf($this->results(), 'Content-Security-Policy gaat door Content::siteCspMerge()'));
 
+        // A CSP middleware in the global stack would also run on /_fsc/h; in the web group it does not.
+        $bootstrap = $this->app->basePath('bootstrap/app.php');
+        $original = is_file($bootstrap) ? file_get_contents($bootstrap) : null;
+        file_put_contents($app . '/Http/Middleware/Csp.php', '<?php class Csp {} // $response->headers->set("Content-Security-Policy", Content::siteCspMerge($p));');
+        try {
+            file_put_contents($bootstrap, '<?php return fn ($middleware) => $middleware->append(\App\Http\Middleware\Csp::class);');
+            self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'CSP-middleware Csp staat in de globale middleware'));
+            file_put_contents($bootstrap, '<?php return fn ($middleware) => $middleware->web(append: [\App\Http\Middleware\Csp::class]);');
+            self::assertNull($this->statusOf($this->results(), 'globale middleware'));
+        } finally {
+            if ($original === null) {
+                @unlink($bootstrap);
+            } else {
+                file_put_contents($bootstrap, $original);
+            }
+        }
+
         file_put_contents($this->public . '/.htaccess', "Header always set Content-Security-Policy \"default-src 'self'\"\n");
         self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'Content-Security-Policy buiten PHP in'));
 

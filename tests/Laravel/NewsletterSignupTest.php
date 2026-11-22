@@ -140,6 +140,15 @@ final class NewsletterSignupTest extends LaravelTestCase
         self::assertCount($calls, $this->http->requests, 'over the limit the Hub is not asked');
     }
 
+    public function testTheRouteRunsInTheWebGroupForSessionAndCsrf(): void
+    {
+        $route = $this->app['router']->getRoutes()->getByName('content.newsletter');
+
+        self::assertNotNull($route);
+        self::assertSame(['POST'], $route->methods());
+        self::assertContains('web', $route->gatherMiddleware());
+    }
+
     public function testARedirectNeverLeavesTheSite(): void
     {
         $this->withHeaders(['Referer' => 'https://evil.test/x'])->post('/content/newsletter', ['email' => 'a@example.nl', 'block' => '"><x'])

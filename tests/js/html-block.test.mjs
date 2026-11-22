@@ -17,11 +17,17 @@ const LOADER = read('fsc-code.js').replace('__CONFIG__', JSON.stringify({ key: '
 function sizerPage(frameCount = 2) {
     const frames = Array.from({ length: frameCount }, (_, i) => ({ contentWindow: { id: 'frame' + i }, style: {} }));
     const listeners = [];
-    const window = { addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); } };
+    const timers = [];
+    const clock = { now: 1_000_000 };
+    const window = {
+        addEventListener: (type, fn) => { if (type === 'message') listeners.push(fn); },
+        setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    };
     const document = { querySelectorAll: (selector) => (selector === 'iframe[data-fsc-html-frame]' ? frames : []) };
-    const run = () => vm.runInNewContext(SIZER, { window, document, isFinite, Math });
+    const run = () => vm.runInNewContext(SIZER, { window, document, isFinite, Math, Date: { now: () => clock.now } });
     const post = (data, from) => listeners.forEach((fn) => fn({ data, origin: 'null', source: frames[0].contentWindow, ...from }));
-    return { frames, window, run, post, listeners };
+    const fireTimers = () => timers.splice(0).forEach((t) => t.fn());
+    return { frames, window, run, post, listeners, clock, timers, fireTimers };
 }
 
 const height = (h) => ({ ns: 'fsc-html', v: 1, type: 'height', height: h });
@@ -54,6 +60,38 @@ test('the sizer caps the height and installs itself once', () => {
     assert.equal(p.listeners.length, 1, 'a second copy does nothing');
     p.post(height(999999));
     assert.equal(p.frames[0].style.height, '20000px');
+});
+
+test('damping: growth by the same delta stops after a few repeats, shrinking always applies', () => {
+    const p = sizerPage(1);
+    p.run();
+    p.post(height(300));
+    // A feedback loop: the content is always 20 px taller than its frame.
+    for (let h = 320; h <= 520; h += 20) { p.clock.now += 50; p.post(height(h)); }
+    const stopped = parseInt(p.frames[0].style.height, 10);
+    assert.ok(stopped < 520 && stopped >= 380, 'the loop is cut off after a few identical steps: ' + stopped);
+    p.post(height(200));
+    assert.equal(p.frames[0].style.height, '200px', 'shrinking applies and resets the damping');
+    p.post(height(260));
+    assert.equal(p.frames[0].style.height, '260px');
+});
+
+test('damping: the frame grows at most 4000 px per second, the rest follows a second later', () => {
+    const p = sizerPage(1);
+    p.run();
+    p.post(height(500));
+    assert.equal(p.frames[0].style.height, '500px', 'the first height applies at once, whatever its size');
+    p.clock.now += 100;
+    p.post(height(9000));
+    assert.equal(p.frames[0].style.height, '4500px');
+    assert.equal(p.timers.length, 1);
+    assert.equal(p.timers[0].ms, 1000);
+    p.clock.now += 1000;
+    p.fireTimers();
+    assert.equal(p.frames[0].style.height, '8500px');
+    p.clock.now += 1000;
+    p.fireTimers();
+    assert.equal(p.frames[0].style.height, '9000px');
 });
 
 // --- the reporter inside the frame ------------------------------------------------------------------------------------------------

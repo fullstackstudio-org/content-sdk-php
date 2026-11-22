@@ -66,6 +66,14 @@ return [
         'product' => env('FSC_LINK_PRODUCT'),
     ],
 
+    /*
+     * The route that serves an isolated page builder `html` block as its own sandboxed document (`GET {path}/{pageId}/{blockKey}`), the
+     * `src` of its iframe. Always on; the page's CSP then only needs `frame-src 'self'` for these blocks.
+     */
+    'html_blocks' => [
+        'path' => env('FSC_HTML_BLOCKS_PATH', '_fsc/h'),
+    ],
+
     // The timezone the module blocks show dates and times in (event start, ...).
     'timezone' => env('FSC_TIMEZONE', 'Europe/Amsterdam'),
 

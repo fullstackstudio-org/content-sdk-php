@@ -555,14 +555,15 @@ $response->headers->set('Content-Security-Policy', Content::analyticsCspMerge(Co
 - The portal preview (A17) needs nothing either: its script is same-origin (and carries the Vite nonce when one is set), and on the preview
   response only the SDK replaces `frame-ancestors` with the portal origin. Keep `frame-ancestors 'self'` (or none) for every other page. Never
   set `X-Frame-Options` or `frame-ancestors` in nginx or Apache: PHP cannot change those, and the preview can then not be framed.
-- Page builder blocks (0.28): the module blocks need nothing (their only inline script, the FAQ JSON-LD, carries the nonce). The `html` block
-  ("HTML-code") needs nothing extra either, as long as the policy goes through `siteCspMerge()` AFTER rendering (as above): every `html` block
-  rendered on the page registers the external hosts of its code (`script-src`, `connect-src`, `img-src`, `frame-src`, `style-src`, same rules
-  as the snippets) and `siteCspMerge()` adds them for that page only. An isolated block is an `<iframe srcdoc>`: it is not fetched, so
-  `frame-src` needs no entry for the frame itself (do not add `about:`); the document inside it inherits the page's policy, which is why the SDK
-  puts the page nonce on its scripts and the merged hosts apply inside the frame too. `style="..."` attributes inside widget code still need
-  `'unsafe-inline'` in `style-src` (or `style-src-attr`) if the widget uses them, like anywhere on the page. A policy set in nginx or Apache
-  cannot be merged at all: `fsc:doctor` warns.
+- Page builder blocks (0.28): the module blocks need nothing (their only inline script, the FAQ JSON-LD, carries the nonce). An isolated
+  `html` block ("HTML-code", the default) is an iframe on the site's own route `/_fsc/h/{pageId}/{block}`: the page needs only
+  `frame-src 'self'` (`siteCspMerge()` adds it when such a block is on the page, also over `frame-src 'none'`), never the hosts of the
+  customer's code. That frame document carries its OWN policy (permissive sources for that block only, `sandbox allow-scripts allow-popups
+  allow-forms allow-popups-to-escape-sandbox`, `frame-ancestors 'self'`), so keep your CSP middleware in the `web` group: a global one (or
+  nginx/Apache) would replace it on `/_fsc/h`. An inline block (`isolate: false`, staff only) runs in the page: its hosts are added by
+  `siteCspMerge()` for that page, and its scripts get the page nonce. In the portal preview isolated blocks are `srcdoc` frames that inherit
+  the preview response's policy (with its nonce); nothing to configure. `fsc:doctor` warns for a CSP outside PHP, without `siteCspMerge()`,
+  or in the global middleware.
 
 `siteCspMerge()` takes an array (returns an array) or a CSP string (returns a string). A missing directive starts from `default-src`; without
 `default-src` it stays out (adding it would forbid the rest). An existing `script-src-elem`/`style-src-elem` gets the sources too. Hosts that a script
@@ -693,7 +694,9 @@ Site config (`config/content.php` or env; same-site paths only, a full URL is ig
 
 The newsletter route is on by default (`content.newsletter.enabled`, `FSC_NEWSLETTER_ENABLED`; `web` middleware for session and CSRF): it checks
 the address and a honeypot, allows 10 tries per visitor IP per minute (`content.newsletter.rate_limit`), subscribes with the visitor IP
-(`content.newsletter.ip_header`, default `cf-connecting-ip`) and redirects back to the block with a Dutch message; the Hub mails the confirmation
+(`content.newsletter.ip_header`, default `cf-connecting-ip`; trust that header only behind Cloudflare, where it is overwritten on every
+request: a site reached directly could be sent any value, which only shifts the per-IP rate limit, so set the header to null when the site
+is not behind Cloudflare) and redirects back to the block with a Dutch message; the Hub mails the confirmation
 (double opt-in) and answers the same for a known address. The block's list id travels encrypted with `APP_KEY`, so a visitor cannot change it.
 Turnstile is not used: the Hub's subscribe call has no Turnstile check. Without the route the block renders nothing. In the portal preview the
 form is disabled. Test it ONLY in a test project with the notification recipients on `info@fullstackstudio.nl`.
@@ -706,23 +709,30 @@ Override a block as any other: `config(['content.blocks.faq' => 'blocks.faq'])`,
 characters), consent (default marketing), isolate (default true)}`. The SDK never sanitizes or rewrites the code (only the page nonce goes on its
 `<script>` and `<style>` tags); it isolates and gates it instead:
 
-- `isolate: true` (the default; customer admins may add only these): an `<iframe sandbox="allow-scripts allow-popups allow-forms" srcdoc>`
-  WITHOUT `allow-same-origin`, so the code runs in an opaque origin and cannot read the site's cookies, storage or DOM (member and shop sessions
-  stay out of reach). The frame is `loading="lazy"`, full width, and takes its height from the content: a reporter inside posts it, and the
-  page's sizer (printed once, with the nonce) resizes only the frame whose `contentWindow` sent the message, only from origin `null`. Code that
-  needs top navigation or the site's cookies does not work isolated, by design.
+- `isolate` anything but `false` (the default; customer admins may add only these): an `<iframe sandbox="allow-scripts allow-popups allow-forms
+  allow-popups-to-escape-sandbox">` WITHOUT `allow-same-origin`, whose `src` is the site route `GET /_fsc/h/{pageId}/{block}`
+  (`content.html_blocks.path`, always on, no session or cookies). That route reads the published page through the cached client and serves the
+  block's code as its own document with its own CSP (see A13), `X-Robots-Tag: noindex` and the cache header of published pages; an unknown,
+  unpublished, inline or non-html block is a 404. The code runs in an opaque origin and cannot read the site's cookies, storage or DOM (member
+  and shop sessions stay out of reach); it never gets the page nonce. The frame is `loading="lazy"`, full width, and takes its height from the
+  content: a reporter inside posts it, and the page's sizer (printed once, with the nonce) resizes only the frame whose `contentWindow` sent the
+  message, only from origin `null`, with damping (the same growth step five times in a row stops growth until it shrinks; at most 4000 px per
+  second). The page must have been fetched with `$content->getPage()` in the request (as every page controller does): that is how the block
+  knows its page; otherwise it renders nothing (logged once). Code that needs top navigation or the site's cookies does not work isolated, by
+  design.
 - `isolate: false` (FullStack Studio staff only, enforced by the Hub): printed in place like a `site` snippet, with full access to the page.
 - `consent` other than `necessary`: the block is an inert `<template data-fsc-code data-consent>` with a neutral placeholder ("Deze inhoud
   verschijnt zodra je cookies voor marketing accepteert.") until the visitor accepts that category through the cookie banner (A10: the
   banner must send `fsc:consent` or store `fsc-consent`). The SDK prints the same idempotent consent loader as the snippets once per page; it
   activates the template and removes the placeholder. A site without a banner never shows consent-gated blocks.
 - CSP: see A13 (`siteCspMerge()` after rendering covers it per page).
-- Portal preview: always isolated (also `isolate: false`), consent still applies; the portal can grant categories inside the preview frame with
-  the message `{ns: 'fsc-preview', v: 1, type: 'consent', categories: [...]}` (nothing is stored).
+- Portal preview: always isolated (also `isolate: false`) as a `srcdoc` frame (unsaved blocks have no route), consent still applies; the portal
+  can grant categories inside the preview frame with the message `{ns: 'fsc-preview', v: 1, type: 'consent', categories: [...]}` (nothing is
+  stored; withdrawing a category needs a reload of the preview, since code that ran cannot be unloaded).
 
 Verify: a page with a YouTube iframe in an `html` block with consent `marketing` shows the placeholder, and the video after accepting
-marketing cookies; with a CSP, the console shows no CSP errors; in the browser console of the frame `document.cookie` is empty and
-`parent.document` throws.
+marketing cookies; `curl -sI https://<site>/_fsc/h/<pageId>/<blockId>` shows the `sandbox` CSP and `X-Robots-Tag: noindex`; with a CSP, the
+console shows no CSP errors; in the browser console of the frame `document.cookie` is empty and `parent.document` throws.
 
 ### `articles`
 
@@ -807,7 +817,8 @@ free times load; a booking in a test project shows the confirmation.
 
 ### `events`
 
-Event list and detail with registration (`$content->events`), or only the page builder blocks `eventList` and `event`, which then link to the
+Event list and detail with registration (`$content->events`; print `descriptionHtml` through `<x-content::article-body>`, the block view
+also runs it through the strict `StrictHtml::sanitize()`), or only the page builder blocks `eventList` and `event`, which then link to the
 Hub's registration page (`registrationUrl`). With an own event page, set `content.links.event` (for example `/evenementen/{slug}`).
 `events->list()`/`get()` are not cached unless you pass `['cache' => true]` (tag `content:events`, cleared by every `event.*` webhook).
 Verify: a published event shows; registration in a test project succeeds.
@@ -879,8 +890,8 @@ first in the web group, `trustProxies`, every layout with `</head>` (outside `er
 cookie banner (`fsc:consent`), `errors/404` and `errors/503`, no `fullUrl()` in views, no `public/robots.txt`/`public/sitemap.xml`, `.env` in
 `.gitignore`, no `fsc_srv_`/`fsc_whsec_` in `resources/`, `public/` or the views, and that `config:cache` will work. For the page builder blocks
 (0.28): the newsletter route (`OK`, `INFO` when switched off), `LET OP` for a `Content-Security-Policy` in the site's PHP code (`app/`,
-`bootstrap/app.php`, `routes/`, `config/`) without `siteCspMerge()`/`siteCsp()`, and `LET OP` for one set in `docker/`, `nginx.conf` or
-`public/.htaccess`.
+`bootstrap/app.php`, `routes/`, `config/`) without `siteCspMerge()`/`siteCsp()`, `LET OP` for a CSP middleware appended to the global stack
+in `bootstrap/app.php` (it would replace the policy of `/_fsc/h`), and `LET OP` for one set in `docker/`, `nginx.conf` or `public/.htaccess`.
 
 ### Checks against the running site
 

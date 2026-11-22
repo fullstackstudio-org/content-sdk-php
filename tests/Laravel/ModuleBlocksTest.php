@@ -201,6 +201,33 @@ final class ModuleBlocksTest extends LaravelTestCase
         self::assertCount(4, $this->http->requests);
     }
 
+    public function testEventReadsUseTheShorterTtl(): void
+    {
+        $cache = new class implements \FullStackStudio\Content\Cache\ContentCache {
+            /** @var list<array{tags: list<string>, ttl: int}> */
+            public array $calls = [];
+
+            public function remember(string $key, array $tags, int $ttlSeconds, callable $compute): mixed
+            {
+                $this->calls[] = ['tags' => $tags, 'ttl' => $ttlSeconds];
+
+                return $compute();
+            }
+
+            public function invalidateTags(array $tags): void
+            {
+            }
+        };
+        $this->app->forgetInstance(ContentClient::class);
+        $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' => 'fsc_srv_laraveltoken', 'baseUrl' => 'https://content.test', 'transport' => $this->http, 'cache' => $cache]));
+        $this->http->always(FakeTransport::json(['events' => [], 'page' => 1, 'limit' => 6, 'total' => 0]));
+
+        $this->render([['type' => 'eventList', 'limit' => 6, 'emptyText' => 'Niets']]);
+
+        self::assertSame([['tags' => [Tags::EVENTS], 'ttl' => ModuleBlockData::EVENTS_TTL]], $cache->calls);
+        self::assertSame(300, ModuleBlockData::EVENTS_TTL);
+    }
+
     // --- event --------------------------------------------------------------------------------------------------------------
 
     public function testTheEventBlockShowsOneEventWithDescriptionAndButton(): void
@@ -232,6 +259,34 @@ final class ModuleBlocksTest extends LaravelTestCase
 
         $this->hub(['/events/' . self::EVENT_ID => ['event' => self::event(['status' => 'cancelled'])]]);
         self::assertStringNotContainsString('fsc-block--event', $this->render([['type' => 'event', 'eventRef' => self::EVENT_ID]]));
+    }
+
+    public function testTheEventDescriptionIsSanitizedAgainInTheSdk(): void
+    {
+        $dirty = '<p onclick="steal()">Welkom <b>allemaal</b></p><script>alert(1)</script><img src="x" onerror="alert(2)">'
+            . '<a href="javascript:alert(3)">klik</a><a href=" JaVa&#09;ScRiPt:alert(4)">ook</a><a href="https://example.nl/info" target="_blank" style="color:red">info</a>'
+            . '<style>body{display:none}</style><iframe src="https://evil.test"></iframe><svg><script>alert(5)</script></svg>';
+        $this->hub(['/events/' . self::EVENT_ID => ['event' => self::event(['descriptionHtml' => $dirty])]]);
+
+        $html = $this->render([['type' => 'event', 'eventRef' => self::EVENT_ID, 'showDescription' => true]]);
+
+        self::assertStringContainsString('<div class="fsc-article-body fsc-event__description"><p>Welkom <strong>allemaal</strong></p>klikook<a href="https://example.nl/info" rel="noopener nofollow">info</a></div>', $html);
+        foreach (['<script', 'onerror', 'onclick', 'javascript:', 'alert(', '<img', '<iframe', '<style', '<svg', 'target=', 'style='] as $needle) {
+            self::assertStringNotContainsStringIgnoringCase($needle, $html, $needle);
+        }
+    }
+
+    public function testInactiveTicketTypesDoNotSetThePrice(): void
+    {
+        $this->hub(['/events/' . self::EVENT_ID => ['event' => self::event(['ticketTypes' => [
+            ['priceCents' => 0, 'active' => false],
+            ['priceCents' => 1500, 'active' => true],
+            ['priceCents' => 900, 'active' => false],
+        ]])]]);
+
+        $html = $this->render([['type' => 'event', 'eventRef' => self::EVENT_ID]]);
+
+        self::assertStringContainsString('<span class="fsc-event__price">€ 15,00</span>', $html, 'not "Gratis", not "Vanaf € 9,00"');
     }
 
     // --- appointmentBooking ---------------------------------------------------------------------------------------------------

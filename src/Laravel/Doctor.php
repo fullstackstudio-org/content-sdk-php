@@ -472,9 +472,10 @@ final class Doctor
 
     /**
      * The prerequisites of the module blocks and the `html` block: the newsletter route behind `newsletterSignup`, and a CSP that goes through
-     * `Content::siteCspMerge()` (or `siteCsp()`): an `html` block may load scripts and frames from other hosts, and only the merge adds them to
-     * the policy, per page. A policy set outside PHP (nginx, Apache) cannot be merged at all. Consent gated blocks also need the cookie banner
-     * (see the layout check: it must send `fsc:consent`).
+     * `Content::siteCspMerge()` (or `siteCsp()`): an isolated `html` block needs `frame-src 'self'` (its frame is the site route `/_fsc/h/...`
+     * with its own sandbox policy) and an inline one (staff) the hosts of its code; only the merge adds them, per page. A policy set outside PHP
+     * (nginx, Apache) cannot be merged and would also replace the frame route's own policy; so would a CSP middleware in the GLOBAL stack
+     * (keep it in the `web` group). Consent gated blocks also need the cookie banner (see the layout check: it must send `fsc:consent`).
      */
     private function checkPageBuilderBlocks(): void
     {
@@ -486,7 +487,7 @@ final class Doctor
 
         foreach ($this->serverConfigFiles() as $file) {
             if (preg_match('/Content-Security-Policy/i', (string) file_get_contents($file)) === 1) {
-                $this->add(self::WARN, 'Content-Security-Policy buiten PHP in ' . $this->relative($file), 'Die policy kan Content::siteCspMerge() niet aanvullen: eigen code en HTML-codeblokken met scripts of iframes van andere hosts worden dan geblokkeerd. Zet de CSP in een middleware met Content::siteCspMerge().');
+                $this->add(self::WARN, 'Content-Security-Policy buiten PHP in ' . $this->relative($file), 'Die policy kan Content::siteCspMerge() niet aanvullen (HTML-codeblokken hebben minstens frame-src \'self\' nodig) en vervangt ook de eigen sandbox-policy van /_fsc/h. Zet de CSP in een middleware in de web-groep met Content::siteCspMerge().');
             }
         }
 
@@ -510,7 +511,19 @@ final class Doctor
         } elseif ($merges) {
             $this->add(self::OK, 'Content-Security-Policy gaat door Content::siteCspMerge() (eigen code en HTML-codeblokken)');
         } else {
-            $this->add(self::WARN, 'Content-Security-Policy zonder Content::siteCspMerge() in ' . implode(', ', array_map($this->relative(...), $setsCsp)), 'HTML-codeblokken (en eigen code uit de module site) laden dan geen scripts of iframes van andere hosts. Haal de policy door Content::siteCspMerge($policy) nadat de pagina gerenderd is, en geef scripts de nonce (Vite::useCspNonce()). Zie AGENTS.md, "HTML-code".');
+            $this->add(self::WARN, 'Content-Security-Policy zonder Content::siteCspMerge() in ' . implode(', ', array_map($this->relative(...), $setsCsp)), 'Afgeschermde HTML-codeblokken hebben dan geen frame-src \'self\', inline blokken (staf) en eigen code uit de module site laden geen scripts of iframes van andere hosts. Haal de policy door Content::siteCspMerge($policy) nadat de pagina gerenderd is, en geef scripts de nonce (Vite::useCspNonce()). Zie AGENTS.md, A13.');
+        }
+
+        // A CSP middleware in the global stack also runs on /_fsc/h and would replace the frame document's own sandbox policy.
+        $bootstrap = $this->app->basePath('bootstrap/app.php');
+        $bootstrapCode = is_file($bootstrap) ? (string) file_get_contents($bootstrap) : '';
+
+        foreach ($setsCsp as $file) {
+            $class = pathinfo($file, PATHINFO_FILENAME);
+
+            if ($bootstrapCode !== '' && preg_match('/->(?:append|prepend)\(\s*\[?[^)]*?\b' . preg_quote($class, '/') . '::class/', $bootstrapCode) === 1) {
+                $this->add(self::WARN, "CSP-middleware {$class} staat in de globale middleware", 'Die draait ook op /_fsc/h (afgeschermde HTML-codeblokken) en vervangt daar de eigen sandbox-policy. Zet hem in de web-groep: $middleware->web(append: [' . $class . '::class]).');
+            }
         }
     }
 

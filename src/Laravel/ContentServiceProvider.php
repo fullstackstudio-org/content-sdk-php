@@ -99,6 +99,8 @@ final class ContentServiceProvider extends ServiceProvider
             self::registerNewsletterRoute();
         }
 
+        self::registerHtmlBlockRoute();
+
         if ($this->app['config']->get('content.analytics.enabled', true)) {
             self::registerAnalyticsRoutes();
         }
@@ -316,6 +318,17 @@ final class ContentServiceProvider extends ServiceProvider
         Route::middleware($config->get('content.newsletter.middleware', ['web']))
             ->post(trim((string) $config->get('content.newsletter.path', 'content/newsletter'), '/'), NewsletterController::class)
             ->name('content.newsletter');
+    }
+
+    /**
+     * `GET {content.html_blocks.path}/{pageId}/{key}` (default `/_fsc/h/...`, route name `content.html-block`): an isolated `html` block of a
+     * published page as its own sandboxed document ({@see HtmlBlockController}). No middleware group. Always registered (called for you).
+     */
+    public static function registerHtmlBlockRoute(): void
+    {
+        Route::get(ltrim(HtmlBlockController::base(), '/') . '/{pageId}/{key}', HtmlBlockController::class)
+            ->where(['pageId' => '[0-9a-fA-F-]{36}', 'key' => '[A-Za-z0-9_~-]{1,40}'])
+            ->name('content.html-block');
     }
 
     /** Registers `POST {content.webhook.path}` (route name `content.webhook`). Called for you when `content.webhook.enabled` is on, or via `Content::routes()`. */
