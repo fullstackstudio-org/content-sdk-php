@@ -55,6 +55,16 @@ final class PreviewTest extends LaravelTestCase
         };
 
         $router->middleware('web')->get('/over-ons', static fn () => $page('over-ons'));
+        // A site with the home page on `/` that sends `/home` there, a localised site, a redirect out, a redirect loop.
+        $router->middleware('web')->get('/', static fn () => $page('/'));
+        $router->middleware('web')->get('/home', static fn () => redirect('/'));
+        $router->middleware('web')->get('/about', static fn () => redirect('http://localhost/en/about', 301));
+        $router->middleware('web')->get('/en/{path}', static fn (string $path) => $page($path))->where('path', '.*');
+        $router->middleware('web')->get('/extern', static fn () => redirect('https://evil.test/x'));
+        $router->middleware('web')->get('/loop', static fn () => redirect('/loop2'));
+        $router->middleware('web')->get('/loop2', static fn () => redirect('/loop'));
+        // Caches on a store that is not the default one.
+        $router->middleware('web')->get('/cached-file', static fn () => Cache::store('file')->remember('page:over-ons', 600, static fn () => app(ContentClient::class)->getPage('over-ons'))['title'] ?? '');
         $router->middleware('web')->get('/kaal', static fn () => response('<html><head></head><body>x</body></html>'));
         // A site that caches the page itself: the preview must neither read nor write that cache.
         $router->middleware('web')->get('/cached', static fn () => Cache::remember('page:over-ons', 600, static fn () => app(ContentClient::class)->getPage('over-ons'))['title'] ?? '');
@@ -266,20 +276,22 @@ final class PreviewTest extends LaravelTestCase
         self::assertStringContainsString('Nog niet gepubliceerd', $html);
     }
 
-    public function testTheLiveCacheIsNeverWrittenWithThePreview(): void
+    public function testTheDefaultCacheStoreIsNeitherReadNorWritten(): void
     {
-        config(['cache.default' => 'file', 'cache.stores.file.path' => sys_get_temp_dir() . '/fsc-preview-cache-' . getmypid()]);
-        Cache::store('file')->flush();
+        $dir = sys_get_temp_dir() . '/fsc-preview-cache-' . getmypid();
+        config(['cache.default' => 'file', 'cache.stores.file.path' => $dir]);
+        $live = new \Illuminate\Cache\Repository(new \Illuminate\Cache\FileStore(new \Illuminate\Filesystem\Filesystem(), $dir));
+        $live->flush();
+        Cache::store('file')->put('page:over-ons', ['title' => 'Live uit de cache'], 600);
         $this->preview['path'] = '/cached';
         $this->preview['page']['slug'] = 'over-ons';
 
-        Cache::store('file')->put('page:over-ons', ['title' => 'Live uit de cache'], 600);
         $response = $this->postPreview();
 
         $response->assertOk();
         self::assertStringEndsWith('></script>Concept over ons', (string) $response->getContent());
-        self::assertSame(['title' => 'Live uit de cache'], Cache::store('file')->get('page:over-ons'), 'the preview neither reads nor overwrites the site cache');
-        Cache::store('file')->flush();
+        self::assertSame(['title' => 'Live uit de cache'], $live->get('page:over-ons'), 'the preview neither reads nor overwrites the site cache');
+        $live->flush();
     }
 
     public function testASiteWithoutCspGetsOnlyFrameAncestors(): void
@@ -314,19 +326,148 @@ final class PreviewTest extends LaravelTestCase
         }
     }
 
-    public function testTheRateLimitStopsAFlood(): void
+    public function testTheRateLimitIsPerTokenNotPerIp(): void
     {
         config(['content.preview.rate_limit' => 2]);
 
         $this->postPreview()->assertOk();
-        $this->postPreview()->assertOk();
-        $this->postPreview()->assertStatus(429);
+        $this->postPreview(self::TOKEN, ['REMOTE_ADDR' => '198.51.100.1'])->assertOk();
+        $limited = $this->postPreview(self::TOKEN, ['REMOTE_ADDR' => '198.51.100.2']);
+        $limited->assertStatus(429);
+        self::assertSame('60', $limited->headers->get('Retry-After'));
         self::assertSame(2, count(array_filter($this->hubPaths(), static fn (string $p): bool => $p === '/pages/preview')));
+
+        // Another editor behind the same office IP is not affected.
+        $this->preview = null;
+        $this->postPreview('fscpv_' . str_repeat('B', 43))->assertNotFound();
+    }
+
+    public function testTheDefaultLimitIs60PerToken(): void
+    {
+        self::assertSame(60, config('content.preview.rate_limit'));
+    }
+
+    public function testGuessedTokensAreLimitedPerIp(): void
+    {
+        $this->preview = null;
+
+        for ($i = 0; $i < 30; $i++) {
+            $this->postPreview('fscpv_' . str_pad((string) $i, 43, 'C'))->assertNotFound();
+        }
+
+        $this->postPreview('fscpv_' . str_repeat('D', 43))->assertStatus(429);
+        self::assertSame(30, count($this->hub), 'the Hub is not asked once the IP guessed too often');
+    }
+
+    public function testTheHomePageFollowsTheSiteRedirectToSlash(): void
+    {
+        $this->preview['path'] = '/home';
+        $this->preview['page']['slug'] = 'home';
+
+        $response = $this->postPreview();
+
+        $response->assertOk();
+        self::assertStringContainsString('Nog niet gepubliceerd', (string) $response->getContent());
+        self::assertStringContainsString('preview.js', (string) $response->getContent());
+        self::assertSame([], $response->headers->getCookies());
+    }
+
+    public function testALocalisedSiteIsFollowedToItsLocalePrefix(): void
+    {
+        $this->preview['path'] = '/about';
+        $this->preview['page'] = [...$this->preview['page'], 'slug' => 'about', 'locale' => 'en'];
+
+        $response = $this->postPreview();
+
+        $response->assertOk();
+        self::assertStringContainsString('Nog niet gepubliceerd', (string) $response->getContent());
+    }
+
+    public function testAPagePathTemplateMapsTheHubPathToTheSiteRoute(): void
+    {
+        config(['content.preview.page_path' => '/{locale}/{slug}']);
+        $this->preview['path'] = '/over-mij';
+        $this->preview['page'] = [...$this->preview['page'], 'slug' => 'over-mij', 'locale' => 'en'];
+
+        $response = $this->postPreview();
+
+        $response->assertOk();
+        self::assertStringContainsString('Nog niet gepubliceerd', (string) $response->getContent());
+    }
+
+    public function testAPagePathResolverClassIsUsedAndABadAnswerFallsBack(): void
+    {
+        config(['content.preview.page_path' => PreviewTestHomeResolver::class]);
+        $this->preview['path'] = '/start';
+        $this->preview['page']['slug'] = 'start';
+        self::assertStringContainsString('Nog niet gepubliceerd', (string) $this->postPreview()->getContent());
+
+        config(['content.preview.page_path' => '/{slug}/../../x']);
+        self::assertStringContainsString('Nog niet gepubliceerd', (string) $this->postPreview(self::TOKEN, ['REMOTE_ADDR' => '198.51.100.9'])->getContent(), 'an unsafe template result falls back to the Hub path');
+    }
+
+    public function testARedirectToAnotherHostOrALoopIsNotFollowedEndlessly(): void
+    {
+        $this->preview['path'] = '/extern';
+        $out = $this->postPreview();
+        $out->assertRedirect('https://evil.test/x');
+        self::assertStringContainsString('no-store', (string) $out->headers->get('Cache-Control'));
+
+        $this->preview['path'] = '/loop';
+        $loop = $this->postPreview(self::TOKEN, ['REMOTE_ADDR' => '198.51.100.3']);
+        self::assertTrue($loop->isRedirection(), 'after two hops the redirect is returned as it is');
+        self::assertSame([], $loop->headers->getCookies());
+    }
+
+    public function testANonDefaultCacheStoreIsNeitherReadNorWritten(): void
+    {
+        $dir = sys_get_temp_dir() . '/fsc-preview-file-' . getmypid();
+        config(['cache.default' => 'array', 'cache.stores.file.path' => $dir]);
+        $live = new \Illuminate\Cache\Repository(new \Illuminate\Cache\FileStore(new \Illuminate\Filesystem\Filesystem(), $dir));
+        $live->flush();
+        // Resolved before the preview request, as in a site that touched the store in a service provider.
+        Cache::store('file')->put('page:over-ons', ['title' => 'Live uit de cache'], 600);
+        $this->preview['path'] = '/cached-file';
+        $this->preview['page']['slug'] = 'over-ons';
+
+        $response = $this->postPreview();
+
+        $response->assertOk();
+        self::assertStringEndsWith('></script>Concept over ons', (string) $response->getContent());
+        self::assertSame(['title' => 'Live uit de cache'], $live->get('page:over-ons'), 'the live entry is untouched');
+        $live->flush();
+    }
+
+    public function testKnownFullPageCacheSwitchesAreOffInThePreview(): void
+    {
+        config(['responsecache.enabled' => true]);
+
+        $this->postPreview()->assertOk();
+
+        self::assertFalse(config('responsecache.enabled'));
+        self::assertSame(['driver' => 'array', 'serialize' => true], config('cache.stores.file'));
+    }
+
+    public function testContentIsPreviewTellsTheLayout(): void
+    {
+        self::assertFalse(\FullStackStudio\Content\Laravel\Facades\Content::isPreview());
+        app(\FullStackStudio\Content\Laravel\Preview\Preview::class)->activate(['blocks' => []], '/x', 'https://portal.test', 1, self::TOKEN);
+        self::assertTrue(\FullStackStudio\Content\Laravel\Facades\Content::isPreview());
     }
 
     public function testFrameAncestorsRewritesEveryPolicy(): void
     {
         self::assertSame(["script-src 'self'; frame-ancestors https://p.test", "img-src *"], PreviewRequest::frameAncestors(["frame-ancestors 'none'; script-src 'self'", "img-src *; frame-ancestors 'self'"], 'https://p.test'));
         self::assertSame(['frame-ancestors https://p.test'], PreviewRequest::frameAncestors([], 'https://p.test'));
+    }
+}
+
+/** A page path resolver as a site would write it (an invokable class: config:cache cannot hold a closure). */
+final class PreviewTestHomeResolver
+{
+    /** @param array<string, mixed> $page */
+    public function __invoke(array $page, string $hubPath): ?string
+    {
+        return $hubPath === '/start' ? '/' : null;
     }
 }

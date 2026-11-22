@@ -55,12 +55,15 @@ return [
      * The live preview from the portal's page editor. The portal posts a short-lived token to `POST {path}` (default `/_fsc/p`); the site
      * asks the Hub for the unpublished page and renders it through its own route and layout, framed by the portal only. Nothing to configure:
      * it needs a server token and is on by default. `FSC_PREVIEW_ENABLED=false` switches it off. `rate_limit`: preview requests per minute
-     * per visitor IP.
+     * per preview token. `page_path`: only for a site whose routes differ from the Hub path (`/<slug>`) and do not redirect to the right one:
+     * a template (`/{locale}/{slug}`, `{path}` = the Hub path) or the class name of an invokable `fn (array $page, string $hubPath): ?string`
+     * (no closure here: config:cache). Same-host redirects of the site are followed by themselves (home on `/`, trailing slash, locale prefix).
      */
     'preview' => [
         'enabled' => (bool) env('FSC_PREVIEW_ENABLED', true),
         'path' => env('FSC_PREVIEW_PATH', '_fsc/p'),
-        'rate_limit' => (int) env('FSC_PREVIEW_RATE_LIMIT', 30),
+        'rate_limit' => (int) env('FSC_PREVIEW_RATE_LIMIT', 60),
+        'page_path' => null,
     ],
 
     /*

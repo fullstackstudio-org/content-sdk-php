@@ -454,6 +454,10 @@ final class Doctor
             $this->add(self::WARN, 'Cookiebanner verbergt zich niet in het voorbeeld', 'Verberg de banner als <html> het attribuut data-fsc-preview heeft, bv. html[data-fsc-preview] #fsc-consent { display: none !important; }. Zie AGENTS.md, "Voorbeeld vanuit het portaal".');
         }
 
+        foreach ($this->pageCachePackages() as $package) {
+            $this->add(self::WARN, "Paginacache-pakket {$package} gevonden", 'Het voorbeeld zet alle cachestores op array en zet bekende schakelaars uit, maar een paginacache die buiten Laravels cache schrijft (bestanden in public/, een CDN-regel) kan een conceptpagina onder de live URL bewaren. Sla POST /_fsc/p over in die cache, of gebruik geen paginacache.');
+        }
+
         foreach ($this->serverConfigFiles() as $file) {
             $contents = (string) file_get_contents($file);
 
@@ -461,6 +465,37 @@ final class Doctor
                 $this->add(self::WARN, 'X-Frame-Options of frame-ancestors buiten PHP in ' . $this->relative($file), 'De webserver zet die header op elk antwoord, ook op het voorbeeld; dan kan het portaal de site niet tonen. Zet hem in PHP (middleware), de SDK past hem in het voorbeeld aan.');
             }
         }
+    }
+
+    /** @return list<string> installed full-page or response cache packages (from composer.lock, else by class) */
+    private function pageCachePackages(): array
+    {
+        $known = [
+            'spatie/laravel-responsecache' => 'Spatie\\ResponseCache\\ResponseCacheServiceProvider',
+            'silber/page-cache' => 'Silber\\PageCache\\LaravelServiceProvider',
+            'renatomarinho/laravel-page-speed' => 'RenatoMarinho\\LaravelPageSpeed\\ServiceProvider',
+        ];
+        $lock = $this->app->basePath('composer.lock');
+        $data = is_file($lock) ? json_decode((string) file_get_contents($lock), true) : null;
+        $locked = [];
+
+        foreach (['packages', 'packages-dev'] as $group) {
+            foreach (is_array($data) && is_array($data[$group] ?? null) ? $data[$group] : [] as $entry) {
+                if (is_array($entry) && is_string($entry['name'] ?? null)) {
+                    $locked[] = $entry['name'];
+                }
+            }
+        }
+
+        $found = [];
+
+        foreach ($known as $package => $class) {
+            if (in_array($package, $locked, true) || class_exists($class)) {
+                $found[] = $package;
+            }
+        }
+
+        return $found;
     }
 
     /** The banner rule may live in a view or in the site's own CSS or JS. */

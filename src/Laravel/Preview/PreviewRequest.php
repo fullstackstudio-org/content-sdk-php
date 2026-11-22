@@ -33,6 +33,15 @@ final class PreviewRequest
     /** `fscpv_` + 32 random bytes in base64url (43 characters without padding). */
     public const TOKEN_PATTERN = '/^fscpv_[A-Za-z0-9_-]{43}$/D';
 
+    /** Same-host redirects followed inside one preview. */
+    private const MAX_HOPS = 2;
+
+    /** Tokens the Hub refused, per visitor IP and minute. */
+    private const MISS_LIMIT = 30;
+
+    /** Full-page cache packages whose switch is turned off for a preview request (their stores point at `array` anyway). */
+    private const PAGE_CACHE_SWITCHES = ['responsecache.enabled', 'page-cache.enabled', 'laravel-page-speed.enable'];
+
     public static function enabled(): bool
     {
         $config = app('config');
@@ -66,14 +75,17 @@ final class PreviewRequest
             return self::refuse(404);
         }
 
-        $limiterKey = 'fsc-preview:' . (PersonalizationController::visitorIp($request) ?? 'none');
-        $limit = max(1, (int) app('config')->get('content.preview.rate_limit', 30));
+        // Per token (one editor session, also behind a shared office IP), plus a per-IP limit on tokens the Hub refused, so guessing
+        // well-formed tokens cannot hammer the Hub.
+        $tokenKey = 'fsc-preview:' . hash('sha256', $token);
+        $missKey = 'fsc-preview-miss:' . (PersonalizationController::visitorIp($request) ?? 'none');
+        $limit = max(1, (int) app('config')->get('content.preview.rate_limit', 60));
 
-        if (RateLimiter::tooManyAttempts($limiterKey, $limit)) {
+        if (RateLimiter::tooManyAttempts($tokenKey, $limit) || RateLimiter::tooManyAttempts($missKey, self::MISS_LIMIT)) {
             return self::refuse(429);
         }
 
-        RateLimiter::hit($limiterKey, 60);
+        RateLimiter::hit($tokenKey, 60);
         $client = app(ContentClient::class);
 
         try {
@@ -83,16 +95,33 @@ final class PreviewRequest
         }
 
         if ($parsed === null) {
+            RateLimiter::hit($missKey, 60);
+
             return self::refuse(404);
         }
 
+        $path = self::sitePath($parsed['page'], $parsed['path']);
         $preview = app(Preview::class);
-        $preview->activate($parsed['page'], $parsed['path'], $parsed['embedOrigin'], $parsed['version'], $token);
+        $preview->activate($parsed['page'], $path, $parsed['embedOrigin'], $parsed['version'], $token);
+        $preview->alias($parsed['path']);
         self::isolate();
         $client->overridePages(static fn (string $ref): ?array => $preview->pageFor($ref));
 
         try {
-            $response = $next(self::forward($request, $parsed['path']));
+            $response = $next(self::forward($request, $path));
+
+            // The site may map the page elsewhere (home on `/`, a trailing slash, a locale prefix) and redirect to it: follow a same-host
+            // redirect inside the preview, at most twice, so the preview shows the page where the site renders it.
+            for ($hop = 0; $hop < self::MAX_HOPS && $response instanceof Response && $response->isRedirection(); $hop++) {
+                $nextPath = self::sameHostPath($request, (string) $response->headers->get('Location', ''));
+
+                if ($nextPath === null) {
+                    break;
+                }
+
+                $preview->alias($nextPath);
+                $response = $next(self::forward($request, $nextPath));
+            }
         } finally {
             $client->overridePages(null);
         }
@@ -229,17 +258,94 @@ final class PreviewRequest
         return implode('; ', $kept);
     }
 
-    /** No session or cache side effects for the rest of this request: an in-memory session and an in-memory default cache store. */
+    /**
+     * No session or cache side effects for the rest of this request: an in-memory session, and EVERY cache store (not only the default)
+     * pointed at a fresh in-memory store, so a site that caches pages or responses under the live key (`Cache::store('file')->remember()`,
+     * a response-cache package on its own store) neither serves the live page nor stores the preview. Known full-page cache switches go off.
+     * Stores resolved before this point (the SDK's own tag cache, the rate limiter) keep working on the real store: they hold published data.
+     */
     private static function isolate(): void
     {
         $config = app('config');
         $config->set('session.driver', 'array');
+        $stores = array_keys((array) $config->get('cache.stores', []));
+
+        foreach ($stores as $name) {
+            $config->set("cache.stores.{$name}", ['driver' => 'array', 'serialize' => true]);
+        }
+
+        $config->set('cache.stores.array', ['driver' => 'array', 'serialize' => true]);
         $config->set('cache.default', 'array');
 
-        // A site that wraps `getPage()` in its own `Cache::remember()` must neither serve the live page nor store the preview.
-        if (app()->resolved('cache')) {
-            app('cache')->setDefaultDriver('array');
+        foreach (self::PAGE_CACHE_SWITCHES as $key) {
+            if ($config->has($key)) {
+                $config->set($key, false);
+            }
         }
+
+        if (app()->resolved('cache')) {
+            $manager = app('cache');
+            $manager->forgetDriver([...$stores, 'array']);
+            $manager->setDefaultDriver('array');
+        }
+
+        app()->forgetInstance('cache.store');
+    }
+
+    /**
+     * Where this site renders the page: `content.preview.page_path` (a template with `{path}`, `{slug}`, `{locale}`, or an invokable class /
+     * callable given the page and the Hub path) when set and valid, else the Hub path. The Hub path stays an alias for `getPage()`.
+     *
+     * @param array<string, mixed> $page
+     */
+    private static function sitePath(array $page, string $hubPath): string
+    {
+        $resolver = app('config')->get('content.preview.page_path');
+
+        try {
+            if (is_string($resolver) && str_starts_with($resolver, '/')) {
+                $slug = is_string($page['slug'] ?? null) ? $page['slug'] : trim($hubPath, '/');
+                $locale = is_string($page['locale'] ?? null) ? $page['locale'] : '';
+                $candidate = str_replace(['{path}', '{slug}', '{locale}'], [trim($hubPath, '/'), trim($slug, '/'), $locale], $resolver);
+                $candidate = '/' . ltrim((string) preg_replace('#/{2,}#', '/', $candidate), '/');
+            } elseif (is_string($resolver) && $resolver !== '' && class_exists($resolver)) {
+                $candidate = app($resolver)($page, $hubPath);
+            } elseif (is_callable($resolver)) {
+                $candidate = $resolver($page, $hubPath);
+            } else {
+                $candidate = null;
+            }
+        } catch (Throwable) {
+            $candidate = null;
+        }
+
+        return self::cleanPath($candidate) ?? $hubPath;
+    }
+
+    /** The path of a redirect target on this same host (relative, or absolute with the request's own scheme and host), else null. */
+    private static function sameHostPath(Request $request, string $location): ?string
+    {
+        if ($location === '') {
+            return null;
+        }
+
+        $parts = parse_url($location);
+
+        if ($parts === false) {
+            return null;
+        }
+
+        if (isset($parts['host']) || isset($parts['scheme'])) {
+            $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+            $origin = strtolower(($parts['scheme'] ?? '') . '://' . ($parts['host'] ?? '') . $port);
+
+            if ($origin !== strtolower($request->getSchemeAndHttpHost())) {
+                return null;
+            }
+        }
+
+        // `http://host` without a path is the home page.
+        return self::cleanPath(($parts['path'] ?? '') === '' ? '/' : $parts['path']);
     }
 
     /** The anonymous GET the site renders: same host and scheme, no cookies, no body, no credentials, no query. */

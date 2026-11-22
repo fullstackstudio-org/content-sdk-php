@@ -4,9 +4,10 @@
  * endpoint, token, origin (the exact portal origin allowed to frame the page), version, sdk.
  *
  * - Marks the page at once: html[data-fsc-preview] (a cookie banner hides itself on it) and window.fscPreviewMode = true.
- * - Blocks every form submit (the SDK forms are disabled server-side as well) and, when framed, link clicks inside blocks.
+ * - Blocks every form submit (the SDK forms are disabled server-side as well) and, when framed, every link click (a menu link would move the
+ *   frame to the live site, and the preview token does not travel with it).
  * - Talks to the portal with postMessage ({ns: 'fsc-preview', v: 1, type, ...}), exact origin and source checks on every message:
- *     to the portal:   ready {version, sdk}, rendered {version}, select {blockId, index}, error {code}
+ *     to the portal:   ready {version, sdk}, rendered {version}, select {blockId, index}, error {code, retryAfter?}
  *     from the portal: refresh {version}, highlight {blockId}
  *   No content travels over postMessage: on refresh the page asks its own server again (same-origin POST with the token) and swaps the
  *   [data-fsc-preview-blocks] roots when their count matches (scroll kept), else it reloads with a form POST (scroll restored).
@@ -65,9 +66,9 @@
     }, true);
 
     d.addEventListener('click', function (event) {
+        if (framed && closest(event.target, isLink)) { event.preventDefault(); }
         var block = closest(event.target, isBlock);
         if (!block) { return; }
-        if (framed && closest(event.target, isLink)) { event.preventDefault(); }
         post('select', { blockId: block.getAttribute('data-fsc-block'), index: parseInt(block.getAttribute('data-fsc-block-index'), 10) || 0 });
     }, true);
 
@@ -132,7 +133,12 @@
         var body = new URLSearchParams();
         body.set('token', cfg.token);
         fetch(cfg.endpoint, { method: 'POST', body: body, credentials: 'omit', cache: 'no-store', redirect: 'error' }).then(function (response) {
-            if (!response.ok) { throw new Error(String(response.status)); }
+            if (!response.ok) {
+                var failure = new Error(String(response.status));
+                var retry = response.headers && response.headers.get ? parseInt(response.headers.get('Retry-After') || '', 10) : NaN;
+                failure.retryAfter = isNaN(retry) ? 60 : retry;
+                throw failure;
+            }
             return response.text();
         }).then(function (text) {
             if (mine !== sequence) { return; }
@@ -151,7 +157,11 @@
         }).catch(function (error) {
             if (mine !== sequence) { return; }
             var status = error && error.message;
-            post('error', { code: status === '404' ? 'expired' : status === '429' ? 'rate_limited' : 'refresh_failed' });
+            if (status === '429') {
+                post('error', { code: 'rate_limited', retryAfter: error.retryAfter || 60 });
+                return;
+            }
+            post('error', { code: status === '404' ? 'expired' : 'refresh_failed' });
         });
     }
 

@@ -287,6 +287,25 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'X-Frame-Options of frame-ancestors buiten PHP in'));
     }
 
+    public function testAFullPageCachePackageIsAWarning(): void
+    {
+        $this->completeSite();
+        self::assertNull($this->statusOf($this->results(), 'Paginacache-pakket'));
+
+        $base = sys_get_temp_dir() . '/fsc-doctor-base-' . bin2hex(random_bytes(4));
+        mkdir($base);
+        file_put_contents($base . '/composer.lock', json_encode(['packages' => [['name' => 'spatie/laravel-responsecache', 'version' => '7.0.0']]], JSON_PRETTY_PRINT));
+        $original = $this->app->basePath();
+        $this->app->setBasePath($base);
+
+        try {
+            self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'Paginacache-pakket spatie/laravel-responsecache gevonden'));
+        } finally {
+            $this->app->setBasePath($original);
+            exec('rm -rf ' . escapeshellarg($base));
+        }
+    }
+
     public function testThePreviewLineFollowsTheKillSwitchAndTheToken(): void
     {
         $this->completeSite();

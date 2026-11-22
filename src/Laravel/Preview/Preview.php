@@ -31,6 +31,9 @@ final class Preview
 
     private string $token = '';
 
+    /** @var list<string> other paths this page answers to in this request (the Hub path, a redirect target the site sent) */
+    private array $aliases = [];
+
     /** True while the current request renders a preview. Never throws (false outside a Laravel app). */
     public static function isActive(): bool
     {
@@ -49,6 +52,13 @@ final class Preview
         $this->embedOrigin = $embedOrigin;
         $this->version = $version;
         $this->token = $token;
+        $this->aliases = [];
+    }
+
+    /** One more path that returns the preview page in this request. */
+    public function alias(string $path): void
+    {
+        $this->aliases[] = $path;
     }
 
     public function active(): bool
@@ -102,7 +112,7 @@ final class Preview
 
         $wanted = Tags::normalizePagePath($ref);
 
-        foreach ([$this->path, $this->page['path'] ?? null, $this->page['slug'] ?? null] as $candidate) {
+        foreach ([$this->path, ...$this->aliases, $this->page['path'] ?? null, $this->page['slug'] ?? null] as $candidate) {
             if (is_string($candidate) && Tags::normalizePagePath($candidate) === $wanted) {
                 return $this->page;
             }

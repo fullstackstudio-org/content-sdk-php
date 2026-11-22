@@ -601,10 +601,11 @@ view overrides, so the preview is exactly what the live URL will show. It is on 
 register. How it works:
 
 1. The portal posts a short-lived token (`fscpv_...`) to `POST /_fsc/p` in an iframe (never in a URL).
-2. The global middleware `PreviewRequest` checks the token's shape, limits it to 30 requests a minute per IP, and asks the Hub for the
+2. The global middleware `PreviewRequest` checks the token's shape, limits it to 60 requests a minute per token (and refused tokens per IP), and asks the Hub for the
    unpublished page (`ContentClient::getPagePreview()`, never cached). Any refusal is a bare 404; a `GET /_fsc/p` is always 404.
-3. The request is rewritten to an anonymous `GET <path>` of that page (no cookies, an in-memory session and an in-memory default cache store),
-   and passed on to your routes. `getPage()` returns the preview page for that path; every other Hub call is the usual one.
+3. The request is rewritten to an anonymous `GET <path>` of that page (no cookies, an in-memory session, every cache store pointed at a fresh
+   in-memory store, known full-page cache switches off), and passed on to your routes. When your route answers with a redirect to a path on the
+   same host (home page on `/`, a trailing slash, a locale prefix), that path is rendered inside the preview too (at most two hops). `getPage()` returns the preview page for that path; every other Hub call is the usual one.
 4. The response gets `/_fsc/p/preview.js` right after `<head>`, `data-fsc-preview` on `<html>`, `Cache-Control: private, no-store`,
    `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, no `Set-Cookie`/`ETag`/`Last-Modified`/`X-Frame-Options`, and a CSP whose
    `frame-ancestors` is exactly the portal origin. On a refresh the script swaps the blocks without a reload.
@@ -614,8 +615,15 @@ In a preview `<x-content::page-blocks>` marks each block (`data-fsc-block`, `dis
 
 - Hide the cookie banner under `html[data-fsc-preview]` (A10).
 - Never set `X-Frame-Options` or `frame-ancestors` outside PHP (A13); `fsc:doctor` warns about `docker/`, `nginx.conf` and `public/.htaccess`.
-- Build pages through `getPage()` in the catch-all (A6), as always. Do not cache a page outside the SDK (`Cache::remember` around `getPage()`):
-  the preview neither reads nor writes the default cache store, but a cache on another store would serve the live page in the preview.
+- Build pages through `getPage()` in the catch-all (A6), as always. If your routes put a page somewhere else than the Hub path (`/<slug>`)
+  and do not redirect there, set `content.preview.page_path`: a template (`/{locale}/{slug}`, `{path}`) or the class name of an invokable
+  `fn (array $page, string $hubPath): ?string` (not a closure: `config:cache`).
+- A full-page cache that writes outside Laravel's cache (files in `public/`, a CDN rule) can still store a preview under the live URL: skip
+  `/_fsc/p` there. `fsc:doctor` warns about known page-cache packages (`spatie/laravel-responsecache`, `silber/page-cache`, ...).
+- Third-party scripts written straight into a layout (a chat widget, a tag manager, a pixel) still run in the preview: they count the
+  editor as a visitor and can read the HTML source, which holds the preview token until `preview.js` removes it. Wrap them:
+  `@unless (\FullStackStudio\Content\Laravel\Facades\Content::isPreview()) ... @endunless` (or check `html[data-fsc-preview]` in JS).
+  The owner's own code from the Hub (`<x-content::head>`/`<x-content::body-end>`) is consent-gated and the analytics component is off already.
 - Do not put a CDN cache, auth or CSRF on `/_fsc/p`.
 
 Kill switch: `FSC_PREVIEW_ENABLED=false` (the portal then offers "Open in nieuw venster" or says the site must be updated). Path:

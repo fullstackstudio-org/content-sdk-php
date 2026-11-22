@@ -141,9 +141,18 @@ describe('form guard and block selection', () => {
         expect(sent.at(-1).message).toEqual({ ns: 'fsc-preview', v: 1, type: 'select', blockId: 'b2', index: 1 });
     });
 
-    it('ignores clicks outside blocks', () => {
+    it('keeps a framed preview on every link, also outside blocks, without a select', () => {
         const { fire, sent } = run();
-        const event = fire('click', el('a'));
+        const menu = el('nav', {}, [el('a', { href: '/contact' })]);
+        const event = fire('click', menu.children[0]);
+
+        expect(event.prevented).toBe(true);
+        expect(types(sent)).toEqual(['ready']);
+    });
+
+    it('ignores clicks on plain text outside blocks', () => {
+        const { fire, sent } = run();
+        const event = fire('click', el('p'));
 
         expect(event.prevented).toBe(false);
         expect(types(sent)).toEqual(['ready']);
@@ -220,6 +229,16 @@ describe('messages from the portal', () => {
 
         expect(sent.at(-1).message).toEqual({ ns: 'fsc-preview', v: 1, type: 'error', code: 'expired' });
         expect(root.children[1].children[0]).toBe(blocks);
+    });
+
+    it('reports a rate limit with the retry delay of the site', async () => {
+        const { message, flush, sent } = run({ fetchReply: { ok: false, status: 429, headers: { get: (name) => (name === 'Retry-After' ? '17' : null) }, text: () => Promise.resolve('') } });
+
+        message({ ns: 'fsc-preview', v: 1, type: 'refresh', version: 6 });
+        await flush();
+        await flush();
+
+        expect(sent.at(-1).message).toEqual({ ns: 'fsc-preview', v: 1, type: 'error', code: 'rate_limited', retryAfter: 17 });
     });
 
     it('outlines and scrolls to the highlighted block, and clears the previous one', () => {

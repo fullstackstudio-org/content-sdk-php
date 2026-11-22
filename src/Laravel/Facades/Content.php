@@ -25,6 +25,15 @@ final class Content extends Facade
     }
 
     /** Registers the form route (`POST content/forms/{key}`) behind `<x-content::form>`. */
+    /**
+     * True while this request renders a portal preview (see AGENTS.md A17). Wrap third-party scripts written straight into a layout in
+     * `@unless (Content::isPreview()) ... @endunless`: an editor's preview is never a visit, and such scripts can read the page source.
+     */
+    public static function isPreview(): bool
+    {
+        return \FullStackStudio\Content\Laravel\Preview\Preview::isActive();
+    }
+
     public static function formRoutes(): void
     {
         ContentServiceProvider::registerFormRoute();
