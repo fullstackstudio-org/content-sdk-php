@@ -7,6 +7,7 @@ namespace FullStackStudio\Content\Laravel;
 use Closure;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\ContentException;
+use FullStackStudio\Content\Laravel\Preview\PreviewRequest;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Middleware\TrustProxies;
@@ -51,6 +52,7 @@ final class Doctor
         $this->section(fn () => $this->checkRoutes());
         $this->section(fn () => $this->checkMiddleware());
         $this->section(fn () => $this->checkLayouts());
+        $this->section(fn () => $this->checkPreview());
         $this->section(fn () => $this->checkPublicFiles());
         $this->section(fn () => $this->checkSecrets());
         $this->section(fn () => $this->checkConfigCacheable());
@@ -423,6 +425,81 @@ final class Doctor
                 $this->add(self::WARN, 'View ' . $this->relative($path) . ' gebruikt de volledige URL met query', 'Bouw canonical, og:url en deellinks uit het pad: de query kan ?fscn= en utm-waarden bevatten.');
             }
         }
+    }
+
+    // --- Portal preview -------------------------------------------------------------------------------------------------------
+
+    /**
+     * The live preview from the portal (`POST /_fsc/p`): on with a server token unless `FSC_PREVIEW_ENABLED=false`. A cookie banner must stay
+     * hidden under `html[data-fsc-preview]`, and framing by the portal must not be blocked outside PHP (nginx, Apache): the SDK can only
+     * rewrite headers that PHP sends.
+     */
+    private function checkPreview(): void
+    {
+        if (! (bool) $this->config('content.preview.enabled', true)) {
+            $this->add(self::INFO, 'Voorbeeld vanuit het portaal staat uit (FSC_PREVIEW_ENABLED=false)');
+
+            return;
+        }
+
+        if (! PreviewRequest::enabled()) {
+            $this->add(self::WARN, 'Voorbeeld vanuit het portaal werkt niet: geen servertoken', 'Het voorbeeld haalt de conceptpagina met FSC_SERVER_TOKEN op.');
+
+            return;
+        }
+
+        $this->add(self::OK, 'Voorbeeld vanuit het portaal staat aan (POST ' . PreviewRequest::base() . ')');
+
+        if ($this->viewsContain('fsc:consent') && ! $this->bannerKnowsPreview()) {
+            $this->add(self::WARN, 'Cookiebanner verbergt zich niet in het voorbeeld', 'Verberg de banner als <html> het attribuut data-fsc-preview heeft, bv. html[data-fsc-preview] #fsc-consent { display: none !important; }. Zie AGENTS.md, "Voorbeeld vanuit het portaal".');
+        }
+
+        foreach ($this->serverConfigFiles() as $file) {
+            $contents = (string) file_get_contents($file);
+
+            if (preg_match('/X-Frame-Options|frame-ancestors/i', $contents) === 1) {
+                $this->add(self::WARN, 'X-Frame-Options of frame-ancestors buiten PHP in ' . $this->relative($file), 'De webserver zet die header op elk antwoord, ook op het voorbeeld; dan kan het portaal de site niet tonen. Zet hem in PHP (middleware), de SDK past hem in het voorbeeld aan.');
+            }
+        }
+    }
+
+    /** The banner rule may live in a view or in the site's own CSS or JS. */
+    private function bannerKnowsPreview(): bool
+    {
+        if ($this->viewsContain('data-fsc-preview') || $this->viewsContain('fscPreviewMode')) {
+            return true;
+        }
+
+        $dirs = array_values(array_filter([$this->app->resourcePath('css'), $this->app->resourcePath('js')], 'is_dir'));
+
+        if ($dirs === []) {
+            return false;
+        }
+
+        foreach (Finder::create()->files()->in($dirs)->size('< 2M')->notPath(['build', 'vendor']) as $file) {
+            $contents = (string) file_get_contents($file->getRealPath());
+
+            if (str_contains($contents, 'data-fsc-preview') || str_contains($contents, 'fscPreviewMode')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return list<string> web server configs in the repo: `docker/` (nginx, Apache), `nginx.conf` and `public/.htaccess` */
+    private function serverConfigFiles(): array
+    {
+        $files = array_values(array_filter([$this->app->basePath('nginx.conf'), $this->app->publicPath('.htaccess')], 'is_file'));
+        $docker = $this->app->basePath('docker');
+
+        if (is_dir($docker)) {
+            foreach (Finder::create()->files()->in($docker)->size('< 1M')->ignoreDotFiles(false) as $file) {
+                $files[] = (string) $file->getRealPath();
+            }
+        }
+
+        return $files;
     }
 
     // --- Files ---------------------------------------------------------------------------------------------------------------

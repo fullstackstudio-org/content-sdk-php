@@ -252,3 +252,46 @@
     border-color: var(--fsc-accent);
     color: var(--fsc-accent-contrast);
 }
+
+/* PHP SDK only (the JS SDK is frozen): the default views of articleList and legalDocument */
+.fsc-articlelist {
+    display: grid;
+    gap: var(--fsc-gap);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.fsc-articlecard {
+    display: grid;
+    gap: 0.4rem;
+    align-content: start;
+}
+
+.fsc-articlecard__media img {
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    object-fit: cover;
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-articlecard__title {
+    margin: 0;
+    font-size: 1.1em;
+}
+
+.fsc-articlecard__date,
+.fsc-legal__meta {
+    font-size: 0.9em;
+    opacity: 0.75;
+}
+
+.fsc-articlecard__excerpt {
+    margin: 0;
+}
+
+.fsc-block--legalDocument {
+    display: grid;
+    gap: var(--fsc-gap);
+}

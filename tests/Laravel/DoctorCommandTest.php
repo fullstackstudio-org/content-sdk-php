@@ -87,7 +87,7 @@ final class DoctorCommandTest extends LaravelTestCase
         URL::forceScheme('https');
 
         file_put_contents($this->views . '/layouts/app.blade.php', self::LAYOUT);
-        file_put_contents($this->views . '/partials/consent.blade.php', "<script>window.dispatchEvent(new CustomEvent('fsc:consent', {detail: c}));</script>");
+        file_put_contents($this->views . '/partials/consent.blade.php', "<style>html[data-fsc-preview] #fsc-consent{display:none!important}</style><script>window.dispatchEvent(new CustomEvent('fsc:consent', {detail: c}));</script>");
         file_put_contents($this->views . '/errors/404.blade.php', "@extends('layouts.app', ['fscStatus' => 404])");
         file_put_contents($this->views . '/errors/503.blade.php', '<html><head><title>503</title></head><body>Even niet bereikbaar</body></html>');
         file_put_contents($this->views . '/contact.blade.php', '<x-content::form form-key="contact" />');
@@ -134,6 +134,8 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::OK, $this->statusOf($results, 'Cookiebanner'));
         self::assertSame(Doctor::OK, $this->statusOf($results, 'forceScheme'));
         self::assertSame(Doctor::OK, $this->statusOf($results, 'errors/404 meldt zich bij de tracker'));
+        self::assertSame(Doctor::OK, $this->statusOf($results, 'Voorbeeld vanuit het portaal staat aan'));
+        self::assertSame([], array_values(array_filter($results, fn ($r) => $r['status'] === Doctor::WARN)), 'a complete site has no warnings');
 
         $this->artisan('fsc:doctor')
             ->expectsOutputToContain('0 fout.')
@@ -262,6 +264,39 @@ final class DoctorCommandTest extends LaravelTestCase
         file_put_contents($this->views . '/share.blade.php', '<a href="https://x.com/share?u={{ urlencode(request()->fullUrl()) }}">Deel</a>');
 
         self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'gebruikt de volledige URL met query'));
+    }
+
+    public function testABannerThatShowsInThePreviewIsAWarning(): void
+    {
+        $this->completeSite();
+        file_put_contents($this->views . '/partials/consent.blade.php', "<script>window.dispatchEvent(new CustomEvent('fsc:consent', {detail: c}));</script>");
+
+        $results = $this->results();
+        self::assertSame(Doctor::WARN, $this->statusOf($results, 'Cookiebanner verbergt zich niet in het voorbeeld'));
+        self::assertSame([], $this->failures($results));
+
+        file_put_contents($this->views . '/partials/consent.blade.php', "<script>if (!window.fscPreviewMode) { window.dispatchEvent(new CustomEvent('fsc:consent')); }</script>");
+        self::assertNull($this->statusOf($this->results(), 'verbergt zich niet'));
+    }
+
+    public function testFramingBlockedOutsidePhpIsAWarning(): void
+    {
+        $this->completeSite();
+        file_put_contents($this->public . '/.htaccess', "Header always set X-Frame-Options SAMEORIGIN\n");
+
+        self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'X-Frame-Options of frame-ancestors buiten PHP in'));
+    }
+
+    public function testThePreviewLineFollowsTheKillSwitchAndTheToken(): void
+    {
+        $this->completeSite();
+
+        $this->app['config']->set('content.preview.enabled', false);
+        self::assertSame(Doctor::INFO, $this->statusOf($this->results(), 'Voorbeeld vanuit het portaal staat uit'));
+
+        $this->app['config']->set('content.preview.enabled', true);
+        $this->app['config']->set('content.token', 'fsc_pub_x');
+        self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'Voorbeeld vanuit het portaal werkt niet'));
     }
 
     public function testStrictFailsOnWarnings(): void

@@ -262,14 +262,15 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
   layered CSS the layer must rank below yours, and layer order is fixed by the first mention: `<x-content::head />` prints `<style>@layer fsc-rich;</style>`,
   so put it **before** your stylesheet / `@vite` in `<head>`. (If you cannot, start your CSS with `@layer fsc-rich;`.) Otherwise the late `<style>` in the body would
   rank above your `base`/`components`/`utilities` layers.
-- **`page-blocks`** renders all block types (`richText`, `image`, `gallery`, `cta`, `hero`, `columns`, `articleList`, `form`, `embed`; `legalDocument`
-  renders nothing until you give it a view). Only the HTML of `richText` and `columns` is printed unescaped; everything else is escaped and links are checked
-  against `javascript:`/`data:`. Pass `:media="$page['media']"` so blocks whose file was deleted are left out; without it the media URL is derived from the id.
-  An unknown block type is skipped.
+- **`page-blocks`** renders every block type that has a view (`richText`, `image`, `gallery`, `cta`, `hero`, `columns`, `articleList`, `form`, `embed`,
+  `legalDocument`, and any later type once a view exists): there is no type list, a type without a view is skipped. Only the HTML of `richText` and
+  `columns` is printed unescaped; everything else is escaped and links are checked against `javascript:`/`data:`. Pass `:media="$page['media']"` so
+  blocks whose file was deleted are left out; without it the media URL is derived from the id. `articleList` shows published articles as cards (linked
+  through the SEO `articlePathTemplate`) and `legalDocument` the current version of its `kind`; both render nothing when the Hub cannot be reached.
   **Override a block type** with a view of your own, per call (`:views="['articleList' => 'blocks.articles']"`) or globally in `config/content.php`
-  (`'blocks' => ['articleList' => 'blocks.articles']`; `'unknown'` handles types this version does not know). Your view receives `$block`, `$index`,
-  `$baseUrl` and `$resolve($mediaId)` (media info or null). Because the `articleList` block only says *what* to show, you fetch the articles in that view
-  (`@php($articles = \Content::listArticles([...]))`). To restyle a default view instead, publish the views.
+  (`'blocks' => ['articleList' => 'blocks.articles']`; `'unknown'` handles types without a view). Your view receives `$block`, `$index`,
+  `$baseUrl` and `$resolve($mediaId)` (media info or null). To restyle a default view instead, publish the views.
+  In a portal preview (see "Portal preview" below) each block is wrapped in `<div data-fsc-block style="display:contents">`.
 - **`image`** renders `<img>` with a `srcset` of Content's on-demand variants (png, jpeg, still webp; widths 320-1920, never upscaled) and `sizes`
   (default `100vw`). `formats="avif,webp"` renders a `<picture>`. `alt` defaults to the media record's alt; `alt=""` marks a decorative image;
   `:eager="true"` for the image above the fold. Gif, svg and other types render the original without `srcset`.
@@ -397,6 +398,14 @@ With the Content module `errors` switched on, the SDK reports backend exceptions
 `<x-content::errors />` in the `<head>`, browser errors via the first-party tunnel `POST /_fsc/e/envelope` on your own domain. The DSNs come from
 Content; events are rebuilt from an allowlist and messages are scrubbed. Never in `local`/`testing`. Options and what is (not) sent: `AGENTS.md`,
 section "Error monitoring", and `config/content.php` (`errors`).
+
+## Portal preview
+
+The page editor in the portal previews the page through the site itself: it posts a short-lived token to `POST /_fsc/p` in an iframe, the global
+middleware asks the Hub for the unpublished page and renders it through the site's own route and layout (`getPage()` returns the preview for that
+path). The response is `private, no-store`, `noindex`, without cookies, and frameable only by the portal. Nothing to configure: it is on with a
+server token, `FSC_PREVIEW_ENABLED=false` switches it off. Hide the cookie banner under `html[data-fsc-preview]` and never set `X-Frame-Options`
+outside PHP; `php artisan fsc:doctor` checks both. Details: `AGENTS.md`, A17.
 
 ## Example site
 

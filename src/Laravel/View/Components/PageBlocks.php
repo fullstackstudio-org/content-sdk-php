@@ -13,11 +13,12 @@ use Illuminate\View\Component;
  * `<x-content::page-blocks :blocks="$page['blocks']" :media="$page['media']" />`: renders the blocks of a page with default markup per block
  * type (`fsc-*` classes, see the publishable `content.css`).
  *
- * Overrides, per block type (first hit wins): the `views` prop (`:views="['articleList' => 'blocks.articles']"`), the config
- * `content.blocks.<type>`, and finally the package view `content::blocks.<type>`. Because the package views are namespaced, you can also replace one by
- * creating `resources/views/vendor/content/blocks/<type>.blade.php`. A view gets: `$block`, `$index`, `$media` (the resolved media of the block, or null),
- * `$resolve` (a closure id => resolved media|null), `$baseUrl`. An unknown type is skipped, or rendered by the view in `views['unknown']` /
- * `content.blocks.unknown`.
+ * A block renders when a view resolves for its type (first hit wins): the `views` prop (`:views="['articleList' => 'blocks.articles']"`), the
+ * config `content.blocks.<type>`, and finally the package view `content::blocks.<type>` if it exists. There is no type list: a new block type
+ * from the Hub renders as soon as the site or a newer SDK has a view for it. Because the package views are namespaced, you can also replace
+ * one by creating `resources/views/vendor/content/blocks/<type>.blade.php`. A view gets: `$block`, `$index`, `$resolve` (a closure id =>
+ * resolved media|null), `$baseUrl`. A type without a view is skipped, or rendered by the view in `views['unknown']` / `content.blocks.unknown`.
+ * Type names must match {@see self::TYPE_PATTERN}; anything else counts as a type without a view.
  *
  * `media` is `$page['media']`: with it, a block whose file was deleted is omitted; without it (null) the URL is derived from the id.
  * Only richText and columns print their HTML unescaped (Content sanitizes it on save); everything else is escaped.
@@ -27,7 +28,15 @@ use Illuminate\View\Component;
  */
 final class PageBlocks extends Component
 {
+    /**
+     * The block types of 0.26. Not used for rendering any more (a block renders when a view resolves, see the class docs); kept for sites that read it.
+     *
+     * @deprecated since the Hub block registry (page-builder); the Hub is the source of truth for block types.
+     */
     public const TYPES = ['richText', 'image', 'gallery', 'cta', 'hero', 'columns', 'articleList', 'form', 'embed', 'legalDocument'];
+
+    /** A block type name as the Hub allows it; checked before it is used in a config key or a view name. */
+    public const TYPE_PATTERN = '/^[A-Za-z][A-Za-z0-9]{0,39}$/D';
 
     public string $baseUrl;
 
@@ -47,9 +56,12 @@ final class PageBlocks extends Component
         $this->preview = Preview::isActive();
 
         foreach (array_values($blocks ?? []) as $index => $block) {
-            $type = (string) ($block['type'] ?? '');
-            $known = in_array($type, self::TYPES, true);
-            $view = $this->views[$known ? $type : 'unknown'] ?? config('content.blocks.' . ($known ? $type : 'unknown')) ?? ($known ? "content::blocks.{$type}" : null);
+            if (!is_array($block)) {
+                continue;
+            }
+
+            $type = is_string($block['type'] ?? null) ? $block['type'] : '';
+            $view = $this->viewFor($type) ?? $this->views['unknown'] ?? config('content.blocks.unknown');
 
             if ($view === null) {
                 continue;
@@ -58,6 +70,25 @@ final class PageBlocks extends Component
             $marker = is_string($block['id'] ?? null) || is_int($block['id'] ?? null) ? (string) $block['id'] : (string) $index;
             $this->items[] = ['key' => (string) ($block['id'] ?? "{$type}-{$index}"), 'block' => $block, 'index' => $index, 'view' => $view, 'marker' => $marker];
         }
+    }
+
+    /**
+     * The view of a block type: the `views` prop, the config `content.blocks.<type>`, or the package view `content::blocks.<type>` when it
+     * exists; null when none resolves. The type name is checked before any lookup (it ends up in a config key and a view name).
+     */
+    private function viewFor(string $type): ?string
+    {
+        if (preg_match(self::TYPE_PATTERN, $type) !== 1 || $type === 'unknown') {
+            return null;
+        }
+
+        $view = $this->views[$type] ?? config('content.blocks.' . $type);
+
+        if (is_string($view) && $view !== '') {
+            return $view;
+        }
+
+        return view()->exists("content::blocks.{$type}") ? "content::blocks.{$type}" : null;
     }
 
     /** Media of an id as `{id, url, contentType, alt, width, height}`; null if the file is gone (only known when the `media` map is passed). */

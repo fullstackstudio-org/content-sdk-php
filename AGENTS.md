@@ -15,7 +15,7 @@ Contents:
 
 ## Bouwvolgorde voor een nieuwe site
 
-Build in this order; each step points at the item in "Altijd verplicht" (A1 to A16) or a module section. Do not skip an item because a module is
+Build in this order; each step points at the item in "Altijd verplicht" (A1 to A17) or a module section. Do not skip an item because a module is
 off today: every component and route below is safe with its module off (renders nothing, 404s or does nothing, without exceptions), so switching a
 module on in the Hub later needs no code change.
 
@@ -32,6 +32,7 @@ module on in the Hub later needs no code change.
 10. Ask which modules are on (`php artisan fsc:doctor --online` lists them, or `$content->getProject()['modules']`) and build the section
     "Als de module X aanstaat" for each.
 11. If the site has a Content-Security-Policy: merge the SDK sources (A13).
+    The portal preview (A17) needs nothing, as long as the banner hides itself under `html[data-fsc-preview]` (A10).
 12. Run `php artisan fsc:doctor` until it shows no `FOUT` line, then the checks in "Controleer je site".
 
 Every snippet you need is in this file. FullStack Studio staff also have the working reference `examples/laravel` in the (private) Hub repository
@@ -269,6 +270,16 @@ const choice = { choice: 'custom', categories: ['analytics'], version: '1' };   
 localStorage.setItem('fsc-consent', JSON.stringify(choice));                    // later pages read this
 window.dispatchEvent(new CustomEvent('fsc:consent', { detail: choice }));        // this page activates at once
 ```
+
+**Hide the banner in the portal preview.** The page editor shows the page through the site itself (A17); the editor must see the page, not a
+consent prompt, and a preview never records consent. The preview response has `data-fsc-preview` on `<html>` (and `window.fscPreviewMode`), so:
+
+```css
+html[data-fsc-preview] .consent { display: none !important; }   /* the class or id of your banner */
+```
+
+and start the banner script with `if (window.fscPreviewMode || document.documentElement.hasAttribute('data-fsc-preview')) return;`.
+`fsc:doctor` warns when a banner exists but no view, CSS or JS mentions `data-fsc-preview` or `fscPreviewMode`.
 
 Texts, labels, `policyUrl` and the offered categories come from the Hub (`$content->getConsentConfig()`, module `privacy`); record each choice as proof
 through your own route (`$content->recordConsent($choice, ['clientIp' => ..., 'userAgent' => ...])`). A working pair to copy (style the classes
@@ -541,6 +552,9 @@ $response->headers->set('Content-Security-Policy', Content::analyticsCspMerge(Co
   the payment provider: add that host (look at one `payment.checkoutUrl`).
 - The chat widget (module `chatbot`) needs `https://content.fullstackstudio.nl` in `script-src` and `connect-src`.
 - First-party analytics, error reporting, the address field and the dev panel need nothing beyond `'self'`.
+- The portal preview (A17) needs nothing either: its script is same-origin (and carries the Vite nonce when one is set), and on the preview
+  response only the SDK replaces `frame-ancestors` with the portal origin. Keep `frame-ancestors 'self'` (or none) for every other page. Never
+  set `X-Frame-Options` or `frame-ancestors` in nginx or Apache: PHP cannot change those, and the preview can then not be framed.
 
 `siteCspMerge()` takes an array (returns an array) or a CSP string (returns a string). A missing directive starts from `default-src`; without
 `default-src` it stays out (adding it would forbid the rest). An existing `script-src-elem`/`style-src-elem` gets the sources too. Hosts that a script
@@ -562,6 +576,7 @@ The provider registers these itself; do not copy, wrap or block them:
 | Newsletter click links | global middleware `NewsletterClickLink` | never read, strip or store `?fscn=` yourself |
 | Cookie encryption exceptions | `fsi_rec`, `fsi_sess` | the provider calls `EncryptCookies::except()`; a cookie of your own that JavaScript writes and PHP reads needs `$middleware->encryptCookies(except: [...])` too |
 | Intelligence routes | `/_fsc/i/*` | only while `FSC_INTELLIGENCE_ENABLED=true` |
+| Portal preview | global middleware `PreviewRequest`, `POST /_fsc/p`, `/_fsc/p/preview.js` | no session, no CSRF, never cache or block `/_fsc/p` (A17) |
 
 ### A15. Staff and office traffic
 
@@ -578,6 +593,33 @@ Umami tracker and `fsc.js` stand down too. The parameter leaves the address bar 
 
 One container with nginx + PHP-FPM on port 3000, `HEALTHCHECK` on `/api/health`, `config:cache route:cache view:cache` at start, no secrets or `.env`
 in the image: copy `examples/laravel/Dockerfile` and `docker/`. Details: "Deploying on the FSS platform" in `README.md`.
+
+### A17. Voorbeeld vanuit het portaal (nothing to configure)
+
+The page editor in the portal shows a live preview of the page being edited, rendered by this site: its own route, controller, layout, CSS and
+view overrides, so the preview is exactly what the live URL will show. It is on by default with a server token; there is nothing to install or
+register. How it works:
+
+1. The portal posts a short-lived token (`fscpv_...`) to `POST /_fsc/p` in an iframe (never in a URL).
+2. The global middleware `PreviewRequest` checks the token's shape, limits it to 30 requests a minute per IP, and asks the Hub for the
+   unpublished page (`ContentClient::getPagePreview()`, never cached). Any refusal is a bare 404; a `GET /_fsc/p` is always 404.
+3. The request is rewritten to an anonymous `GET <path>` of that page (no cookies, an in-memory session and an in-memory default cache store),
+   and passed on to your routes. `getPage()` returns the preview page for that path; every other Hub call is the usual one.
+4. The response gets `/_fsc/p/preview.js` right after `<head>`, `data-fsc-preview` on `<html>`, `Cache-Control: private, no-store`,
+   `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, no `Set-Cookie`/`ETag`/`Last-Modified`/`X-Frame-Options`, and a CSP whose
+   `frame-ancestors` is exactly the portal origin. On a refresh the script swaps the blocks without a reload.
+
+In a preview `<x-content::page-blocks>` marks each block (`data-fsc-block`, `display: contents`), `<x-content::analytics>` prints nothing and
+`<x-content::form>` is disabled. What the site must do:
+
+- Hide the cookie banner under `html[data-fsc-preview]` (A10).
+- Never set `X-Frame-Options` or `frame-ancestors` outside PHP (A13); `fsc:doctor` warns about `docker/`, `nginx.conf` and `public/.htaccess`.
+- Build pages through `getPage()` in the catch-all (A6), as always. Do not cache a page outside the SDK (`Cache::remember` around `getPage()`):
+  the preview neither reads nor writes the default cache store, but a cache on another store would serve the live page in the preview.
+- Do not put a CDN cache, auth or CSRF on `/_fsc/p`.
+
+Kill switch: `FSC_PREVIEW_ENABLED=false` (the portal then offers "Open in nieuw venster" or says the site must be updated). Path:
+`FSC_PREVIEW_PATH` (default `_fsc/p`; the portal assumes the default).
 
 ## Als de module X aanstaat
 
@@ -602,8 +644,11 @@ The catch-all (A6) and `resources/views/page.blade.php`:
 @endsection
 ```
 
-Two block types need your own view (set `config('content.blocks')` after publishing the config, or `:views="[...]"`): `articleList` (fetch the
-articles in your view) and `legalDocument` (`$content->legal->get($block['kind'])`). Verify: a published Hub page opens at its path; a draft is 404.
+Every block type with a view renders: the SDK has no type list, a block renders when `views[type]`, `config('content.blocks.<type>')` or the
+package view `content::blocks.<type>` exists, and is skipped otherwise (so a new Hub block type appears once the site or a newer SDK has a view).
+`articleList` (published articles as cards, linked through the SEO `articlePathTemplate`) and `legalDocument` (the current version of `kind`,
+module `legal`) have default views that fetch through the cached client and render nothing on an error; your own view for either keeps winning.
+The portal previews pages through this site (A17). Verify: a published Hub page opens at its path; a draft is 404.
 
 ### `articles`
 
@@ -800,6 +845,8 @@ errors, no 502), then once to a Hub form whose recipients you checked (A9).
 | Own redirect drops the query string | campaigns lost | keep `$request->getQueryString()` (A7) |
 | Test submission to the customer's address | the customer gets test mail | recipients to your own address first (A9) |
 | `Http::fake()` in tests | real network calls | fake `Transport` ("Testing") |
+| `X-Frame-Options` in `docker/nginx.conf` | the portal preview stays empty | set it in PHP only (A13, A17) |
+| Cookie banner not hidden under `html[data-fsc-preview]` | the preview shows a consent prompt over the page | A10 |
 
 ## Cookiebanner: the consent contract
 

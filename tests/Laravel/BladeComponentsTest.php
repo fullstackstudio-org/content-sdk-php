@@ -164,7 +164,10 @@ final class BladeComponentsTest extends LaravelTestCase
 
     public function testEveryBlockTypeRenders(): void
     {
-        $this->http->always(FakeTransport::json(['form' => ['key' => 'contact', 'name' => 'Contact', 'fields' => [], 'honeypotField' => 'website', 'successMessage' => 'ok', 'confirmEnabled' => false, 'turnstileSiteKey' => null]]));
+        $this->hub([
+            '/forms/contact' => ['form' => ['key' => 'contact', 'name' => 'Contact', 'fields' => [], 'honeypotField' => 'website', 'successMessage' => 'ok', 'confirmEnabled' => false, 'turnstileSiteKey' => null]],
+            '/articles' => ['articles' => [['slug' => 'eerste', 'title' => 'Eerste', 'excerpt' => 'Kort', 'locale' => 'nl']], 'page' => 1, 'limit' => 3, 'total' => 1],
+        ]);
         $blocks = [...$this->blocks(), ['id' => 'b9', 'type' => 'form', 'formKey' => 'contact']];
         $html = $this->render('<x-content::page-blocks :blocks="$b" :media="$m" />', ['b' => $blocks, 'm' => $this->media()]);
 
@@ -185,6 +188,152 @@ final class BladeComponentsTest extends LaravelTestCase
         self::assertStringContainsString('<h2 class="fsc-articlelist__heading">News</h2>', $html);
         self::assertStringContainsString('src="https://www.youtube.com/embed/x" title="Intro"', $html);
         self::assertStringContainsString('fsc-block fsc-block--form', $html);
+    }
+
+    /**
+     * Answers by API path (after `/api/v1`); anything else is a 404.
+     *
+     * @param array<string, array<string, mixed>|int> $routes path => JSON body, or an HTTP status
+     */
+    private function hub(array $routes): void
+    {
+        $answer = static function (\FullStackStudio\Content\Http\Request $request) use ($routes): \FullStackStudio\Content\Http\Response {
+            $path = substr((string) parse_url($request->url, PHP_URL_PATH), strlen('/api/v1'));
+            $body = $routes[$path] ?? 404;
+
+            return is_int($body) ? FakeTransport::json(['error' => ['code' => 'x', 'message' => 'x']], $body) : FakeTransport::json($body);
+        };
+        $this->http->queue(...array_fill(0, 20, $answer));
+    }
+
+    /** @return list<string> the API paths the components asked the Hub for */
+    private function hubPaths(): array
+    {
+        return array_map(static fn ($r): string => substr((string) parse_url($r->url, PHP_URL_PATH), strlen('/api/v1')), $this->http->requests);
+    }
+
+    public function testTheArticleListBlockShowsPublishedArticlesAsCards(): void
+    {
+        $this->hub([
+            '/articles' => ['articles' => [
+                ['slug' => 'eerste-bericht', 'title' => 'Eerste <bericht>', 'excerpt' => 'Kort verhaal', 'locale' => 'nl', 'publishedAt' => '2026-11-12T09:00:00.000Z', 'cover' => ['id' => 'm1', 'url' => '/api/media/m1', 'contentType' => 'image/png', 'alt' => 'Omslag', 'width' => 800, 'height' => 600]],
+                ['slug' => 'tweede', 'title' => 'Tweede', 'excerpt' => '', 'locale' => 'nl', 'publishedAt' => null, 'cover' => null],
+                ['title' => 'Zonder slug'],
+            ], 'page' => 1, 'limit' => 3, 'total' => 3],
+            '/seo' => ['seo' => ['articlePathTemplate' => '/{locale}/nieuws/{slug}']],
+        ]);
+        $blocks = [['id' => 'a', 'type' => 'articleList', 'heading' => 'Nieuws', 'category' => 'pers', 'locale' => 'nl', 'limit' => 3]];
+        $html = $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]);
+
+        self::assertSame(['status' => 'published', 'category' => 'pers', 'locale' => 'nl', 'limit' => '3'], $this->queryOf('/articles'));
+        self::assertStringContainsString('<h2 class="fsc-articlelist__heading">Nieuws</h2>', $html);
+        self::assertSame(2, substr_count($html, '<article class="fsc-articlecard">'), 'an article without a slug is skipped');
+        self::assertStringContainsString('<h3 class="fsc-articlecard__title"><a href="/nl/nieuws/eerste-bericht">Eerste &lt;bericht&gt;</a></h3>', $html);
+        self::assertStringContainsString('<time class="fsc-articlecard__date" datetime="2026-11-12T09:00:00.000Z">', $html);
+        self::assertStringContainsString('<p class="fsc-articlecard__excerpt">Kort verhaal</p>', $html);
+        self::assertStringContainsString('src="https://content.test/api/media/m1', $html);
+        self::assertStringContainsString('href="/nl/nieuws/tweede"', $html);
+    }
+
+    public function testTheArticleListLinkFallsBackToTheDefaultTemplate(): void
+    {
+        $this->hub([
+            '/articles' => ['articles' => [['slug' => 'hallo', 'title' => 'Hallo', 'locale' => 'nl']], 'page' => 1, 'limit' => 6, 'total' => 1],
+            '/seo' => ['seo' => ['articlePathTemplate' => '//evil.test/{slug}']],
+        ]);
+
+        $html = $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => [['type' => 'articleList', 'heading' => '', 'category' => null, 'locale' => null, 'limit' => 6]]]);
+
+        self::assertStringContainsString('href="/blog/hallo"', $html);
+        self::assertStringNotContainsString('evil.test', $html);
+    }
+
+    public function testTheArticleListRendersNothingOnAnErrorOrAnEmptyList(): void
+    {
+        $blocks = [['type' => 'articleList', 'heading' => 'Nieuws', 'category' => null, 'locale' => null, 'limit' => 6], ['type' => 'richText', 'html' => '<p>ok</p>']];
+
+        $this->hub(['/articles' => 500]);
+        $failed = $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]);
+        self::assertStringNotContainsString('fsc-block--articleList', $failed);
+        self::assertStringContainsString('<p>ok</p>', $failed, 'the rest of the page still renders');
+
+        $this->http->requests = [];
+        $this->hub(['/articles' => ['articles' => [], 'page' => 1, 'limit' => 6, 'total' => 0]]);
+        self::assertStringNotContainsString('fsc-block--articleList', $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]));
+    }
+
+    public function testTheLegalDocumentBlockShowsTheCurrentVersion(): void
+    {
+        $this->hub(['/legal/privacy_statement' => ['document' => ['kind' => 'privacy_statement', 'title' => 'Privacyverklaring', 'bodyHtml' => '<p>Wij bewaren niets.</p>', 'effectiveAt' => '2026-10-01T00:00:00.000Z']]]);
+
+        $html = $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => [['type' => 'legalDocument', 'kind' => 'privacy_statement']]]);
+
+        self::assertStringContainsString('<section class="fsc-block fsc-block--legalDocument" data-kind="privacy_statement">', $html);
+        self::assertStringContainsString('<h2 class="fsc-legal__title">Privacyverklaring</h2>', $html);
+        self::assertStringContainsString('<p class="fsc-legal__meta">Geldt vanaf <time datetime="2026-10-01T00:00:00.000Z">', $html);
+        self::assertStringContainsString('<div class="fsc-article-body fsc-legal__body"><p>Wij bewaren niets.</p></div>', $html);
+    }
+
+    public function testTheLegalDocumentBlockRendersNothingWithoutADocument(): void
+    {
+        $this->hub(['/legal/terms' => 404]);
+        self::assertStringNotContainsString('fsc-block--legalDocument', $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => [['type' => 'legalDocument', 'kind' => 'terms']]]));
+
+        $this->http->requests = [];
+        $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => [['type' => 'legalDocument', 'kind' => '../members']]]);
+        self::assertSame([], $this->hubPaths(), 'a malformed kind never reaches the Hub');
+    }
+
+    public function testASiteOverrideOfTheShellBlocksStillWinsWithoutAHubCall(): void
+    {
+        View::addNamespace('site', __DIR__ . '/views');
+        config(['content.blocks.legalDocument' => 'site::unknown']);
+        $blocks = [['type' => 'articleList', 'heading' => 'News', 'category' => null, 'locale' => null, 'limit' => 5], ['type' => 'legalDocument', 'kind' => 'terms']];
+
+        $html = $this->render('<x-content::page-blocks :blocks="$b" :views="[\'articleList\' => \'site::article-list\']" />', ['b' => $blocks]);
+
+        self::assertStringContainsString('<ul class="mine" data-i="0" data-limit="5" data-base="https://content.test">News</ul>', $html);
+        self::assertStringContainsString('unknown:legalDocument', $html);
+        self::assertSame([], $this->hubPaths());
+    }
+
+    public function testABlockRendersWhenAViewExistsWithoutATypeList(): void
+    {
+        $blocks = [['type' => 'hologram', 'x' => 'ja'], ['type' => 'newsletterSignup']];
+
+        self::assertSame('', trim($this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks])), 'no view, no output');
+
+        // A package view (here: a vendor override path for the `content` namespace) is enough.
+        View::prependNamespace('content', __DIR__ . '/views/vendor-content');
+        self::assertStringContainsString('hologram:ja', $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]));
+
+        View::addNamespace('site', __DIR__ . '/views');
+        config(['content.blocks.newsletterSignup' => 'site::unknown']);
+        self::assertStringContainsString('unknown:newsletterSignup', $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]));
+    }
+
+    public function testAMalformedTypeNameIsNeverUsedForALookup(): void
+    {
+        View::addNamespace('site', __DIR__ . '/views');
+        config(['content.blocks.a' => ['b' => 'site::cta']]);
+        $blocks = [['type' => 'a.b', 'label' => 'x'], ['type' => '../../etc'], ['type' => 'richText.x'], ['type' => ['richText']], 'not a block', ['type' => '9lives']];
+
+        self::assertSame('', trim($this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks])));
+        self::assertStringContainsString('unknown:a.b', $this->render('<x-content::page-blocks :blocks="$b" :views="[\'unknown\' => \'site::unknown\']" />', ['b' => [$blocks[0]]]));
+    }
+
+    /** @return array<string, mixed> the query of the first call to an API path */
+    private function queryOf(string $path): array
+    {
+        foreach ($this->http->requests as $request) {
+            if (substr((string) parse_url($request->url, PHP_URL_PATH), strlen('/api/v1')) === $path) {
+                parse_str((string) parse_url($request->url, PHP_URL_QUERY), $query);
+
+                return $query;
+            }
+        }
+
+        return [];
     }
 
     public function testBlocksWithADeletedFileAreOmittedAndWithoutAMediaMapTheUrlIsDerived(): void
@@ -253,8 +402,9 @@ final class BladeComponentsTest extends LaravelTestCase
 
         $js = __DIR__ . '/../../../content-sdk/src/styles.css';
 
+        // The JS SDK is frozen: its stylesheet stays the shared base, rules for blocks only the PHP SDK renders come after it.
         if (is_file($js)) {
-            self::assertSame(file_get_contents($js), file_get_contents($asset), 'keep resources/assets/content.css identical to packages/content-sdk/src/styles.css');
+            self::assertStringStartsWith(file_get_contents($js), file_get_contents($asset), 'resources/assets/content.css must start with packages/content-sdk/src/styles.css unchanged');
         }
 
         $paths = \Illuminate\Support\ServiceProvider::pathsToPublish(\FullStackStudio\Content\Laravel\ContentServiceProvider::class, 'content-assets');
