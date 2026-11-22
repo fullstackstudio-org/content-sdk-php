@@ -127,6 +127,8 @@ final class Events
         'analytics.alert',
         'analytics.alert.resolved',
         'appointment.rescheduled',
+        'appointment.no_show',
+        'appointment.no_show_undone',
         'webhook.test',
     ];
 }

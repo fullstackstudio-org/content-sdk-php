@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Webhook event types `appointment.no_show` and `appointment.no_show_undone` in `Webhooks\Events::ALL` (staff recorded, or took back, that a customer did not show up; ids, status and times only).
+
 ## 0.28.0
 
 Page builder phase 2 and 3 on the site (plan page-builder C and D, tasks 2.2 and 3.2; released as 0.28.0, the Hub registry offers these
