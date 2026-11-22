@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Forms;
+use FullStackStudio\Content\Laravel\Preview\Preview;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ViewErrorBag;
@@ -19,6 +20,8 @@ use Throwable;
  *
  * Needs the `web` middleware group around the page (session and CSRF). Turnstile (when the form has a site key) is rendered as the usual widget and needs
  * JavaScript; without it the submit is refused with a clear message.
+ *
+ * In a portal preview the fields sit in a disabled fieldset (nothing can be submitted) and Turnstile is not loaded.
  */
 final class Form extends Component
 {
@@ -39,6 +42,8 @@ final class Form extends Component
 
     public ?string $loadError = null;
 
+    public bool $preview = false;
+
     /** @var array<string, string> */
     public array $fieldErrors = [];
 
@@ -48,6 +53,7 @@ final class Form extends Component
      */
     public function __construct(public readonly string $formKey, ?string $locale = null, array $labels = [], ?string $action = null, ?array $definition = null)
     {
+        $this->preview = Preview::isActive();
         $this->labels = Forms::labels($locale ?? config('content.forms.locale') ?? app()->getLocale(), $labels);
         $this->bag = 'content_form_' . $formKey;
         $this->anchor = 'fsc-form-' . $formKey;

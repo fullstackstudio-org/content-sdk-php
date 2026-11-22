@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\Analytics as AnalyticsTags;
 use FullStackStudio\Content\Laravel\AnalyticsSettings;
+use FullStackStudio\Content\Laravel\Preview\Preview;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\View\Component;
@@ -16,6 +17,7 @@ use Throwable;
  * double-measure period; all cookieless without consent) and the helper script that starts heatmaps and session replay only after cookie
  * consent and adds first-touch attribution to forms. Renders nothing when the module is off, not provisioned or Content is unreachable.
  * `nonce` defaults to Laravel's Vite CSP nonce when one is set. `status="404"` on an error page marks it as not found (native tracker).
+ * Renders nothing in a portal preview: an editor's preview is never a visit.
  */
 final class Analytics extends Component
 {
@@ -25,6 +27,10 @@ final class Analytics extends Component
 
     public function render(): View
     {
+        if (Preview::isActive()) {
+            return view('content::components.analytics', ['html' => '']);
+        }
+
         $settings = AnalyticsSettings::make();
         $html = '';
 

@@ -52,6 +52,18 @@ return [
     ],
 
     /*
+     * The live preview from the portal's page editor. The portal posts a short-lived token to `POST {path}` (default `/_fsc/p`); the site
+     * asks the Hub for the unpublished page and renders it through its own route and layout, framed by the portal only. Nothing to configure:
+     * it needs a server token and is on by default. `FSC_PREVIEW_ENABLED=false` switches it off. `rate_limit`: preview requests per minute
+     * per visitor IP.
+     */
+    'preview' => [
+        'enabled' => (bool) env('FSC_PREVIEW_ENABLED', true),
+        'path' => env('FSC_PREVIEW_PATH', '_fsc/p'),
+        'rate_limit' => (int) env('FSC_PREVIEW_RATE_LIMIT', 30),
+    ],
+
+    /*
      * The form route behind `<x-content::form>`. Opt-in: set `enabled` to true, or call `Content::formRoutes()` yourself. The `web` group is
      * needed for session and CSRF. `ip_header`: the header with the visitor's IP behind your proxy (Cloudflare sets `cf-connecting-ip`); only set
      * a header your proxy overwrites, otherwise a visitor can spoof it. null = use the IP Laravel sees. `locale` null = the app locale.

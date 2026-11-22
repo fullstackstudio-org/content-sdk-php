@@ -215,7 +215,7 @@ final class ModuleContext
     private function send(array $spec, string $method, string $url): Reply
     {
         $callOptions = $spec['options'] ?? [];
-        $headers = ['Authorization' => 'Bearer ' . $this->token, 'Accept' => 'application/json', 'User-Agent' => 'fullstack-content-php/' . ContentClient::VERSION, ...($spec['headers'] ?? [])];
+        $headers = ['Authorization' => 'Bearer ' . $this->token, 'Accept' => 'application/json', 'User-Agent' => 'fullstack-content-php/' . ContentClient::VERSION, 'X-FSC-SDK' => 'php/' . ContentClient::VERSION, ...($spec['headers'] ?? [])];
         $body = null;
         $multipart = null;
 

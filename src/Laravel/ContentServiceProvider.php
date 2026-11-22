@@ -15,6 +15,9 @@ use FullStackStudio\Content\Laravel\Errors\ErrorReporter;
 use FullStackStudio\Content\Laravel\Errors\Errors;
 use FullStackStudio\Content\Laravel\Errors\ReporterScriptController;
 use FullStackStudio\Content\Laravel\Errors\TunnelController;
+use FullStackStudio\Content\Laravel\Preview\Preview;
+use FullStackStudio\Content\Laravel\Preview\PreviewAssetController;
+use FullStackStudio\Content\Laravel\Preview\PreviewRequest;
 use FullStackStudio\Content\Laravel\View\Components\Meta;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
@@ -59,6 +62,9 @@ final class ContentServiceProvider extends ServiceProvider
 
             return new SiteSettings($app->make(ContentClient::class), $app['cache']->store($store ?: null), $app['config'], $app->bound('log') ? $app['log'] : null);
         });
+
+        // The portal preview context lives for one request only.
+        $this->app->scoped(Preview::class, static fn (): Preview => new Preview());
 
         $this->app->singleton(Errors::class, fn ($app): Errors => new Errors($app));
         $this->app->singleton(ErrorReporter::class, fn ($app): ErrorReporter => new ErrorReporter($app, $app->make(Errors::class)));
@@ -121,6 +127,20 @@ final class ContentServiceProvider extends ServiceProvider
             EncryptCookies::except($sessionCookie);
         }
 
+        // Portal preview (`POST /_fsc/p`): a no-op for every other request.
+        if (PreviewRequest::enabled()) {
+            self::registerPreviewRoutes();
+            $this->app->make(HttpKernel::class)->pushMiddleware(PreviewRequest::class);
+            // The preview headers are the last word, over anything a later middleware or listener set.
+            $this->app['events']->listen(RequestHandled::class, function (RequestHandled $event): void {
+                $preview = $this->app->make(Preview::class);
+
+                if ($preview->active()) {
+                    PreviewRequest::secure($event->response, $preview->embedOrigin());
+                }
+            });
+        }
+
         // Newsletter click links (`?fscn=`): a no-op unless `content.intelligence.enabled` is on and the parameter is present.
         $this->app->make(HttpKernel::class)->pushMiddleware(NewsletterClickLink::class);
 
@@ -177,6 +197,15 @@ final class ContentServiceProvider extends ServiceProvider
         Route::get($prefix . '/api/websites/{id}/recorder', [AnalyticsController::class, 'recorderConfig'])
             ->where('id', '[0-9a-f-]{36}')
             ->name('content.analytics.recorder-config');
+    }
+
+    /**
+     * `GET {content.preview.path}/preview.js` (default `/_fsc/p/preview.js`), the helper the preview response loads. The preview itself
+     * (`POST /_fsc/p`) is handled by the global {@see PreviewRequest} middleware, not by a route. Called for you while the preview is enabled.
+     */
+    public static function registerPreviewRoutes(): void
+    {
+        Route::get(ltrim(PreviewRequest::base(), '/') . '/preview.js', PreviewAssetController::class)->name('content.preview.script');
     }
 
     /**

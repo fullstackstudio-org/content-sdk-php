@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\Preview\Preview;
 use Illuminate\Contracts\View\View;
 use Illuminate\View\Component;
 
@@ -20,6 +21,9 @@ use Illuminate\View\Component;
  *
  * `media` is `$page['media']`: with it, a block whose file was deleted is omitted; without it (null) the URL is derived from the id.
  * Only richText and columns print their HTML unescaped (Content sanitizes it on save); everything else is escaped.
+ *
+ * In a portal preview the root gets `data-fsc-preview-blocks` and every block is wrapped in `<div data-fsc-block="{id or index}"
+ * style="display:contents">`, so the preview can select, highlight and swap blocks. Outside a preview the markup is unchanged.
  */
 final class PageBlocks extends Component
 {
@@ -27,7 +31,9 @@ final class PageBlocks extends Component
 
     public string $baseUrl;
 
-    /** @var list<array{key: string, block: array<string, mixed>, index: int, view: string}> */
+    public bool $preview = false;
+
+    /** @var list<array{key: string, block: array<string, mixed>, index: int, view: string, marker: string}> */
     public array $items = [];
 
     /**
@@ -38,6 +44,7 @@ final class PageBlocks extends Component
     public function __construct(public readonly ?array $blocks = null, public readonly ?array $media = null, ?string $baseUrl = null, public readonly array $views = [])
     {
         $this->baseUrl = $baseUrl ?? app(ContentClient::class)->baseUrl();
+        $this->preview = Preview::isActive();
 
         foreach (array_values($blocks ?? []) as $index => $block) {
             $type = (string) ($block['type'] ?? '');
@@ -48,7 +55,8 @@ final class PageBlocks extends Component
                 continue;
             }
 
-            $this->items[] = ['key' => (string) ($block['id'] ?? "{$type}-{$index}"), 'block' => $block, 'index' => $index, 'view' => $view];
+            $marker = is_string($block['id'] ?? null) || is_int($block['id'] ?? null) ? (string) $block['id'] : (string) $index;
+            $this->items[] = ['key' => (string) ($block['id'] ?? "{$type}-{$index}"), 'block' => $block, 'index' => $index, 'view' => $view, 'marker' => $marker];
         }
     }
 

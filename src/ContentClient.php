@@ -114,6 +114,9 @@ final class ContentClient
 
     private readonly ModuleContext $context;
 
+    /** @var (\Closure(string): (array<string, mixed>|null))|null set only while a portal preview renders, see overridePages() */
+    private ?\Closure $pageOverride = null;
+
     /** @param array<string, mixed>|ClientOptions $options see {@see ClientOptions}; throws {@see ContentException} (`invalid_config`) on misuse */
     public function __construct(array|ClientOptions $options)
     {
@@ -263,6 +266,11 @@ final class ContentClient
      */
     public function getPage(string $ref, array $params = [], array $options = []): array
     {
+        // A portal preview of this page: the unpublished version, never read from or written to the cache.
+        if ($this->pageOverride !== null && ($preview = ($this->pageOverride)($ref)) !== null) {
+            return $preview;
+        }
+
         $tags = [Tags::page($ref), Tags::MEDIA];
         $query = ['locale' => $params['locale'] ?? null, 'fallback' => ($params['fallback'] ?? false) ? 'true' : null];
 
@@ -272,6 +280,37 @@ final class ContentClient
             : $this->context->get('/pages', $tags, ['path' => '/' . Tags::normalizePagePath($ref), ...$query], $options);
 
         return $reply->data['page'] ?? [];
+    }
+
+    /**
+     * A portal preview by its token (`fscpv_...`, header `X-FSC-Preview`; server token with `pages:read`): `{version, path, embedOrigin, page}`.
+     * Never cached. Throws a {@see ContentException} (404) for an unknown, expired or foreign token. Used by the preview middleware.
+     *
+     * @internal
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function getPagePreview(string $token, array $options = []): array
+    {
+        $preview = $this->context->execute([
+            'path' => '/pages/preview',
+            'headers' => ['X-FSC-Preview' => $token],
+            'options' => ['timeoutMs' => 8000, ...$options, 'cache' => false],
+        ])->data['preview'] ?? null;
+
+        return is_array($preview) ? $preview : [];
+    }
+
+    /**
+     * While a resolver is set, `getPage($ref)` first asks it and returns its answer when that is not null (the preview middleware sets it for
+     * one request and clears it afterwards). Pass null to clear.
+     *
+     * @internal
+     * @param (\Closure(string): (array<string, mixed>|null))|null $resolver
+     */
+    public function overridePages(?\Closure $resolver): void
+    {
+        $this->pageOverride = $resolver;
     }
 
     // --- Forms -----------------------------------------------------------------------------------------------------------

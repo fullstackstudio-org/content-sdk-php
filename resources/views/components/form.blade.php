@@ -9,6 +9,7 @@
 @endphp
 <form {{ $attributes->class(['fsc-form']) }} method="POST" action="{{ $action }}"@if (\FullStackStudio\Content\Forms::hasFileField($definition)) enctype="multipart/form-data"@endif novalidate>
     @csrf
+@if ($preview)<fieldset disabled class="fsc-form__preview" style="border:0;margin:0;padding:0;min-width:0">@endif
 @foreach ($definition['fields'] ?? [] as $field)
     @php
         $name = $field['name'];
@@ -63,7 +64,7 @@
         </label>
     </div>
 
-@if ($turnstileKey)
+@if ($turnstileKey && ! $preview)
     <div class="fsc-turnstile"><div class="cf-turnstile" data-sitekey="{{ $turnstileKey }}"></div></div>
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 @endif
@@ -73,6 +74,7 @@
 @endif
 
     <button class="fsc-submit" type="submit">{{ $labels['submit'] }}</button>
+@if ($preview)</fieldset>@endif
 </form>
 @endif
 </div>

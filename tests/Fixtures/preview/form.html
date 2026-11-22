@@ -1,0 +1,23 @@
+<div id="fsc-form-contact">
+<form class="fsc-form" method="POST" action="http://localhost/content/forms/contact" novalidate>
+    <input type="hidden" name="_token" value="" autocomplete="off">            <div class="fsc-field fsc-field--text">
+            <label class="fsc-field__label" for="fsc-form-contact-name">Naam<span class="fsc-field__required"><span aria-hidden="true"> *</span><span class="fsc-sr-only"> (required)</span></span></label>
+                <input id="fsc-form-contact-name" name="name" class="fsc-field__control" type="text" maxlength="20" value="" required  autocomplete="name"  >
+                    </div>
+            <div class="fsc-field fsc-field--textarea">
+            <label class="fsc-field__label" for="fsc-form-contact-message">Bericht</label>
+                <textarea id="fsc-form-contact-message" name="message" class="fsc-field__control" rows="5" maxlength="500"  ></textarea>
+                    </div>
+
+    
+    <div aria-hidden="true" class="fsc-hp" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden">
+        <label for="fsc-form-contact-hp">Leave this field empty
+            <input id="fsc-form-contact-hp" name="website" type="text" tabindex="-1" autocomplete="off" value="">
+        </label>
+    </div>
+
+
+
+    <button class="fsc-submit" type="submit">Send</button>
+</form>
+</div>
