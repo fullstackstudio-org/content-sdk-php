@@ -35,6 +35,7 @@ final class Events
         'page.unpublished',
         'page.deleted',
         'page.review_requested',
+        'page.html_block_changed',
         'member.registered',
         'member.verified',
         'member.blocked',
