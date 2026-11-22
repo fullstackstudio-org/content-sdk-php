@@ -299,7 +299,7 @@ final class BladeComponentsTest extends LaravelTestCase
 
     public function testABlockRendersWhenAViewExistsWithoutATypeList(): void
     {
-        $blocks = [['type' => 'hologram', 'x' => 'ja'], ['type' => 'newsletterSignup']];
+        $blocks = [['type' => 'hologram', 'x' => 'ja'], ['type' => 'reviews']];
 
         self::assertSame('', trim($this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks])), 'no view, no output');
 
@@ -308,8 +308,8 @@ final class BladeComponentsTest extends LaravelTestCase
         self::assertStringContainsString('hologram:ja', $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]));
 
         View::addNamespace('site', __DIR__ . '/views');
-        config(['content.blocks.newsletterSignup' => 'site::unknown']);
-        self::assertStringContainsString('unknown:newsletterSignup', $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]));
+        config(['content.blocks.reviews' => 'site::unknown']);
+        self::assertStringContainsString('unknown:reviews', $this->render('<x-content::page-blocks :blocks="$b" />', ['b' => $blocks]));
     }
 
     public function testAMalformedTypeNameIsNeverUsedForALookup(): void

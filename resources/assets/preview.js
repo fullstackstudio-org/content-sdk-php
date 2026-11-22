@@ -8,7 +8,10 @@
  *   frame to the live site, and the preview token does not travel with it).
  * - Talks to the portal with postMessage ({ns: 'fsc-preview', v: 1, type, ...}), exact origin and source checks on every message:
  *     to the portal:   ready {version, sdk}, rendered {version}, select {blockId, index}, error {code, retryAfter?}
- *     from the portal: refresh {version}, highlight {blockId}
+ *     from the portal: refresh {version}, highlight {blockId}, consent {categories}
+ *   `consent` grants consent categories (analytics, marketing, preferences) inside this frame only, through the consent loader
+ *   (window.fscCode.grant), so consent gated `html` blocks and snippets can be seen while the cookie banner is hidden. Nothing is stored:
+ *   the portal sends it again after every `ready`.
  *   No content travels over postMessage: on refresh the page asks its own server again (same-origin POST with the token) and swaps the
  *   [data-fsc-preview-blocks] roots when their count matches (scroll kept), else it reloads with a form POST (scroll restored).
  * - Works without a parent or opener (opened in its own window): no messages, the rest still applies.
@@ -127,6 +130,28 @@
     }
 
     var sequence = 0;
+    var granted = null;
+    var CATEGORIES = ['analytics', 'marketing', 'preferences'];
+
+    // Swapped-in markup cannot start scripts of its own: a block that needs the consent loader or the frame sizer of the `html` block while
+    // the page has none yet is shown through a full reload instead.
+    function needsRuntime(roots) {
+        for (var i = 0; i < roots.length; i++) {
+            if (!w.fscCode && roots[i].querySelector('template[data-fsc-code]')) { return true; }
+            if (!w.fscHtmlBlock && roots[i].querySelector('iframe[data-fsc-html-frame]')) { return true; }
+        }
+        return false;
+    }
+
+    function consent(categories) {
+        if (!Array.isArray(categories)) { return; }
+        var list = [];
+        for (var i = 0; i < categories.length; i++) {
+            if (CATEGORIES.indexOf(categories[i]) !== -1 && list.indexOf(categories[i]) === -1) { list.push(categories[i]); }
+        }
+        granted = list;
+        if (w.fscCode && list.length) { w.fscCode.grant({ categories: list }); }
+    }
 
     function refresh(version) {
         var mine = ++sequence;
@@ -145,10 +170,12 @@
             var doc = new DOMParser().parseFromString(text, 'text/html');
             var fresh = doc.querySelectorAll('[data-fsc-preview-blocks]');
             var old = d.querySelectorAll('[data-fsc-preview-blocks]');
-            if (!old.length || fresh.length !== old.length) { reload(); return; }
+            if (!old.length || fresh.length !== old.length || needsRuntime(fresh)) { reload(); return; }
             var x = w.scrollX || 0;
             var y = w.scrollY || 0;
             for (var i = 0; i < old.length; i++) { old[i].parentNode.replaceChild(d.importNode(fresh[i], true), old[i]); }
+            // Swapped-in scripts do not run: let the consent loader pick up new templates (with the consent granted so far).
+            if (w.fscCode) { if (granted) { w.fscCode.grant({ categories: granted }); } w.fscCode.scan(); }
             if (doc.title) { d.title = doc.title; }
             if (w.scrollTo) { w.scrollTo(x, y); }
             var next = versionOf(doc);
@@ -173,6 +200,8 @@
             refresh(typeof message.version === 'number' ? message.version : 0);
         } else if (message.type === 'highlight') {
             highlight(message.blockId);
+        } else if (message.type === 'consent') {
+            consent(message.categories);
         }
     });
 

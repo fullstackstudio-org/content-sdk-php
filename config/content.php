@@ -52,6 +52,37 @@ return [
     ],
 
     /*
+     * Site routes the page builder's module blocks link to (same-site paths only; a full URL is ignored).
+     * - `event`: the site's own event page, `{slug}` (and optionally `{id}`) replaced, e.g. '/evenementen/{slug}'. null = the blocks link to
+     *   the Hub's registration page of the event (`registrationUrl`).
+     * - `booking`: the site's own booking page, e.g. '/afspraak' or '/afspraak/{service}' (`{service}` = the service id of the block; without
+     *   it `?service=<id>` is added). null = the Hub's booking page (`bookingPageUrl`), when it is on.
+     * - `product`: the product page, `{slug}` replaced, e.g. '/winkel/{slug}'. null = the path the Hub publishes for the product (its
+     *   products `pathTemplate`, default '/producten/{slug}').
+     */
+    'links' => [
+        'event' => env('FSC_LINK_EVENT'),
+        'booking' => env('FSC_LINK_BOOKING'),
+        'product' => env('FSC_LINK_PRODUCT'),
+    ],
+
+    // The timezone the module blocks show dates and times in (event start, ...).
+    'timezone' => env('FSC_TIMEZONE', 'Europe/Amsterdam'),
+
+    /*
+     * The route behind the `newsletterSignup` block: `POST {path}` (route name `content.newsletter`). On by default, so the block works without
+     * site code; the `web` group is needed for session (the message after the redirect) and CSRF. `rate_limit` = attempts per visitor IP per
+     * minute. `ip_header`: see `forms.ip_header`. The Hub sends the confirmation mail (double opt-in).
+     */
+    'newsletter' => [
+        'enabled' => (bool) env('FSC_NEWSLETTER_ENABLED', true),
+        'path' => env('FSC_NEWSLETTER_PATH', 'content/newsletter'),
+        'middleware' => ['web'],
+        'rate_limit' => (int) env('FSC_NEWSLETTER_RATE_LIMIT', 10),
+        'ip_header' => env('FSC_IP_HEADER', 'cf-connecting-ip'),
+    ],
+
+    /*
      * The live preview from the portal's page editor. The portal posts a short-lived token to `POST {path}` (default `/_fsc/p`); the site
      * asks the Hub for the unpublished page and renders it through its own route and layout, framed by the portal only. Nothing to configure:
      * it needs a server token and is on by default. `FSC_PREVIEW_ENABLED=false` switches it off. `rate_limit`: preview requests per minute

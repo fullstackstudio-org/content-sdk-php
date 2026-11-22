@@ -217,6 +217,17 @@ final class Site
      */
     public static function csp(array $site): array
     {
+        return self::cspForHtml(array_map(static fn (array $snippet): string => $snippet['html'], [...self::snippets($site, 'head'), ...self::snippets($site, 'body')]));
+    }
+
+    /**
+     * The CSP sources of any HTML fragments, extracted like {@see self::csp()} does for the snippets (the page builder's `html` block uses it).
+     *
+     * @param list<string> $fragments
+     * @return array<string, list<string>>
+     */
+    public static function cspForHtml(array $fragments): array
+    {
         $out = ['script-src' => [], 'connect-src' => [], 'img-src' => [], 'frame-src' => [], 'style-src' => []];
         $add = static function (string $directive, ?string $origin) use (&$out): void {
             if ($origin !== null && !in_array($origin, $out[$directive], true)) {
@@ -224,9 +235,7 @@ final class Site
             }
         };
 
-        foreach ([...self::snippets($site, 'head'), ...self::snippets($site, 'body')] as $snippet) {
-            $html = $snippet['html'];
-
+        foreach ($fragments as $html) {
             if (preg_match_all('/<(script|img|iframe|link|source)\b((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>/i', $html, $tags, PREG_SET_ORDER) !== false) {
                 foreach ($tags as $tag) {
                     $element = strtolower($tag[1]);
@@ -454,6 +463,17 @@ final class Site
     }
 
     /**
+     * The inline consent loader (`<script>` with the nonce) that activates `<template data-fsc-code data-consent>` elements. Idempotent:
+     * a second copy on a page only scans for new templates. Public for the page builder's `html` block.
+     *
+     * @param array{nonce?: string|null, consentKey?: string, consentEvent?: string} $options
+     */
+    public static function consentLoader(array $options = []): string
+    {
+        return self::loader($options);
+    }
+
+    /**
      * The inline consent loader. Idempotent: the second copy on a page (head and body-end) only scans for new templates.
      *
      * @param array{nonce?: string|null, consentKey?: string, consentEvent?: string} $options
@@ -487,7 +507,7 @@ final class Site
     }
 
     /** An inline script or stylesheet from `resources/assets` (read once per process), without its leading comment block and trailing whitespace. */
-    private static function asset(string $file): string
+    public static function asset(string $file): string
     {
         if (!isset(self::$assets[$file])) {
             $source = (string) file_get_contents(dirname(__DIR__) . '/resources/assets/' . $file);

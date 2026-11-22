@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+Page builder phase 2 and 3 on the site (plan page-builder C and D, tasks 2.2 and 3.2; released as 0.28.0, the Hub registry offers these
+types from `minSdk` 0.28.0).
+
+- Default views for the module blocks, so they render on any site without site code: `eventList` (upcoming published events with date, time,
+  location and price or "Gratis", `emptyText` when nothing is planned), `event` (one event by `eventRef`, optional description, a button while
+  registering is open), `appointmentBooking` (heading, text and a button), `faq` (`<details>` list, optional category and limit, FAQPage JSON-LD
+  with the page nonce when `structuredData`), `productList` (cards with photo, name, summary and price, optional category) and
+  `newsletterSignup` (e-mail field, honeypot, CSRF). Each reads through the tag cached client (`Laravel\ModuleBlockData`, `@internal`), renders
+  nothing on a Hub error, with the module off, when the referenced item is gone or the list is empty, and logs that once per block type and
+  reason per process. Dates in the app locale and `content.timezone` (default `Europe/Amsterdam`). Everything is escaped; only the Hub sanitized
+  `descriptionHtml` and `answerHtml` go through `<x-content::article-body>`. The preview markers of 0.27 wrap them like every block.
+- Links (new config `content.links`, env `FSC_LINK_EVENT`, `FSC_LINK_BOOKING`, `FSC_LINK_PRODUCT`; same-site paths only, a full URL is ignored):
+  events go to `links.event` (`{slug}`, `{id}`), else to the Hub registration page (`registrationUrl`); the booking button to `links.booking`
+  (`{service}` or `?service=<id>`), else to the Hub booking page (`bookingPageUrl`, plus `/<serviceId>`), else the block renders nothing;
+  products to `links.product`, else the product path from the Hub sitemap (the products `pathTemplate`), else `/producten/{slug}`.
+- `Laravel\NewsletterController` behind `POST {content.newsletter.path}` (route `content.newsletter`, default `content/newsletter`, `web`
+  middleware), registered by default (`content.newsletter.enabled`, env `FSC_NEWSLETTER_ENABLED`) or with `Content::newsletterRoutes()`: checks
+  the address, drops a filled honeypot silently, `content.newsletter.rate_limit` tries per visitor IP per minute (default 10), subscribes with
+  `newsletter->subscribe()` and the visitor IP (`content.newsletter.ip_header`, default `cf-connecting-ip`), and redirects back to the block with a
+  Dutch message (double opt-in by the Hub, the same answer for a known address). The block's list id is encrypted with the app key in the form;
+  a tampered value is refused. No Turnstile (the Hub's subscribe call has none). Without the route the block renders nothing; in a preview the
+  form is disabled.
+- The `html` block ("HTML-code", `Laravel\HtmlBlock`, bound `scoped`): the code is never sanitized or rewritten, only the page nonce goes on its
+  `<script>` and `<style>` tags. `isolate: true` (default, and always in a portal preview) renders `<iframe sandbox="allow-scripts allow-popups
+  allow-forms" srcdoc loading="lazy">` without `allow-same-origin`, with a height reporter inside (`html-block-frame.js`) and a sizer on the page
+  (`html-block.js`, once per page, with the nonce) that resizes only the iframe whose `contentWindow` sent the message, only from origin `null`,
+  at most 20000 px. `isolate: false` prints the code in place (`Site::withNonce`). Consent other than `necessary` wraps either in `<template
+  data-fsc-code data-consent>` with a neutral placeholder and prints the snippets' consent loader once per page. Empty code, code over 20,000
+  characters and gated inline code containing `</template` are not printed.
+- CSP: `HtmlBlock` collects the code of every rendered block per request; `Content::siteCsp()` and `siteCspMerge()` now include its sources
+  (`Site::cspForHtml()`, the extraction of `Site::csp()` for any HTML). `Site::consentLoader()` and `Site::asset()` are public.
+- The consent loader (`fsc-code.js`) removes an element with `data-fsc-code-placeholder` right before a template when it activates it; site
+  snippets are unchanged.
+- `preview.js`: the portal can grant consent categories inside the preview frame (`{type: 'consent', categories}`, through
+  `window.fscCode.grant`, nothing stored); after a soft swap the loader scans the new blocks again; a swap that brings an `html` block or a gated
+  template while the page lacks the sizer or the loader becomes a full reload.
+- `$content->events->list()` / `get()` cache their answer under the new tag `content:events` when called with `['cache' => true]` (default
+  unchanged: not cached); `list()` passes `status`. `Tags::forEvent()` clears `content:events` on every `event.*` webhook except
+  `event.checked_in`. `$content->appointments->bookingPageUrl()` returns the Hub booking page from the (cached) services answer.
+- `content.css`: mobile first styles for the module blocks, the newsletter form, the HTML-code frame and placeholder, after the unchanged JS SDK
+  base.
+- `fsc:doctor`: the newsletter route (`OK`, or `INFO` when switched off), `LET OP` for a `Content-Security-Policy` in `app/`,
+  `bootstrap/app.php`, `routes/` or `config/` without `siteCspMerge()`/`siteCsp()`, and `LET OP` for one in `docker/`, `nginx.conf` or
+  `public/.htaccess`.
+- AGENTS.md: the module blocks, `content.links`, the newsletter route, the HTML-code block (isolation, consent, preview) and its CSP in A13,
+  the doctor lines, and pointers in the sections `faq`, `newsletter`, the webshop, `appointments` and `events`.
+
 ## 0.27.0
 
 - Live preview from the portal's page editor (plan page-builder B, D3 to D8). New global middleware `Laravel\Preview\PreviewRequest` (registered by the provider while `content.preview.enabled`, env `FSC_PREVIEW_ENABLED`, default on, and a server token is set) handles only `POST {content.preview.path}` (default `/_fsc/p`) with the form field `token` (`fscpv_` + 43 base64url characters; never read from the query string). It checks the shape, rate limits per preview token (`content.preview.rate_limit`, default 60 a minute, 429 with `Retry-After` above it) and refused tokens per visitor IP (30 a minute), asks the Hub with `ContentClient::getPagePreview($token)` (`GET /api/v1/pages/_preview`, header `X-FSC-Preview`, 8 s timeout, never cached; `@internal`) and answers a bare 404 on any refusal; any other method on the path is a 404 too. The Hub answer is checked before use: `path` a plain same-site path (no scheme, host, query, `//`, `..` or the preview path itself), `embedOrigin` one exact https origin (http only for localhost outside production), `page` an object with a list of block objects. Then the request scoped `Laravel\Preview\Preview` is activated and the request is rewritten to an anonymous `GET <path>` on the same host (no cookies, body, credentials or query; `session.driver` switches to `array`, every `cache.stores.*` points at a fresh array store and resolved stores are forgotten, and known full-page cache switches such as `responsecache.enabled` go off, so nothing is written to a session and a site or response cache on any store is neither read nor written) and handed to the site's own routes. A same-host redirect from the site (home on `/`, trailing slash, locale prefix) is rendered inside the preview as well, at most two hops; `content.preview.page_path` (a template with `{path}`, `{slug}`, `{locale}`, or an invokable class) maps the Hub path to the site route when the site does not redirect. `ContentClient::getPage($ref)` returns the preview page when `$ref` is its id, the preview path or the page's own `path`/`slug` (`ContentClient::overridePages()`, `@internal`, set for that one request only). On the way out, and again in a `RequestHandled` listener: `preview.js` is inserted right after `<head>` (external, same-origin, with the Vite nonce when set), `data-fsc-preview` on `<html>`, `Cache-Control: private, no-store`, `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`, and `Set-Cookie`, `ETag`, `Last-Modified`, `Expires`, `X-Frame-Options` and CDN cache headers are removed; every CSP loses its `frame-ancestors` and the first one gets `frame-ancestors <embedOrigin>` (a site without CSP gets only that directive).

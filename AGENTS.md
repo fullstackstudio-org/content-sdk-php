@@ -555,6 +555,14 @@ $response->headers->set('Content-Security-Policy', Content::analyticsCspMerge(Co
 - The portal preview (A17) needs nothing either: its script is same-origin (and carries the Vite nonce when one is set), and on the preview
   response only the SDK replaces `frame-ancestors` with the portal origin. Keep `frame-ancestors 'self'` (or none) for every other page. Never
   set `X-Frame-Options` or `frame-ancestors` in nginx or Apache: PHP cannot change those, and the preview can then not be framed.
+- Page builder blocks (0.28): the module blocks need nothing (their only inline script, the FAQ JSON-LD, carries the nonce). The `html` block
+  ("HTML-code") needs nothing extra either, as long as the policy goes through `siteCspMerge()` AFTER rendering (as above): every `html` block
+  rendered on the page registers the external hosts of its code (`script-src`, `connect-src`, `img-src`, `frame-src`, `style-src`, same rules
+  as the snippets) and `siteCspMerge()` adds them for that page only. An isolated block is an `<iframe srcdoc>`: it is not fetched, so
+  `frame-src` needs no entry for the frame itself (do not add `about:`); the document inside it inherits the page's policy, which is why the SDK
+  puts the page nonce on its scripts and the merged hosts apply inside the frame too. `style="..."` attributes inside widget code still need
+  `'unsafe-inline'` in `style-src` (or `style-src-attr`) if the widget uses them, like anywhere on the page. A policy set in nginx or Apache
+  cannot be merged at all: `fsc:doctor` warns.
 
 `siteCspMerge()` takes an array (returns an array) or a CSP string (returns a string). A missing directive starts from `default-src`; without
 `default-src` it stays out (adding it would forbid the rest). An existing `script-src-elem`/`style-src-elem` gets the sources too. Hosts that a script
@@ -658,6 +666,64 @@ package view `content::blocks.<type>` exists, and is skipped otherwise (so a new
 module `legal`) have default views that fetch through the cached client and render nothing on an error; your own view for either keeps winning.
 The portal previews pages through this site (A17). Verify: a published Hub page opens at its path; a draft is 404.
 
+**Module blocks (0.28).** The page builder offers a block only while its module is on; the site renders it with a default view of the SDK,
+no site code needed. Each view reads through the tag cached client (the webhook clears it), renders NOTHING on a Hub error, with the module
+off, when the referenced item is gone or the list is empty, and logs that once (`[fullstackstudio/content] The X block renders nothing`).
+Markup uses `fsc-*` classes; `content.css` has neutral, mobile first styles that inherit the site's fonts and colours.
+
+| Block | Shows | Links to |
+|---|---|---|
+| `eventList` (Agenda) | upcoming published events: date, title, time, location, price or "Gratis"; `emptyText` when nothing is planned | `content.links.event`, else the Hub registration page (`registrationUrl`) |
+| `event` (Evenement) | one event (`eventRef`), optional description, button `ctaLabel` while registering is open | same as `eventList` |
+| `appointmentBooking` (Afspraak maken) | heading, text, button `ctaLabel` (all services, or `serviceId`) | `content.links.booking`, else the Hub booking page (`bookingPageUrl`, when it is on), else nothing |
+| `faq` (Veelgestelde vragen) | published questions as `<details>` (optional `categoryId` = slug, `limit`), FAQPage JSON-LD with the nonce when `structuredData` | |
+| `productList` (Producten) | active products as cards: photo, name, summary, price (optional `category` = slug) | `content.links.product`, else the product path from the Hub sitemap (products `pathTemplate`), else `/producten/{slug}` |
+| `newsletterSignup` (Nieuwsbrief aanmelden) | heading, text, e-mail field and button `buttonLabel` (optional `listId`) | posts to `POST /content/newsletter` (route `content.newsletter`) |
+
+Site config (`config/content.php` or env; same-site paths only, a full URL is ignored):
+
+```php
+'links' => [
+    'event' => '/evenementen/{slug}',     // FSC_LINK_EVENT; null = the Hub page /e/i/<project>/<event>
+    'booking' => '/afspraak/{service}',   // FSC_LINK_BOOKING; '{service}' = the block's service id, else ?service=<id> is added
+    'product' => '/winkel/{slug}',        // FSC_LINK_PRODUCT; null = the path the Hub publishes for the product
+],
+'timezone' => 'Europe/Amsterdam',         // FSC_TIMEZONE: dates and times of events; the language is the app locale
+```
+
+The newsletter route is on by default (`content.newsletter.enabled`, `FSC_NEWSLETTER_ENABLED`; `web` middleware for session and CSRF): it checks
+the address and a honeypot, allows 10 tries per visitor IP per minute (`content.newsletter.rate_limit`), subscribes with the visitor IP
+(`content.newsletter.ip_header`, default `cf-connecting-ip`) and redirects back to the block with a Dutch message; the Hub mails the confirmation
+(double opt-in) and answers the same for a known address. The block's list id travels encrypted with `APP_KEY`, so a visitor cannot change it.
+Turnstile is not used: the Hub's subscribe call has no Turnstile check. Without the route the block renders nothing. In the portal preview the
+form is disabled. Test it ONLY in a test project with the notification recipients on `info@fullstackstudio.nl`.
+
+Override a block as any other: `config(['content.blocks.faq' => 'blocks.faq'])`, the `views` prop, or
+`resources/views/vendor/content/blocks/<type>.blade.php`. The data helpers are `@internal` (`Laravel\ModuleBlockData`); a site view usually reads
+`$content->events`, `->faq`, ... itself.
+
+**HTML-code block (`html`, 0.28).** Code for a widget or embed (a booking widget, a map, a review badge): `{name, html (max 20,000
+characters), consent (default marketing), isolate (default true)}`. The SDK never sanitizes or rewrites the code (only the page nonce goes on its
+`<script>` and `<style>` tags); it isolates and gates it instead:
+
+- `isolate: true` (the default; customer admins may add only these): an `<iframe sandbox="allow-scripts allow-popups allow-forms" srcdoc>`
+  WITHOUT `allow-same-origin`, so the code runs in an opaque origin and cannot read the site's cookies, storage or DOM (member and shop sessions
+  stay out of reach). The frame is `loading="lazy"`, full width, and takes its height from the content: a reporter inside posts it, and the
+  page's sizer (printed once, with the nonce) resizes only the frame whose `contentWindow` sent the message, only from origin `null`. Code that
+  needs top navigation or the site's cookies does not work isolated, by design.
+- `isolate: false` (FullStack Studio staff only, enforced by the Hub): printed in place like a `site` snippet, with full access to the page.
+- `consent` other than `necessary`: the block is an inert `<template data-fsc-code data-consent>` with a neutral placeholder ("Deze inhoud
+  verschijnt zodra je cookies voor marketing accepteert.") until the visitor accepts that category through the cookie banner (A10: the
+  banner must send `fsc:consent` or store `fsc-consent`). The SDK prints the same idempotent consent loader as the snippets once per page; it
+  activates the template and removes the placeholder. A site without a banner never shows consent-gated blocks.
+- CSP: see A13 (`siteCspMerge()` after rendering covers it per page).
+- Portal preview: always isolated (also `isolate: false`), consent still applies; the portal can grant categories inside the preview frame with
+  the message `{ns: 'fsc-preview', v: 1, type: 'consent', categories: [...]}` (nothing is stored).
+
+Verify: a page with a YouTube iframe in an `html` block with consent `marketing` shows the placeholder, and the video after accepting
+marketing cookies; with a CSP, the console shows no CSP errors; in the browser console of the frame `document.cookie` is empty and
+`parent.document` throws.
+
 ### `articles`
 
 `/blog` (list) and `/blog/{slug}` (detail), matching the SEO path template; add `url('/blog')` to the sitemap `extra`. Recipe: "Articles and categories"
@@ -706,15 +772,16 @@ A search page (for example `GET /zoeken?q=`) that calls `$content->search(['q' =
 
 ### `faq`
 
-`$content->faq->list()` (categories and items) on a FAQ page or in a section. Verify: the FAQ texts of the Hub appear.
+`$content->faq->list()` (categories and items) on a FAQ page or in a section, or the page builder block `faq` (section `pages`, no code). Verify:
+the FAQ texts of the Hub appear.
 
 ### `newsletter`
 
 A subscribe form posting to your own route that calls `$content->newsletter->subscribe(['email' => ..., ...], ['clientIp' => $ip])` (double opt-in:
 the Hub mails the confirmation; it answers the same for a known address, so show one neutral success message). Optional own pages for
 `confirmUrl`/`unsubscribeUrl` (then `confirm($token)` / `unsubscribe($token)`, both via POST); without them the Hub's hosted pages are used.
-Click links in campaign mails need no code (A14) but do need the privacy sentence (A11). Verify: subscribing shows the message and the Hub lists a
-pending subscriber.
+Click links in campaign mails need no code (A14) but do need the privacy sentence (A11). The page builder block `newsletterSignup` (section
+`pages`) is such a form with the SDK's own route. Verify: subscribing (test project only) shows the message and the Hub lists a pending subscriber.
 
 ### `members`
 
@@ -727,17 +794,23 @@ an httpOnly, Secure, SameSite=Lax cookie, never in a URL or the page. Recognitio
 Product list and detail, cart, checkout and a thank-you page (README "Webshop": `cart->applyCode`, `orders->place` with `expectedTotalCents`,
 `payments->startForOrder`, redirect to `payment.checkoutUrl`; keep `accessToken` out of URLs). With `analytics` on, place the conversion markers:
 `<x-content::begin-checkout>` on the checkout page and `<x-content::purchase :order="$order" />` on the thank-you page ("Conversion events").
-Optional "Misschien ook interessant": `$content->products->recommendedProducts($pid, 4)` ("Recommended products"). Verify: a test order in a test
+Optional "Misschien ook interessant": `$content->products->recommendedProducts($pid, 4)` ("Recommended products"). The page builder block
+`productList` links to `content.links.product` or the Hub's product path: keep that route working. Verify: a test order in a test
 project reaches the payment provider's test checkout; the thank-you page fires `purchase` once.
 
 ### `appointments`
 
 A booking page (`appointments->services`, `availability`, `book`) and a confirmation; with `analytics` on `<x-content::appointment-booked
-:service :reference page="/afspraak-maken" />` on the confirmation. Verify: free times load; a booking in a test project shows the confirmation.
+:service :reference page="/afspraak-maken" />` on the confirmation. Without an own booking page, the page builder block `appointmentBooking` links
+to the Hub's booking page (`$content->appointments->bookingPageUrl()`, switched on in the Hub); with one, set `content.links.booking`. Verify:
+free times load; a booking in a test project shows the confirmation.
 
 ### `events`
 
-Event list and detail with registration (`$content->events`). Verify: a published event shows; registration in a test project succeeds.
+Event list and detail with registration (`$content->events`), or only the page builder blocks `eventList` and `event`, which then link to the
+Hub's registration page (`registrationUrl`). With an own event page, set `content.links.event` (for example `/evenementen/{slug}`).
+`events->list()`/`get()` are not cached unless you pass `['cache' => true]` (tag `content:events`, cleared by every `event.*` webhook).
+Verify: a published event shows; registration in a test project succeeds.
 
 ### `tickets`
 
@@ -804,7 +877,10 @@ It checks: env keys and token type, `FSC_API_URL` https, `SESSION_DRIVER` not co
 production), routes `/sitemap.xml`, `/robots.txt`, `/api/health` (200 `{"ok":true}`), the webhook and form routes, the catch-all, `RedirectMiddleware`
 first in the web group, `trustProxies`, every layout with `</head>` (outside `errors/` and mail views) has the five components in the right place, a
 cookie banner (`fsc:consent`), `errors/404` and `errors/503`, no `fullUrl()` in views, no `public/robots.txt`/`public/sitemap.xml`, `.env` in
-`.gitignore`, no `fsc_srv_`/`fsc_whsec_` in `resources/`, `public/` or the views, and that `config:cache` will work.
+`.gitignore`, no `fsc_srv_`/`fsc_whsec_` in `resources/`, `public/` or the views, and that `config:cache` will work. For the page builder blocks
+(0.28): the newsletter route (`OK`, `INFO` when switched off), `LET OP` for a `Content-Security-Policy` in the site's PHP code (`app/`,
+`bootstrap/app.php`, `routes/`, `config/`) without `siteCspMerge()`/`siteCsp()`, and `LET OP` for one set in `docker/`, `nginx.conf` or
+`public/.htaccess`.
 
 ### Checks against the running site
 

@@ -66,6 +66,9 @@ final class ContentServiceProvider extends ServiceProvider
         // The portal preview context lives for one request only.
         $this->app->scoped(Preview::class, static fn (): Preview => new Preview());
 
+        // The `html` blocks of one request: their CSP sources and whether the loader and the frame sizer are printed (Octane safe).
+        $this->app->scoped(HtmlBlock::class, static fn (): HtmlBlock => new HtmlBlock());
+
         $this->app->singleton(Errors::class, fn ($app): Errors => new Errors($app));
         $this->app->singleton(ErrorReporter::class, fn ($app): ErrorReporter => new ErrorReporter($app, $app->make(Errors::class)));
     }
@@ -90,6 +93,10 @@ final class ContentServiceProvider extends ServiceProvider
 
         if ($this->app['config']->get('content.forms.enabled')) {
             self::registerFormRoute();
+        }
+
+        if ($this->app['config']->get('content.newsletter.enabled', true)) {
+            self::registerNewsletterRoute();
         }
 
         if ($this->app['config']->get('content.analytics.enabled', true)) {
@@ -296,6 +303,19 @@ final class ContentServiceProvider extends ServiceProvider
             ->post(trim((string) $config->get('content.forms.path', 'content/forms'), '/') . '/{key}', FormController::class)
             ->where('key', '[A-Za-z0-9_-]+')
             ->name('content.form');
+    }
+
+    /**
+     * Registers `POST {content.newsletter.path}` (route name `content.newsletter`, default `content/newsletter`), the target of the
+     * `newsletterSignup` block. Called for you while `content.newsletter.enabled` is on (the default), or via `Content::newsletterRoutes()`.
+     */
+    public static function registerNewsletterRoute(): void
+    {
+        $config = app('config');
+
+        Route::middleware($config->get('content.newsletter.middleware', ['web']))
+            ->post(trim((string) $config->get('content.newsletter.path', 'content/newsletter'), '/'), NewsletterController::class)
+            ->name('content.newsletter');
     }
 
     /** Registers `POST {content.webhook.path}` (route name `content.webhook`). Called for you when `content.webhook.enabled` is on, or via `Content::routes()`. */

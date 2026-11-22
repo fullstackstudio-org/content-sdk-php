@@ -287,6 +287,28 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'X-Frame-Options of frame-ancestors buiten PHP in'));
     }
 
+    public function testACspWithoutSiteCspMergeIsAWarningAndOneThroughItIsOk(): void
+    {
+        $this->completeSite();
+        $app = $this->views . '/../fsc-doctor-app-' . bin2hex(random_bytes(3));
+        mkdir($app . '/Http/Middleware', 0777, true);
+        $this->app->useAppPath($app);
+
+        self::assertSame(Doctor::INFO, $this->statusOf($this->results(), 'Geen Content-Security-Policy in de PHP-code'));
+        self::assertSame(Doctor::OK, $this->statusOf($this->results(), 'Nieuwsbriefroute'));
+
+        file_put_contents($app . '/Http/Middleware/Csp.php', '<?php $response->headers->set("Content-Security-Policy", "default-src \'self\'");');
+        self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'Content-Security-Policy zonder Content::siteCspMerge()'));
+
+        file_put_contents($app . '/Http/Middleware/Csp.php', '<?php $response->headers->set("Content-Security-Policy", Content::siteCspMerge("default-src \'self\'"));');
+        self::assertSame(Doctor::OK, $this->statusOf($this->results(), 'Content-Security-Policy gaat door Content::siteCspMerge()'));
+
+        file_put_contents($this->public . '/.htaccess', "Header always set Content-Security-Policy \"default-src 'self'\"\n");
+        self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'Content-Security-Policy buiten PHP in'));
+
+        exec('rm -rf ' . escapeshellarg($app));
+    }
+
     public function testAFullPageCachePackageIsAWarning(): void
     {
         $this->completeSite();

@@ -8,6 +8,7 @@ use FullStackStudio\Content\Analytics;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\AnalyticsSettings;
 use FullStackStudio\Content\Laravel\ContentServiceProvider;
+use FullStackStudio\Content\Laravel\HtmlBlock;
 use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Site;
 use Illuminate\Support\Facades\Facade;
@@ -39,6 +40,12 @@ final class Content extends Facade
         ContentServiceProvider::registerFormRoute();
     }
 
+    /** Registers the newsletter route behind the `newsletterSignup` block (`POST content/newsletter`), for a site with `content.newsletter.enabled` off. */
+    public static function newsletterRoutes(): void
+    {
+        ContentServiceProvider::registerNewsletterRoute();
+    }
+
     /** Registers the webhook route (`POST content/webhook`). Put it in `routes/api.php` or any routes file. */
     public static function routes(): void
     {
@@ -67,9 +74,10 @@ final class Content extends Facade
     }
 
     /**
-     * Content-Security-Policy sources the customer's own code from the module `site` needs (hosts of the snippets' `src`/`href`
-     * attributes and of URLs inside inline scripts), per directive. Empty when the module is off. The components put the nonce on
-     * every script and style they print, so a nonce-based policy needs nothing else for them.
+     * Content-Security-Policy sources the customer's own code needs, per directive: the snippets of the module `site` (hosts of their
+     * `src`/`href` attributes and of URLs inside inline scripts) plus the page builder `html` blocks rendered in this request. Empty when
+     * there is neither. The components put the nonce on every script and style they print, so a nonce-based policy needs nothing else for
+     * them. Call it after the page rendered (a middleware that sets the header on the response), or the blocks are not counted yet.
      *
      * @return array<string, list<string>>
      */
@@ -77,11 +85,16 @@ final class Content extends Facade
     {
         try {
             $site = SiteSettings::make()->current();
-
-            return $site === null ? [] : Site::csp($site);
+            $sources = $site === null ? [] : Site::csp($site);
         } catch (\Throwable) {
-            return [];
+            $sources = [];
         }
+
+        foreach (HtmlBlock::current()->sources() as $directive => $origins) {
+            $sources[$directive] = array_values(array_unique([...($sources[$directive] ?? []), ...$origins]));
+        }
+
+        return $sources;
     }
 
     /**

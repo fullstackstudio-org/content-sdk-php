@@ -53,6 +53,7 @@ final class Doctor
         $this->section(fn () => $this->checkMiddleware());
         $this->section(fn () => $this->checkLayouts());
         $this->section(fn () => $this->checkPreview());
+        $this->section(fn () => $this->checkPageBuilderBlocks());
         $this->section(fn () => $this->checkPublicFiles());
         $this->section(fn () => $this->checkSecrets());
         $this->section(fn () => $this->checkConfigCacheable());
@@ -465,6 +466,67 @@ final class Doctor
                 $this->add(self::WARN, 'X-Frame-Options of frame-ancestors buiten PHP in ' . $this->relative($file), 'De webserver zet die header op elk antwoord, ook op het voorbeeld; dan kan het portaal de site niet tonen. Zet hem in PHP (middleware), de SDK past hem in het voorbeeld aan.');
             }
         }
+    }
+
+    // --- Page builder blocks (SDK 0.28) -----------------------------------------------------------------------------------------
+
+    /**
+     * The prerequisites of the module blocks and the `html` block: the newsletter route behind `newsletterSignup`, and a CSP that goes through
+     * `Content::siteCspMerge()` (or `siteCsp()`): an `html` block may load scripts and frames from other hosts, and only the merge adds them to
+     * the policy, per page. A policy set outside PHP (nginx, Apache) cannot be merged at all. Consent gated blocks also need the cookie banner
+     * (see the layout check: it must send `fsc:consent`).
+     */
+    private function checkPageBuilderBlocks(): void
+    {
+        if ($this->app['router']->getRoutes()->hasNamedRoute('content.newsletter')) {
+            $this->add(self::OK, 'Nieuwsbriefroute voor het blok Nieuwsbrief aanmelden (POST /' . trim((string) $this->config('content.newsletter.path', 'content/newsletter'), '/') . ')');
+        } else {
+            $this->add(self::INFO, 'Nieuwsbriefroute staat uit (FSC_NEWSLETTER_ENABLED=false): het blok Nieuwsbrief aanmelden toont niets', 'Zet hem aan, of roep Content::newsletterRoutes() aan in een routesbestand.');
+        }
+
+        foreach ($this->serverConfigFiles() as $file) {
+            if (preg_match('/Content-Security-Policy/i', (string) file_get_contents($file)) === 1) {
+                $this->add(self::WARN, 'Content-Security-Policy buiten PHP in ' . $this->relative($file), 'Die policy kan Content::siteCspMerge() niet aanvullen: eigen code en HTML-codeblokken met scripts of iframes van andere hosts worden dan geblokkeerd. Zet de CSP in een middleware met Content::siteCspMerge().');
+            }
+        }
+
+        $setsCsp = [];
+        $merges = false;
+
+        foreach ($this->sitePhpFiles() as $file) {
+            $contents = (string) file_get_contents($file);
+
+            if (preg_match('/Content-Security-Policy(?!-Report-Only)/i', $contents) === 1) {
+                $setsCsp[] = $file;
+            }
+
+            if (preg_match('/siteCspMerge\s*\(|siteCsp\s*\(/', $contents) === 1) {
+                $merges = true;
+            }
+        }
+
+        if ($setsCsp === []) {
+            $this->add(self::INFO, 'Geen Content-Security-Policy in de PHP-code gevonden: HTML-codeblokken hebben niets extra nodig');
+        } elseif ($merges) {
+            $this->add(self::OK, 'Content-Security-Policy gaat door Content::siteCspMerge() (eigen code en HTML-codeblokken)');
+        } else {
+            $this->add(self::WARN, 'Content-Security-Policy zonder Content::siteCspMerge() in ' . implode(', ', array_map($this->relative(...), $setsCsp)), 'HTML-codeblokken (en eigen code uit de module site) laden dan geen scripts of iframes van andere hosts. Haal de policy door Content::siteCspMerge($policy) nadat de pagina gerenderd is, en geef scripts de nonce (Vite::useCspNonce()). Zie AGENTS.md, "HTML-code".');
+        }
+    }
+
+    /** @return list<string> the site's own PHP files that could set response headers: app/, bootstrap/app.php, routes/ and config/ */
+    private function sitePhpFiles(): array
+    {
+        $files = array_values(array_filter([$this->app->basePath('bootstrap/app.php')], 'is_file'));
+        $dirs = array_values(array_filter([$this->app->path(), $this->app->basePath('routes'), $this->app->configPath()], 'is_dir'));
+
+        if ($dirs !== []) {
+            foreach (Finder::create()->files()->in($dirs)->name('*.php')->size('< 1M')->notPath('vendor') as $file) {
+                $files[] = (string) $file->getRealPath();
+            }
+        }
+
+        return $files;
     }
 
     /** @return list<string> installed full-page or response cache packages (from composer.lock, else by class) */

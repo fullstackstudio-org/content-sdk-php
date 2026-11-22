@@ -24,6 +24,19 @@ final class Appointments
         return $this->ctx->get('/appointments/services', [Tags::APPOINTMENT_SERVICES], null, $options)->data['services'] ?? [];
     }
 
+    /**
+     * The Hub's own booking page (`https://…/a/b/<project>`) when it is on, else null. Read from the same (cached) services answer as
+     * {@see self::services()}, so asking for both costs one call. Append `/<serviceId>` to open one service.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function bookingPageUrl(array $options = []): ?string
+    {
+        $url = $this->ctx->get('/appointments/services', [Tags::APPOINTMENT_SERVICES], null, $options)->data['bookingPageUrl'] ?? null;
+
+        return is_string($url) && preg_match('#^https://[^\s<>"\']+$#D', $url) === 1 ? $url : null;
+    }
+
     /** @param array<string, mixed> $options @return array<string, mixed> */
     public function service(string $id, array $options = []): array
     {

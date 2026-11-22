@@ -295,3 +295,184 @@
     display: grid;
     gap: var(--fsc-gap);
 }
+
+/* Module blocks (SDK 0.28): agenda, event, appointment, FAQ, products, newsletter. Mobile first; colours and fonts come from the site. */
+.fsc-hp {
+    position: absolute;
+    left: -10000px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+.fsc-eventlist,
+.fsc-productlist {
+    display: grid;
+    gap: var(--fsc-gap);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.fsc-eventcard,
+.fsc-productcard {
+    display: grid;
+    gap: 0.35rem;
+    height: 100%;
+    padding: 1rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-eventcard__title,
+.fsc-productcard__title,
+.fsc-eventcard__date,
+.fsc-eventcard__meta,
+.fsc-eventcard__state,
+.fsc-productcard__summary,
+.fsc-productcard__price,
+.fsc-event__meta,
+.fsc-event__state {
+    margin: 0;
+}
+
+.fsc-eventcard__date {
+    font-size: 0.9em;
+    font-weight: 600;
+    color: var(--fsc-accent);
+}
+
+.fsc-eventcard__title a,
+.fsc-productcard__title a {
+    color: inherit;
+}
+
+.fsc-eventcard__meta,
+.fsc-event__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    font-size: 0.95em;
+    opacity: 0.85;
+}
+
+.fsc-eventcard__state,
+.fsc-event__state {
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.fsc-block--event,
+.fsc-block--appointmentBooking,
+.fsc-block--newsletterSignup {
+    display: grid;
+    gap: var(--fsc-gap);
+    justify-items: start;
+}
+
+.fsc-block--appointmentBooking,
+.fsc-block--newsletterSignup {
+    padding: 1.5rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-event__title,
+.fsc-booking__heading,
+.fsc-booking__text,
+.fsc-newsletter__heading,
+.fsc-newsletter__text,
+.fsc-newsletter__success {
+    margin: 0;
+}
+
+.fsc-productcard__media {
+    display: block;
+    overflow: hidden;
+    border-radius: calc(var(--fsc-radius) / 2);
+}
+
+.fsc-productcard__media img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+}
+
+.fsc-productcard__price {
+    font-weight: 600;
+}
+
+.fsc-faq {
+    display: grid;
+    border-top: 1px solid var(--fsc-border);
+}
+
+.fsc-faq__item {
+    border-bottom: 1px solid var(--fsc-border);
+}
+
+.fsc-faq__question {
+    padding: 0.85rem 0;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.fsc-faq__answer {
+    padding-bottom: 0.85rem;
+}
+
+.fsc-newsletter {
+    display: grid;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.fsc-newsletter__row {
+    display: grid;
+    gap: 0.5rem;
+}
+
+@media (min-width: 40rem) {
+    .fsc-eventlist {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .fsc-productlist {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .fsc-newsletter__row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+}
+
+@media (min-width: 64rem) {
+    .fsc-eventlist {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .fsc-productlist {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+/* HTML-code block: the sandboxed frame takes the width, the height comes from the frame itself. */
+.fsc-html__frame {
+    display: block;
+    width: 100%;
+    height: 150px;
+    border: 0;
+}
+
+.fsc-html__placeholder {
+    padding: 1rem;
+    font-size: 0.9em;
+    text-align: center;
+    border: 1px dashed var(--fsc-border);
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-html__placeholder p {
+    margin: 0;
+}

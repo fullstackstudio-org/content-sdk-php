@@ -11,7 +11,8 @@
  * event `event` (default `fsc:consent`). Understood: `accepted`/`all`/`true` (every category), `declined`/`necessary`/`none`/`false`
  * (none), `{categories: [...]}`, `{choice: 'all'|'none'|'custom', categories}`, `{analytics: true, marketing: false, ...}`
  * (`statistics` counts as analytics), a list, and the same as JSON text. Granting is one-way within a page view: code that ran cannot
- * be unloaded, a revoked choice applies from the next page. Idempotent: a second copy on the page only scans again.
+ * be unloaded, a revoked choice applies from the next page. Idempotent: a second copy on the page only scans again. An element with
+ * `data-fsc-code-placeholder` right before a template is removed when that template is activated.
  */
 (function (w, d) {
     if (w.fscCode) { w.fscCode.scan(); return; }
@@ -74,6 +75,9 @@
             if (e.tagName === 'SCRIPT') { var p = d.createComment(''); e.parentNode.replaceChild(p, e); queue.push([p, e]); }
             else if (n) e.nonce = n;
         }
+        // A neutral placeholder right before the template (the page builder's `html` block) goes once the code is in.
+        var ph = t.previousElementSibling;
+        if (ph && ph.hasAttribute && ph.hasAttribute('data-fsc-code-placeholder') && ph.parentNode) ph.parentNode.removeChild(ph);
         t.parentNode.insertBefore(f, t);
         t.parentNode.removeChild(t);
         next();

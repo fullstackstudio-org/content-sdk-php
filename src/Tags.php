@@ -21,6 +21,7 @@ namespace FullStackStudio\Content;
  *   seo                        content:seo
  *   sitemap                    content:sitemap
  *   site standards             content:site
+ *   events (list and detail, only when read with `cache => true`)  content:events
  *   products / product / product categories / appointment services / faq / legal: see the constants below.
  */
 final class Tags
@@ -40,6 +41,7 @@ final class Tags
     public const LEGAL = 'content:legal';
     public const ANALYTICS = 'content:analytics';
     public const SITE = 'content:site';
+    public const EVENTS = 'content:events';
 
     /** Tags are case-insensitive: slugs and UUIDs are in the API too. */
     private static function key(string $value): string
@@ -118,6 +120,9 @@ final class Tags
             // Read per call, never cached: nothing to invalidate.
         } elseif (str_starts_with($type, 'review.')) {
             $add([self::PRODUCTS, ...$withRef([self::class, 'product'], $data['slug'] ?? null, $data['productId'] ?? null)]);
+        } elseif (str_starts_with($type, 'event.') && $type !== 'event.checked_in') {
+            // A registration changes the seats left, so `event.registered` and `event.registration.cancelled` clear the list too.
+            $add([self::EVENTS]);
         } elseif (str_starts_with($type, 'faq.')) {
             $add([self::FAQ]);
         } elseif ($type === 'form.created' || $type === 'form.updated' || $type === 'form.deleted') {

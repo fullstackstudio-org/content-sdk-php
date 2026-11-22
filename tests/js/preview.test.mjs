@@ -18,6 +18,7 @@ function el(tag, attrs = {}, children = []) {
         scrollIntoView() { self.scrolled = true; },
         submit() { self.submitted = true; },
         all() { return [self, ...self.children.flatMap((c) => c.all())]; },
+        querySelector(selector) { return self.all().slice(1).find(selectorMatch(selector)) ?? null; },
     };
     children.forEach((c) => self.appendChild(c));
     return self;
@@ -26,6 +27,8 @@ function el(tag, attrs = {}, children = []) {
 function selectorMatch(selector) {
     if (selector === '[data-fsc-preview-blocks]') { return (n) => n.getAttribute('data-fsc-preview-blocks') !== null; }
     if (selector === '[data-fsc-block]') { return (n) => n.getAttribute('data-fsc-block') !== null; }
+    if (selector === 'template[data-fsc-code]') { return (n) => n.tagName === 'TEMPLATE' && n.getAttribute('data-fsc-code') !== null; }
+    if (selector === 'iframe[data-fsc-html-frame]') { return (n) => n.tagName === 'IFRAME' && n.getAttribute('data-fsc-html-frame') !== null; }
     if (selector === 'script[data-endpoint][data-version]') { return (n) => n.tagName === 'SCRIPT' && n.getAttribute('data-endpoint') !== null && n.getAttribute('data-version') !== null; }
     throw new Error('unsupported selector ' + selector);
 }
@@ -253,5 +256,79 @@ describe('messages from the portal', () => {
         message({ ns: 'fsc-preview', v: 1, type: 'highlight', blockId: 'b2' });
         expect(first.style.outline).toBe(undefined);
         expect(second.style.outline).toBe('2px solid #2563eb');
+    });
+});
+
+describe('html blocks in the preview (SDK 0.28)', () => {
+    function withCode(win) {
+        const grants = [];
+        let scans = 0;
+        win.fscCode = { grant: (value) => grants.push(value), scan: () => { scans += 1; } };
+        return { grants, scans: () => scans };
+    }
+
+    it('grants consent from the portal inside the frame only, with known categories only', () => {
+        const { win, message } = run();
+        const code = withCode(win);
+
+        message({ ns: 'fsc-preview', v: 1, type: 'consent', categories: ['marketing', 'necessary', 'evil', 'marketing', 'analytics'] });
+
+        expect(code.grants).toEqual([{ categories: ['marketing', 'analytics'] }]);
+    });
+
+    it('ignores consent from another origin or source, and malformed consent', () => {
+        const { win, message } = run();
+        const code = withCode(win);
+
+        message({ ns: 'fsc-preview', v: 1, type: 'consent', categories: ['marketing'] }, { origin: 'https://evil.test', source: win.parent });
+        message({ ns: 'fsc-preview', v: 1, type: 'consent', categories: ['marketing'] }, { origin: PORTAL, source: {} });
+        message({ ns: 'fsc-preview', v: 1, type: 'consent', categories: 'marketing' });
+        message({ ns: 'fsc-preview', v: 1, type: 'consent', categories: ['necessary'] });
+
+        expect(code.grants).toEqual([]);
+    });
+
+    it('after a soft swap the loader scans the new blocks with the consent granted so far', async () => {
+        const next = page(['b1', 'b2'], 5);
+        const { win, message, flush } = run({ nextPage: next });
+        const code = withCode(win);
+        message({ ns: 'fsc-preview', v: 1, type: 'consent', categories: ['preferences'] });
+
+        message({ ns: 'fsc-preview', v: 1, type: 'refresh', version: 5 });
+        await flush();
+        await flush();
+
+        expect(code.grants.at(-1)).toEqual({ categories: ['preferences'] });
+        expect(code.scans()).toBe(1);
+    });
+
+    it('reloads instead of swapping when a new html block needs the loader or the frame sizer the page lacks', async () => {
+        for (const block of [el('template', { 'data-fsc-code': '', 'data-consent': 'marketing' }), el('iframe', { 'data-fsc-html-frame': '' })]) {
+            const next = page(['b1'], 5);
+            next.blocks.children[0].appendChild(block);
+            const { message, flush, root } = run({ nextPage: next });
+
+            message({ ns: 'fsc-preview', v: 1, type: 'refresh', version: 5 });
+            await flush();
+            await flush();
+
+            const last = root.children[1].children.at(-1);
+            expect(last.tagName).toBe('FORM');
+            expect(last.submitted).toBe(true);
+        }
+    });
+
+    it('swaps softly when the page already has the loader and the sizer', async () => {
+        const next = page(['b1'], 5);
+        next.blocks.children[0].appendChild(el('iframe', { 'data-fsc-html-frame': '' }));
+        const { win, message, flush, root } = run({ nextPage: next });
+        withCode(win);
+        win.fscHtmlBlock = { frames: () => [] };
+
+        message({ ns: 'fsc-preview', v: 1, type: 'refresh', version: 5 });
+        await flush();
+        await flush();
+
+        expect(root.children[1].children[0]).toBe(next.blocks);
     });
 });
