@@ -293,7 +293,7 @@ final class ContentClient
     public function getPagePreview(string $token, array $options = []): array
     {
         $preview = $this->context->execute([
-            'path' => '/pages/preview',
+            'path' => '/pages/_preview',
             'headers' => ['X-FSC-Preview' => $token],
             'options' => ['timeoutMs' => 8000, ...$options, 'cache' => false],
         ])->data['preview'] ?? null;

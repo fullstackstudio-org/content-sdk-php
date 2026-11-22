@@ -95,7 +95,7 @@ final class PreviewTest extends LaravelTestCase
                 $path = (string) parse_url($request->url, PHP_URL_PATH);
 
                 return match (true) {
-                    $path === '/api/v1/pages/preview' => $this->test->preview !== null && ($request->headers['X-FSC-Preview'] ?? null) === PreviewTest::tokenValue()
+                    $path === '/api/v1/pages/_preview' => $this->test->preview !== null && ($request->headers['X-FSC-Preview'] ?? null) === PreviewTest::tokenValue()
                         ? FakeTransport::json(['preview' => $this->test->preview], 200, ['cache-control' => 'no-store'])
                         : FakeTransport::json(['error' => ['code' => 'not_found', 'message' => 'Not found']], 404),
                     $path === '/api/v1/pages' => FakeTransport::json(['page' => ['id' => 'live', 'title' => 'Live over ons', 'blocks' => [['id' => 'b1', 'type' => 'richText', 'html' => '<p>Live tekst</p>']]]]),
@@ -143,7 +143,7 @@ final class PreviewTest extends LaravelTestCase
 
         // The Hub call: the token in a header, the SDK version, never in the URL.
         $call = $this->hub[0];
-        self::assertSame('https://content.test/api/v1/pages/preview', $call->url);
+        self::assertSame('https://content.test/api/v1/pages/_preview', $call->url);
         self::assertSame(self::TOKEN, $call->headers['X-FSC-Preview']);
         self::assertSame('php/' . ContentClient::VERSION, $call->headers['X-FSC-SDK']);
         self::assertSame(8000, $call->timeoutMs);
@@ -252,7 +252,7 @@ final class PreviewTest extends LaravelTestCase
         self::assertSame(["default-src 'self'; frame-ancestors 'self'"], $response->headers->all('content-security-policy'));
         self::assertSame('"live"', $response->headers->get('ETag'));
         self::assertNotSame([], $response->headers->getCookies());
-        self::assertNotContains('/pages/preview', $this->hubPaths());
+        self::assertNotContains('/pages/_preview', $this->hubPaths());
         self::assertFalse(app(Preview::class)->active());
     }
 
@@ -335,7 +335,7 @@ final class PreviewTest extends LaravelTestCase
         $limited = $this->postPreview(self::TOKEN, ['REMOTE_ADDR' => '198.51.100.2']);
         $limited->assertStatus(429);
         self::assertSame('60', $limited->headers->get('Retry-After'));
-        self::assertSame(2, count(array_filter($this->hubPaths(), static fn (string $p): bool => $p === '/pages/preview')));
+        self::assertSame(2, count(array_filter($this->hubPaths(), static fn (string $p): bool => $p === '/pages/_preview')));
 
         // Another editor behind the same office IP is not affected.
         $this->preview = null;

@@ -20,7 +20,7 @@ use Throwable;
  * is on and a server token is set; it only acts on `{content.preview.path}` (default `/_fsc/p`), every other request passes untouched.
  *
  * `POST /_fsc/p` with the form field `token` (`fscpv_...`): the token shape is checked, the visitor IP is rate limited, the Hub is asked for the
- * preview (`GET /api/v1/pages/preview`, never cached). On any refusal the answer is a bare 404. On success the request scoped {@see Preview}
+ * preview (`GET /api/v1/pages/_preview`, never cached). On any refusal the answer is a bare 404. On success the request scoped {@see Preview}
  * is activated and the request is rewritten in place to an anonymous `GET <path>` on the same host (no cookies, no body, no session that
  * outlives the request), so the site's own route, controller, layout and views render the page; `getPage()` returns the preview for that path.
  *
