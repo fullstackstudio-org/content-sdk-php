@@ -78,6 +78,19 @@ final class PathResolverTest extends FakeHubTestCase
         self::assertNull($this->resolve('/de/over-ons'), 'an unknown locale is a path segment, not a language');
     }
 
+    public function testASingleLanguageSiteNeverStripsAPrefix(): void
+    {
+        $this->project = ['locales' => ['nl'], 'defaultLocale' => 'nl'];
+        $this->page('over-ons', 'en', ['title' => 'About']);
+        $this->page('en/over-ons', 'nl', ['title' => 'Pad met en']);
+
+        $resolved = $this->resolve('/en/over-ons');
+
+        self::assertSame('Pad met en', $resolved?->resource['title'], 'en is not a language of this site, so /en/over-ons is a plain nl path');
+        self::assertSame('nl', $resolved->locale);
+        self::assertSame('nl', $this->queryOf('/pages')['locale']);
+    }
+
     public function testTheDefaultLocaleIsPassedOnToo(): void
     {
         $this->page('over-ons');

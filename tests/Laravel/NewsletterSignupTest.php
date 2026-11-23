@@ -73,7 +73,7 @@ final class NewsletterSignupTest extends LaravelTestCase
         $html = $this->render([['id' => 'nb1', 'type' => 'newsletterSignup', 'heading' => 'Nieuws']]);
 
         self::assertStringContainsString('<fieldset disabled class="fsc-form__preview"', $html);
-        self::assertStringContainsString('<div data-fsc-block="nb1" data-fsc-block-index="0" style="display:contents">', $html);
+        self::assertStringContainsString('<div data-fsc-block="nb1" data-fsc-block-index="0" data-fsc-block-type="', $html);
     }
 
     public function testWithoutTheRouteTheBlockRendersNothing(): void

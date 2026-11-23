@@ -55,13 +55,22 @@ return [
 
     /*
      * Replace the default view of a block type of `<x-content::page-blocks>`, e.g. 'articleList' => 'blocks.articles' (a view of your own that
-     * receives `$block`, `$index`, `$baseUrl` and `$resolve`). `unknown` renders block types this version does not know (default: skipped).
+     * receives `$block`, `$index`, `$baseUrl`, `$resolve`, `$layout`, `$tone` and `$look`). `unknown` renders block types this version does not know (default: skipped).
      * `inline_styles` (env FSC_BLOCKS_INLINE_STYLES, default true): `<x-content::page-blocks>` prints the zero-specificity base CSS of the default
      * views once per page. Set it to false only when the site loads the published `content.css` (`vendor:publish --tag=content-assets`).
      */
     'blocks' => [
         'inline_styles' => env('FSC_BLOCKS_INLINE_STYLES', true),
         // 'articleList' => 'blocks.articles',
+    ],
+
+    /*
+     * The layouts a site's own block view implements (page builder v2), per block type: `'cta' => ['standard', 'split']`. The editor only offers
+     * what is listed here for a block rendered by a site view, and the view gets `$layout` (the resolved key, else the type's default),
+     * `$tone` and `$look` (class string for the block root). Default SDK views support every layout and need nothing here. Default: none.
+     */
+    'block_layouts' => [
+        // 'cta' => ['standard', 'split'],
     ],
 
     /*
@@ -114,7 +123,7 @@ return [
     'preview' => [
         'enabled' => (bool) env('FSC_PREVIEW_ENABLED', true),
         'path' => env('FSC_PREVIEW_PATH', '_fsc/p'),
-        'rate_limit' => (int) env('FSC_PREVIEW_RATE_LIMIT', 60),
+        'rate_limit' => (int) env('FSC_PREVIEW_RATE_LIMIT', 240),
         'page_path' => null,
     ],
 
@@ -308,7 +317,9 @@ return [
      * - `enabled` (env FSC_AUTO): master switch. Off = none of the features below is active.
      * - `pages`, `articles`, `legal`, `sitemap`, `robots`, `health`, `redirects`, `errors`, `platform`, `consent` (env FSC_AUTO_<FEATURE>):
      *   one switch per feature. Events follow `content.links.event`, not a switch of their own.
-     * - `trailing_slash` (env FSC_AUTO_TRAILING_SLASH, default false): build and canonicalise content URLs with a trailing slash.
+     * - `trailing_slash` (env FSC_AUTO_TRAILING_SLASH, default false): build and canonicalise content URLs with a trailing slash, and 301
+     *   GET/HEAD page paths without one to the slashed form (global middleware, query kept). Skips `/`, files, `api`, `_fsc`, `content`,
+     *   `build`, `storage` and the visitor proxy paths (`a`, `e`, `n`, `t`, `r`). `trailing_slash_skip`: extra first path segments to skip.
      * - `articles.category_segment`: path segment of a category list under the article parent (`/blog/categorie/<slug>`).
      *   `articles.per_page`: page size of the article list.
      * - `legal_paths`: path => legal document kind. Replaces the default list as a whole when the app sets it.
@@ -318,6 +329,10 @@ return [
      * - `views`: type => view name, replaces the default view of `page`, `article`, `articles`, `category`, `event`, `legal`.
      * - `handlers`: type => invokable controller class (receives `Request` and `Resolved`). Class names only, never closures
      *   (config:cache must work).
+     * - `visitor_pages` (env FSC_AUTO_VISITOR_PAGES): the Hub's visitor pages on this site's domain (booking, cancel and feed links `/a/...`,
+     *   event signup and tickets `/e/...`, newsletter and member links `/n/...`, tickets and returns `/t/...`, `/r/...`, invoice, privacy export
+     *   and order download links). The SDK forwards these paths to the Hub with the server token; the Hub only links here after it verified
+     *   the site. `timeout` and `connect_timeout` in seconds.
      */
     'auto' => [
         'enabled' => (bool) env('FSC_AUTO', true),
@@ -342,7 +357,13 @@ return [
         'errors' => (bool) env('FSC_AUTO_ERRORS', true),
         'platform' => (bool) env('FSC_AUTO_PLATFORM', true),
         'consent' => (bool) env('FSC_AUTO_CONSENT', true),
+        'visitor_pages' => [
+            'enabled' => (bool) env('FSC_AUTO_VISITOR_PAGES', true),
+            'timeout' => 20,
+            'connect_timeout' => 3,
+        ],
         'trailing_slash' => (bool) env('FSC_AUTO_TRAILING_SLASH', false),
+        'trailing_slash_skip' => [],
         'layout' => env('FSC_AUTO_LAYOUT'),
         'section' => 'content',
         'wrap' => env('FSC_AUTO_WRAP'),

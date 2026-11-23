@@ -59,7 +59,8 @@ final class ErrorReporter
 
             // Everything that may wait on the network (the config from Content, GlitchTip) runs after the response.
             $route = $this->errors->route();
-            $send = function () use ($error, $route): void {
+            $redact = $this->errors->redactions();
+            $send = function () use ($error, $route, $redact): void {
                 try {
                     $settings = $this->errors->config();
 
@@ -67,7 +68,7 @@ final class ErrorReporter
                         return;
                     }
 
-                    $event = EventBuilder::fromThrowable($error, $settings, $this->app->basePath(), $route);
+                    $event = EventBuilder::fromThrowable($error, $settings, $this->app->basePath(), $route, null, null, $redact);
                     $this->errors->delivery()->deliver($event, $settings, $this->errors->origin());
                 } catch (Throwable) {
                     // Monitoring never breaks the app.

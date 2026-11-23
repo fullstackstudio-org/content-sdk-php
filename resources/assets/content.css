@@ -726,3 +726,367 @@
 .fsc-productcard {
     align-content: start;
 }
+
+/* Layouts and tones of the page builder (SDK 0.31). A block carries `fsc-block--layout-<key>` for a layout other than its default and
+   `fsc-block--tone-<key>` for a tone other than `none` (see Laravel\BlockLook); the default layout and tone add no class, so everything above is
+   the default look. Phone first: every layout is one column below 40rem, the side by side ones start at 48rem. A `bleed` layout (`image` wide,
+   `embed` wide) is rendered outside the content container by <x-content::page-blocks>. Layout rules come first, the tones last, so a tone wins
+   where both set a background. */
+:root {
+    --fsc-tone-soft-bg: color-mix(in srgb, var(--fsc-accent) 8%, transparent);
+    --fsc-tone-pad: clamp(1.25rem, 4vw, 2.5rem);
+    --fsc-narrow-width: 42rem;
+    --fsc-small-width: 32rem;
+}
+
+/* hero: image beside the text. Without a picture the block stays the plain text hero. */
+.fsc-block--hero:is(.fsc-block--layout-image-right, .fsc-block--layout-image-left).fsc-hero--has-media {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+}
+
+.fsc-block--hero:is(.fsc-block--layout-image-right, .fsc-block--layout-image-left).fsc-hero--has-media .fsc-hero__media {
+    position: static;
+    align-self: stretch;
+    min-height: 14rem;
+    aspect-ratio: 16 / 10;
+}
+
+.fsc-block--hero:is(.fsc-block--layout-image-right, .fsc-block--layout-image-left).fsc-hero--has-media .fsc-hero__content {
+    align-self: center;
+    padding: var(--fsc-tone-pad);
+    color: inherit;
+    text-shadow: none;
+}
+
+@media (min-width: 48rem) {
+    .fsc-block--hero:is(.fsc-block--layout-image-right, .fsc-block--layout-image-left).fsc-hero--has-media {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        min-height: 24rem;
+    }
+
+    .fsc-block--hero:is(.fsc-block--layout-image-right, .fsc-block--layout-image-left).fsc-hero--has-media .fsc-hero__media {
+        aspect-ratio: auto;
+        min-height: 100%;
+    }
+
+    .fsc-block--hero.fsc-block--layout-image-right.fsc-hero--has-media .fsc-hero__media {
+        order: 2;
+    }
+}
+
+/* richText */
+.fsc-block--richText.fsc-block--layout-narrow {
+    max-width: var(--fsc-narrow-width);
+    margin-inline: auto;
+}
+
+/* image */
+.fsc-block--image.fsc-block--layout-small {
+    max-width: var(--fsc-small-width);
+    margin-inline: auto;
+}
+
+.fsc-block--image.fsc-block--layout-wide img {
+    width: 100%;
+    border-radius: 0;
+}
+
+.fsc-block--image.fsc-block--layout-wide figcaption {
+    box-sizing: border-box;
+    max-width: var(--fsc-content-width);
+    margin-inline: auto;
+    padding-inline: var(--fsc-content-pad);
+}
+
+/* gallery: one row, swipe or scroll; the column count of the block sets how many show at once on a wide screen */
+.fsc-block--gallery.fsc-block--layout-strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: min(78%, 18rem);
+    padding-bottom: 0.5rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+}
+
+.fsc-block--gallery.fsc-block--layout-strip .fsc-gallery__item {
+    scroll-snap-align: start;
+}
+
+@media (min-width: 48rem) {
+    .fsc-block--gallery.fsc-block--layout-strip {
+        grid-auto-columns: max(12rem, calc((100% - (var(--fsc-columns) - 1) * var(--fsc-gap)) / var(--fsc-columns)));
+    }
+}
+
+/* cta and appointmentBooking: text on the left, the button on the right */
+@media (min-width: 48rem) {
+    .fsc-block--cta.fsc-block--layout-split,
+    .fsc-block--appointmentBooking.fsc-block--layout-split {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        column-gap: calc(var(--fsc-gap) * 2);
+    }
+
+    .fsc-block--cta.fsc-block--layout-split > :not(.fsc-button),
+    .fsc-block--appointmentBooking.fsc-block--layout-split > :not(.fsc-button) {
+        grid-column: 1;
+    }
+
+    .fsc-block--cta.fsc-block--layout-split > .fsc-button,
+    .fsc-block--appointmentBooking.fsc-block--layout-split > .fsc-button {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        justify-self: end;
+    }
+}
+
+/* columns: every column a card */
+.fsc-block--columns.fsc-block--layout-cards .fsc-column {
+    padding: 1.25rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+    background: var(--fsc-surface);
+}
+
+/* form: boxed */
+.fsc-block--form.fsc-block--layout-card {
+    box-sizing: border-box;
+    padding: 1.5rem;
+    border: 1px solid var(--fsc-border);
+    border-radius: var(--fsc-radius);
+    background: var(--fsc-surface);
+}
+
+/* embed: edge to edge, as tall as the ratio says but never taller than the screen */
+.fsc-block--embed.fsc-block--layout-wide {
+    max-height: 85vh;
+}
+
+.fsc-block--embed.fsc-block--layout-wide .fsc-embed__frame {
+    border-radius: 0;
+}
+
+/* articleList and productList: rows. A thumbnail sits beside the text from 40rem; below that the card stacks as in the grid. */
+.fsc-block--articleList.fsc-block--layout-list .fsc-articlelist,
+.fsc-block--productList.fsc-block--layout-list .fsc-productlist {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--fsc-border);
+}
+
+.fsc-block--articleList.fsc-block--layout-list .fsc-articlelist__item,
+.fsc-block--productList.fsc-block--layout-list .fsc-productlist__item {
+    padding-block: var(--fsc-gap);
+    border-bottom: 1px solid var(--fsc-border);
+}
+
+.fsc-block--productList.fsc-block--layout-list .fsc-productcard {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+@media (min-width: 40rem) {
+    .fsc-block--articleList.fsc-block--layout-list .fsc-articlecard:has(> .fsc-articlecard__media),
+    .fsc-block--productList.fsc-block--layout-list .fsc-productcard:has(> .fsc-productcard__media) {
+        grid-template-columns: 9rem minmax(0, 1fr);
+        column-gap: var(--fsc-gap);
+    }
+
+    .fsc-block--articleList.fsc-block--layout-list .fsc-articlecard:has(> .fsc-articlecard__media) > .fsc-articlecard__media,
+    .fsc-block--productList.fsc-block--layout-list .fsc-productcard:has(> .fsc-productcard__media) > .fsc-productcard__media {
+        grid-column: 1;
+        grid-row: 1 / span 3;
+        align-self: start;
+    }
+
+    .fsc-block--articleList.fsc-block--layout-list .fsc-articlecard:has(> .fsc-articlecard__media) > :not(.fsc-articlecard__media),
+    .fsc-block--productList.fsc-block--layout-list .fsc-productcard:has(> .fsc-productcard__media) > :not(.fsc-productcard__media) {
+        grid-column: 2;
+    }
+}
+
+/* eventList: date rows. The cover is left out; the date leads each row. */
+.fsc-block--eventList.fsc-block--layout-list .fsc-eventlist {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--fsc-border);
+}
+
+.fsc-block--eventList.fsc-block--layout-list .fsc-eventcard {
+    height: auto;
+    padding: var(--fsc-gap) 0;
+    border: 0;
+    border-bottom: 1px solid var(--fsc-border);
+    border-radius: 0;
+    background: transparent;
+}
+
+.fsc-block--eventList.fsc-block--layout-list .fsc-eventcard__media {
+    display: none;
+}
+
+@media (min-width: 40rem) {
+    .fsc-block--eventList.fsc-block--layout-list .fsc-eventcard {
+        grid-template-columns: 11rem minmax(0, 1fr);
+        column-gap: var(--fsc-gap);
+    }
+
+    .fsc-block--eventList.fsc-block--layout-list .fsc-eventcard__date {
+        grid-column: 1;
+        grid-row: 1 / span 3;
+        align-self: start;
+    }
+
+    .fsc-block--eventList.fsc-block--layout-list .fsc-eventcard__title,
+    .fsc-block--eventList.fsc-block--layout-list .fsc-eventcard__meta,
+    .fsc-block--eventList.fsc-block--layout-list .fsc-eventcard__state {
+        grid-column: 2;
+    }
+
+    .fsc-block--eventList.fsc-block--layout-list .fsc-eventcard__title {
+        grid-row: 1;
+    }
+}
+
+/* event: cover beside the text */
+.fsc-block--event.fsc-block--layout-image-side .fsc-event__media img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    object-fit: cover;
+    border-radius: var(--fsc-radius);
+}
+
+@media (min-width: 48rem) {
+    .fsc-block--event.fsc-block--layout-image-side:has(> .fsc-event__media) {
+        grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+        grid-template-rows: auto auto auto 1fr;
+        column-gap: calc(var(--fsc-gap) * 2);
+        align-items: start;
+    }
+
+    .fsc-block--event.fsc-block--layout-image-side:has(> .fsc-event__media) > .fsc-event__media {
+        grid-column: 1;
+        grid-row: 1 / span 4;
+        width: 100%;
+    }
+
+    .fsc-block--event.fsc-block--layout-image-side:has(> .fsc-event__media) > :not(.fsc-event__media) {
+        grid-column: 2;
+    }
+}
+
+/* faq: every answer visible (a definition list, no folding) */
+.fsc-block--faq.fsc-block--layout-open .fsc-faq {
+    margin: 0;
+}
+
+.fsc-block--faq.fsc-block--layout-open .fsc-faq__question {
+    margin: 0;
+    padding: 0.85rem 0 0.25rem;
+    cursor: auto;
+}
+
+.fsc-block--faq.fsc-block--layout-open .fsc-faq__answer-wrap {
+    margin: 0;
+}
+
+/* newsletterSignup: field and button always on one row; text and form side by side on a wide screen */
+.fsc-block--newsletterSignup.fsc-block--layout-inline .fsc-newsletter__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (min-width: 48rem) {
+    .fsc-block--newsletterSignup.fsc-block--layout-inline {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
+        align-items: center;
+        justify-items: stretch;
+        column-gap: calc(var(--fsc-gap) * 2);
+    }
+
+    .fsc-block--newsletterSignup.fsc-block--layout-inline > :not(.fsc-newsletter, .fsc-newsletter__success) {
+        grid-column: 1;
+    }
+
+    .fsc-block--newsletterSignup.fsc-block--layout-inline > :is(.fsc-newsletter, .fsc-newsletter__success) {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+}
+
+/* Tones: a tinted panel (`soft`) or the accent colour (`accent`). Boxes that have no padding of their own get `--fsc-tone-pad`. */
+.fsc-block.fsc-block--tone-soft,
+.fsc-block.fsc-block--tone-accent {
+    box-sizing: border-box;
+    border-color: transparent;
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-block.fsc-block--tone-soft {
+    background: var(--fsc-tone-soft-bg);
+}
+
+.fsc-block.fsc-block--tone-accent {
+    color: var(--fsc-accent-contrast);
+    background: var(--fsc-accent);
+}
+
+.fsc-block:is(.fsc-block--richText, .fsc-block--columns, .fsc-block--form, .fsc-block--faq):is(.fsc-block--tone-soft, .fsc-block--tone-accent) {
+    padding: var(--fsc-tone-pad);
+}
+
+/* On the accent colour the buttons turn round, links and rules follow the text colour. */
+.fsc-block--tone-accent :is(.fsc-button, .fsc-submit) {
+    color: var(--fsc-accent);
+    background: var(--fsc-accent-contrast);
+    border-color: var(--fsc-accent-contrast);
+}
+
+.fsc-block--tone-accent .fsc-button--secondary {
+    color: var(--fsc-accent-contrast);
+    background: transparent;
+}
+
+.fsc-block--tone-accent a:not(.fsc-button) {
+    color: inherit;
+}
+
+.fsc-block--tone-accent .fsc-column blockquote {
+    border-color: currentColor;
+}
+
+.fsc-block--tone-accent .fsc-field__control:focus-visible {
+    outline-color: currentColor;
+}
+
+.fsc-block--tone-accent :is(.fsc-field__required, .fsc-field__error, .fsc-form__error) {
+    color: inherit;
+}
+
+/* A hero with its picture behind the text keeps its own button: the tone has nothing to show there. */
+.fsc-block--hero.fsc-hero--has-media.fsc-block--tone-accent:not(.fsc-block--layout-image-right, .fsc-block--layout-image-left) :is(.fsc-button, .fsc-submit) {
+    color: var(--fsc-button-text);
+    background: var(--fsc-button-bg);
+    border-color: var(--fsc-button-bg);
+}
+
+/* Cards on the accent colour: a faint lighter panel with a rule, both from the text colour, so they stay readable on any accent. */
+.fsc-block--tone-accent.fsc-block--layout-cards .fsc-column {
+    background: color-mix(in srgb, currentColor 12%, transparent);
+    border-color: color-mix(in srgb, currentColor 35%, transparent);
+}
+
+.fsc-block--tone-accent ::placeholder {
+    color: inherit;
+    opacity: 0.7;
+}
+
+/* A list thumbnail never grows past a small size, also on a phone where the card stacks. */
+.fsc-block--layout-list :is(.fsc-articlecard__media, .fsc-productcard__media) {
+    max-width: 12rem;
+}

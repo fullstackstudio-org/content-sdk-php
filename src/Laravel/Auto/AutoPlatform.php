@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\Auto;
 
 use FullStackStudio\Content\Laravel\RedirectMiddleware;
+use FullStackStudio\Content\Laravel\Site\TrailingSlash;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as KernelContract;
 use Illuminate\Http\Middleware\TrustProxies;
@@ -18,6 +19,8 @@ use Throwable;
  * - `platform` on: trust proxies `*` (only when the app configured none, in `bootstrap/app.php`, a provider or `config/trustedproxy.php`)
  *   and `URL::forceScheme('https')` (only in production, and only when the app did not force a scheme itself).
  * - `redirects` on: `RedirectMiddleware` first in the `web` group (only when the group does not contain it already).
+ *
+ * - `trailing_slash` on (off by default): the global middleware {@see TrailingSlash}, readable through {@see self::trailingSlash()}.
  *
  * Everything runs after all providers booted, so what the site set itself is visible and always wins. Idempotent. The kernel is only
  * touched where it exists: in the console nothing resolves it, so nothing happens there (a test that handles a request does resolve it).
@@ -36,10 +39,14 @@ final class AutoPlatform
     /** @var array{proxies: string, https: string, redirects: string} */
     private static array $state = ['proxies' => self::OFF, 'https' => self::OFF, 'redirects' => self::OFF];
 
+    /** State of the trailing slash middleware, kept apart from {@see self::state()} (one of the constants). */
+    private static string $trailingSlash = self::OFF;
+
     /** Called once from the service provider's `boot()`. */
     public static function register(Application $app): void
     {
         self::$state = ['proxies' => self::OFF, 'https' => self::OFF, 'redirects' => self::OFF];
+        self::$trailingSlash = self::OFF;
 
         $app->booted(static function (Application $app): void {
             if (Auto::on('platform')) {
@@ -49,6 +56,10 @@ final class AutoPlatform
 
             if (Auto::on('redirects')) {
                 self::applyRedirects($app);
+            }
+
+            if (Auto::on('trailing_slash')) {
+                self::applyTrailingSlash($app);
             }
         });
     }
@@ -60,6 +71,42 @@ final class AutoPlatform
     public static function state(): array
     {
         return self::$state;
+    }
+
+    /** `applied`, `app` (the app already has the middleware), `off`, `pending` (console, kernel not resolved yet) or `skipped`. */
+    public static function trailingSlash(): string
+    {
+        return self::$trailingSlash;
+    }
+
+    private static function applyTrailingSlash(Application $app): void
+    {
+        if ($app->resolved(KernelContract::class)) {
+            self::pushTrailingSlash($app->make(KernelContract::class));
+
+            return;
+        }
+
+        self::$trailingSlash = self::PENDING;
+        $app->afterResolving(KernelContract::class, static fn (object $kernel) => self::pushTrailingSlash($kernel));
+    }
+
+    private static function pushTrailingSlash(object $kernel): void
+    {
+        if (! method_exists($kernel, 'pushMiddleware')) {
+            self::$trailingSlash = self::SKIPPED;
+
+            return;
+        }
+
+        if (method_exists($kernel, 'hasMiddleware') && $kernel->hasMiddleware(TrailingSlash::class)) {
+            self::$trailingSlash = self::BY_APP;
+
+            return;
+        }
+
+        $kernel->pushMiddleware(TrailingSlash::class);
+        self::$trailingSlash = self::APPLIED;
     }
 
     private static function applyProxies(Application $app): void

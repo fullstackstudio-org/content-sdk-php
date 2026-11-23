@@ -73,6 +73,11 @@ final class ContentResponseHeaders
             return false;
         }
 
+        // The Hub's visitor pages answer with the Hub's own headers only (plan sdk-out-of-the-box, V9).
+        if (\FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::handles($request)) {
+            return false;
+        }
+
         $path = '/' . ltrim($request->path(), '/');
 
         if ($path === '/_fsc' || str_starts_with($path, '/_fsc/')) {

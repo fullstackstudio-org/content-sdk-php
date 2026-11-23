@@ -3,7 +3,7 @@
      open. Renders nothing when the event is gone or not published, on any Hub error or with the module off. Replace it: `content.blocks.event`. --}}
 @php($event = \FullStackStudio\Content\Laravel\ModuleBlockData::event($block))
 @if ($event !== null)
-<section class="fsc-block fsc-block--event">
+<section class="fsc-block fsc-block--event{{ ($look ?? '') === '' ? '' : ' ' . $look }}">
     @if ($event['cover'] !== null)
     <div class="fsc-event__media"><x-content::image :media="$event['cover']" :base-url="$baseUrl" sizes="(min-width: 48rem) 720px, 100vw" /></div>
     @endif
@@ -20,7 +20,7 @@
         @elseif ($event['summary'] !== '')<p class="fsc-event__summary">{{ $event['summary'] }}</p>@endif
     @endif
     @if ($event['href'] !== null && $event['state'] === 'open')
-    <a class="fsc-button fsc-button--primary" href="{{ $event['href'] }}"@if ($event['external']) rel="noopener"@endif>{{ ($block['ctaLabel'] ?? '') !== '' ? $block['ctaLabel'] : 'Aanmelden' }}</a>
+    <a class="fsc-button fsc-button--primary" href="{{ $event['href'] }}"@if ($event['external']) rel="noopener"@endif{!! $edit('ctaLabel') !!}>{{ ($block['ctaLabel'] ?? '') !== '' || $preview ? ($block['ctaLabel'] ?? '') : 'Aanmelden' }}</a>
     @elseif (\FullStackStudio\Content\Laravel\ModuleBlockData::stateLabel($event['state']) !== null)
     <p class="fsc-event__state">{{ \FullStackStudio\Content\Laravel\ModuleBlockData::stateLabel($event['state']) }}</p>
     @endif

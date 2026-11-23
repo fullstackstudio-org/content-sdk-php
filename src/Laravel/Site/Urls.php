@@ -42,7 +42,12 @@ final class Urls
         return is_string($default) && $default !== '' ? $default : self::DEFAULT_LOCALE;
     }
 
-    /** @return list<string> all project languages, default first */
+    /**
+     * The languages enabled for the project in the Hub (`GET /project` `locales`), default first. A single entry means a single-language
+     * site: no locale prefix, no hreflang.
+     *
+     * @return list<string>
+     */
     public function locales(): array
     {
         $locales = [$this->defaultLocale()];
@@ -54,6 +59,18 @@ final class Urls
         }
 
         return $locales;
+    }
+
+    /** More than one enabled language: only then do paths get a locale prefix and pages hreflang alternates. */
+    public function multilingual(): bool
+    {
+        return count($this->locales()) > 1;
+    }
+
+    /** A locale that gets a path prefix: enabled for the project and not the default. Anything else (none, default, not enabled) gets none. */
+    public function prefixes(?string $locale): bool
+    {
+        return $locale !== null && $locale !== '' && $locale !== $this->defaultLocale() && in_array($locale, $this->locales(), true);
     }
 
     /**
@@ -142,11 +159,14 @@ final class Urls
         return is_string($path) ? $this->path($path, $locale) : null;
     }
 
-    /** Applies the locale prefix (not for the default locale or no locale) and the `trailing_slash` setting. `/` stays `/`, a locale root is `/en`. */
+    /**
+     * Applies the locale prefix (only for an enabled, non-default locale; see {@see prefixes()}) and the `trailing_slash` setting. `/`
+     * stays `/`, a locale root is `/en`. On a single-language site no path ever gets a prefix.
+     */
     public function path(string $path, ?string $locale = null): string
     {
         $path = trim($path, '/');
-        $prefix = $locale !== null && $locale !== '' && $locale !== $this->defaultLocale() ? $locale : '';
+        $prefix = $this->prefixes($locale) ? (string) $locale : '';
         $full = trim($prefix . '/' . $path, '/');
 
         if ($full === '') {

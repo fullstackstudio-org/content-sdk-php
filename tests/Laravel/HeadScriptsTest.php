@@ -239,6 +239,35 @@ final class HeadScriptsTest extends LaravelTestCase
         self::assertStringNotContainsString('rel="alternate"', $single);
     }
 
+    public function testHreflangOnlyListsEnabledLanguages(): void
+    {
+        $page = ['title' => 'Over ons', 'slug' => 'over-ons', 'locale' => 'nl', 'translations' => [
+            ['id' => '1', 'locale' => 'nl', 'slug' => 'over-ons', 'status' => 'published'],
+            ['id' => '2', 'locale' => 'en', 'slug' => 'about', 'status' => 'published'],
+            ['id' => '3', 'locale' => 'fr', 'slug' => 'a-propos', 'status' => 'published'],
+        ]];
+
+        $html = $this->render('<x-content::head :page="$page" path="/over-ons" />', ['page' => $page]);
+
+        self::assertStringContainsString('hreflang="en"', $html);
+        self::assertStringNotContainsString('hreflang="fr"', $html, 'fr is published but not enabled for the project');
+        self::assertSame(3, substr_count($html, 'rel="alternate"'));
+    }
+
+    public function testASingleLanguageSiteHasNoHreflang(): void
+    {
+        $this->routes['/project'] = FakeTransport::json(['project' => ['name' => 'Jansen'], 'defaultLocale' => 'nl', 'locales' => ['nl']]);
+        $page = ['title' => 'Over ons', 'slug' => 'over-ons', 'locale' => 'nl', 'translations' => [
+            ['id' => '1', 'locale' => 'nl', 'slug' => 'over-ons', 'status' => 'published'],
+            ['id' => '2', 'locale' => 'en', 'slug' => 'about', 'status' => 'published'],
+        ]];
+
+        $html = $this->render('<x-content::head :page="$page" path="/over-ons" />', ['page' => $page]);
+
+        self::assertStringNotContainsString('rel="alternate"', $html);
+        self::assertStringContainsString('<link rel="canonical" href="https://www.jansen.nl/over-ons">', $html);
+    }
+
     public function testTheHubBeingDownRendersWithoutAnException(): void
     {
         foreach (['/site', '/seo', '/analytics', '/project/errors', '/project'] as $path) {

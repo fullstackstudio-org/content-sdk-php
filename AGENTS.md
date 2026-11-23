@@ -696,6 +696,12 @@ inherit from the site, the accent is blue.
 }
 ```
 
+Layouts and tones (page builder v2): a block can carry `layout` and `tone`; the default views print `fsc-block--layout-<key>` and `fsc-block--tone-<key>`
+on the block root and style them. Four more variables: `--fsc-tone-soft-bg` (tinted panel, default 8% of the accent), `--fsc-tone-pad` (padding of a toned box),
+`--fsc-narrow-width` (42rem, richText `narrow`), `--fsc-small-width` (32rem, image `small`). A site view for a block type gets `$layout`, `$tone` and `$look`
+(class string for the root) but only a layout it declares in `content.block_layouts.<type>`; without the declaration the editor does not offer layouts for it.
+`examples/laravel` has a `/layouts-test` page (local only) with every type in every layout: check it at 390 and 1280 px.
+
 Layering: the inline block CSS is unlayered. It beats rules a Tailwind site writes inside `@layer` (preflight, `@layer components`, utility classes on the
 site's own views) and loses to unlayered ones. So a site rule that must override a block rule goes in plain CSS (not in an `@layer`), or sets the variable.
 The site's `@theme` tokens are usable in the variables (`--fsc-accent: var(--color-plum-600)`). Set `--fsc-text` and `--fsc-muted` to colours that read
@@ -928,16 +934,19 @@ below and the session handle cookie `fsi_sess`; add the privacy sentence. A broc
 
 ### Meertalige site (project `locales` has more than one language)
 
-Route prefix per language (for example `/en/...`), pass `['locale' => ...]` to reads, `localePrefix` in `Sitemap::response()`. hreflang yourself
-in the layout from the page's `translations` (`[{ id, locale, slug, status }]`) or `$content->getTranslations($page['translationGroupId'])`:
+The languages of a site are the ones FullStack Studio enabled for the project in the Hub (`GET /api/v1/project` → `locales`, default
+first). Content can only exist in those languages (the Hub answers `422` otherwise). The SDK follows that list everywhere:
 
-```blade
-@foreach (($page['translations'] ?? []) as $t)
-    @if (($t['status'] ?? null) === 'published')
-        <link rel="alternate" hreflang="{{ $t['locale'] }}" href="{{ url(($t['locale'] === 'nl' ? '' : '/' . $t['locale']) . '/' . ltrim($t['slug'], '/')) }}">
-    @endif
-@endforeach
-```
+- `Content::urls()->locales()` is the list, `->multilingual()` is true with two or more. Only an enabled, non-default language gets a path
+  prefix (`/en/...`); the default language and every language that is not enabled get none. A single-language site never has prefixes.
+- `PathResolver` (out of the box site) strips only an enabled, non-default prefix; on a single-language site `/en/x` is just a path.
+- `<x-content::head :page="$page" />` prints hreflang (self, the published translations in enabled languages, `x-default`) only on a
+  multilingual site and only when there are two or more versions. The automatic `sitemap.xml` leaves out entries in a language that is not enabled.
+- Form texts follow the language of the Hub page being rendered (also `en`), see `FSC_FORMS_LOCALE`.
+
+With your own routes: a route prefix per enabled language, `['locale' => ...]` on reads, `localePrefix` in `Sitemap::response()`, and hreflang via
+`<x-content::head :page="$page" />` or yourself from the page's `translations` (`[{ id, locale, slug, status }]`), building every URL with
+`Content::urls()->page($t)` so prefixes agree with the sitemap.
 
 Verify: each language version links to the others and to itself.
 

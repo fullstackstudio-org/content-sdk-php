@@ -1,4 +1,4 @@
-<div class="fsc-block fsc-block--gallery" style="--fsc-columns: {{ max(1, (int) ($block['columns'] ?? 1)) }}">
+<div class="fsc-block fsc-block--gallery{{ ($look ?? '') === '' ? '' : ' ' . $look }}" style="--fsc-columns: {{ max(1, (int) ($block['columns'] ?? 1)) }}">
 @foreach ($block['items'] ?? [] as $item)
     @php($media = $resolve((string) ($item['mediaId'] ?? '')))
     @if ($media)
