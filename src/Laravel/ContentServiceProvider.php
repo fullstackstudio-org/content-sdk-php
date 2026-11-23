@@ -23,6 +23,7 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -48,7 +49,7 @@ final class ContentServiceProvider extends ServiceProvider
                 token: (string) $config->get('content.token'),
                 baseUrl: (string) $config->get('content.base_url'),
                 timeoutMs: (int) $config->get('content.timeout_ms'),
-                clientIp: $app->bound('request') ? $app['request']->ip() : null,
+                clientIp: $app->bound('request') ? self::visitorIp($app['request'], $config->get('content.forms.ip_header')) : null,
                 cache: $config->get('content.cache.enabled') ? $app->make(ContentCache::class) : null,
                 cacheTtl: (int) $config->get('content.cache.ttl'),
             ));
@@ -71,6 +72,22 @@ final class ContentServiceProvider extends ServiceProvider
 
         $this->app->singleton(Errors::class, fn ($app): Errors => new Errors($app));
         $this->app->singleton(ErrorReporter::class, fn ($app): ErrorReporter => new ErrorReporter($app, $app->make(Errors::class)));
+    }
+
+    /**
+     * The visitor's IP for `X-FSC-Client-Ip`: the header the site's proxy sets (`content.forms.ip_header`, default `cf-connecting-ip`) when it
+     * holds a valid IP, else the IP Laravel sees. Behind Cloudflare and a reverse proxy, `request()->ip()` alone can be a proxy hop, which would
+     * make every visitor of the site share one limit at the Hub.
+     */
+    public static function visitorIp(Request $request, mixed $header): ?string
+    {
+        $candidate = is_string($header) && $header !== '' ? $request->headers->get($header) : null;
+
+        if (is_string($candidate) && filter_var(trim($candidate), FILTER_VALIDATE_IP) !== false) {
+            return trim($candidate);
+        }
+
+        return $request->ip();
     }
 
     public function boot(): void

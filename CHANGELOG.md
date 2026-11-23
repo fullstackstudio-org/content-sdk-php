@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The default client IP (`X-FSC-Client-Ip` with a server token) now reads the visitor header the site's proxy sets (`content.forms.ip_header`,
+  default `cf-connecting-ip`, env `FSC_IP_HEADER`) when it holds a valid IP, else `request()->ip()`. Behind Cloudflare and Traefik the request IP
+  could be a proxy hop, so all visitors of a shop shared one per-visitor limit at the Hub.
+- `events()->register()` sends the visitor IP as `X-FSC-Client-Ip` too (`clientIp` in the options, else the client's IP), like `orders()->place()`.
 - Webhook event types `appointment.no_show` and `appointment.no_show_undone` in `Webhooks\Events::ALL` (staff recorded, or took back, that a customer did not show up; ids, status and times only).
 
 ## 0.28.0
