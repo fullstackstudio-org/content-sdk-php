@@ -52,6 +52,7 @@ final class Doctor
         $this->section(fn () => $this->checkRoutes());
         $this->section(fn () => $this->checkMiddleware());
         $this->section(fn () => $this->checkLayouts());
+        $this->section(fn () => $this->checkResponseHeaders());
         $this->section(fn () => $this->checkPreview());
         $this->section(fn () => $this->checkPageBuilderBlocks());
         $this->section(fn () => $this->checkPageBlocksWidth());
@@ -427,6 +428,20 @@ final class Doctor
                 $this->add(self::WARN, 'View ' . $this->relative($path) . ' gebruikt de volledige URL met query', 'Bouw canonical, og:url en deellinks uit het pad: de query kan ?fscn= en utm-waarden bevatten.');
             }
         }
+    }
+
+    /**
+     * The headers the SDK adds to HTML pages by itself (preconnect to the Hub, `X-FSC-SDK`): informational, nothing to build.
+     */
+    private function checkResponseHeaders(): void
+    {
+        $state = static fn (bool $on): string => $on ? 'aan' : 'uit';
+
+        $this->add(
+            self::INFO,
+            'Antwoordheaders: preconnect naar de Hub ' . $state((bool) $this->config('content.response_headers.preconnect', true))
+                . ' (FSC_PRECONNECT), SDK-versie ' . $state((bool) $this->config('content.response_headers.version', true)) . ' (FSC_VERSION_HEADER)'
+        );
     }
 
     // --- Portal preview -------------------------------------------------------------------------------------------------------

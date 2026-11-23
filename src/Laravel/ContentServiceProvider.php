@@ -167,6 +167,9 @@ final class ContentServiceProvider extends ServiceProvider
             });
         }
 
+        // Preconnect to the Hub and the SDK version header on successful HTML pages (each can be switched off in `content.response_headers`).
+        $this->app->make(HttpKernel::class)->pushMiddleware(ContentResponseHeaders::class);
+
         // Newsletter click links (`?fscn=`): a no-op unless `content.intelligence.enabled` is on and the parameter is present.
         $this->app->make(HttpKernel::class)->pushMiddleware(NewsletterClickLink::class);
 

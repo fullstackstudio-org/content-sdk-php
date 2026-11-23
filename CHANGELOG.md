@@ -8,6 +8,11 @@
 - Typography for the default blocks (found on the hanami4you.nl test page): a CSS reset such as Tailwind's preflight strips heading sizes, list markers and paragraph spacing, so block headings, card titles and rich text (`.fsc-article-body`, `.fsc-column`: headings, paragraph rhythm, lists, links, quotes) now have sizes and spacing of their own. New variables `--fsc-h2-size`, `--fsc-h3-size`, `--fsc-line-height`, `--fsc-form-width` (the form block keeps a 40rem measure instead of the full content width). Event and product cards keep their content at the top of a stretched card. `scripts/build-block-css.php` no longer splits a selector at the comma inside `:is(...)`/`:not(...)`.
 - Defaults that were missing without `content.css`: gallery and columns grid (one column on a phone), gallery images at a fixed 3:2 with `object-fit: cover`, the video (`embed`) block at full width and `--fsc-embed-ratio` (16 / 9), image radius, muted captions.
 - `fsc:doctor` warns (`LET OP`, never `FOUT`) when a view has `<x-content::page-blocks>` without `wrap` and the site has no view for every block type with a default view. AGENTS.md: new item A18 (wrap, default styling, the test page with every block type at phone and desktop width) and the "Bouwvolgorde" points to it.
+- New global middleware `ContentResponseHeaders`, on for every site with no site code: successful HTML pages (not JSON, redirects, the webhook,
+  `/_fsc/*` or streamed and binary responses) get `Link: <Hub origin>; rel=preconnect` (origin from `FSC_API_URL`, no `crossorigin`, appended to
+  an existing `Link` header) and `X-FSC-SDK: <version>`. Switches `content.response_headers.preconnect` (`FSC_PRECONNECT`) and
+  `content.response_headers.version` (`FSC_VERSION_HEADER`), both default true. `fsc:doctor` shows whether both are on.
+
 - The default client IP (`X-FSC-Client-Ip` with a server token) now reads the visitor header the site's proxy sets (`content.forms.ip_header`,
   default `cf-connecting-ip`, env `FSC_IP_HEADER`) when it holds a valid IP, else `request()->ip()`. Behind Cloudflare and Traefik the request IP
   could be a proxy hop, so all visitors of a shop shared one per-visitor limit at the Hub.
