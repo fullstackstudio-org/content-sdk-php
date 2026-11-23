@@ -125,7 +125,7 @@ final class AutoErrorsTest extends LaravelTestCase
         $response->assertHeader('Retry-After', '300');
         self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
         $response->assertSee('Even niet bereikbaar');
-        $response->assertSee('<meta name="robots" content="noindex, nofollow">', false);
+        $response->assertSee('<meta name="robots" content="noindex">', false);
         $this->assertClean($response);
     }
 
