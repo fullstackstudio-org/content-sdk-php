@@ -969,6 +969,201 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::OK, $this->statusOf($results, 'canonicalOrigin is https://example.nl'));
         self::assertSame(Doctor::OK, $this->statusOf($results, 'sitemap.xml bevat 1 URL'));
     }
+
+    // --- Visitor pages on the site's domain (plan sdk-out-of-the-box, task 20) -------------------------------------------------------
+
+    public function testFixtureVisitorPathsReachTheProxyAndTheVerificationRoute(): void
+    {
+        $this->site(static function (Router $router): void {
+            // Near misses that do not collide: a POST on a table path, a path under `a/` that is not in the table, an ordinary page.
+            $router->middleware('web')->group(static function () use ($router): void {
+                $router->post('/t/over-ons', fn () => 'x');
+                $router->get('/a/over-ons', fn () => 'x');
+                $router->get('/afspraak', fn () => 'x');
+            });
+        });
+
+        $results = $this->results();
+
+        $this->assertLine($results, Doctor::OK, 'Bezoekerspagina\'s: routes actief (proxy 1');
+        $this->assertLine($results, Doctor::OK, 'Bezoekerspagina\'s: geen route of middleware van de site op de gereserveerde paden');
+        self::assertSame([], $this->failures($results));
+        // The sample requests never reach a real Hub: the stand-in is gone again afterwards.
+        self::assertInstanceOf(\FullStackStudio\Content\Tests\Support\NoNetworkUpstream::class, $this->app->make(\FullStackStudio\Content\Laravel\Visitor\Upstream::class));
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    public static function siteRoutesOnVisitorPaths(): array
+    {
+        return [
+            'an identical URI replaces the proxy route' => ['/t/{token?}', 'een eigen route van de site valt onder de bezoekerspaden (t/{token?}'],
+            'a static page under a visitor path is never reached' => ['/t/over-ons', 'een eigen route van de site valt onder de bezoekerspaden (t/over-ons'],
+            'a parameter under a visitor path' => ['/a/b/{naam}', 'een eigen route van de site valt onder de bezoekerspaden (a/b/{naam}'],
+            'the returns path' => ['/r/{id?}', 'een eigen route van de site valt onder de bezoekerspaden (r/{id?}'],
+            'a file link' => ['/api/v1/downloads/{x}', 'een eigen route van de site valt onder de bezoekerspaden (api/v1/downloads/{x}'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('siteRoutesOnVisitorPaths')]
+    public function testASiteRouteOnAVisitorPathIsAFailure(string $uri, string $expected): void
+    {
+        $this->site(static function (Router $router) use ($uri): void {
+            $router->get($uri, fn () => 'site');
+        });
+
+        $failures = array_values(array_filter($this->failures($this->results()), fn (string $label): bool => str_contains($label, 'Bezoekerspagina\'s')));
+
+        self::assertCount(1, $failures, implode(' | ', $failures));
+        self::assertStringContainsString($expected, $failures[0]);
+        self::assertNull($this->statusOf($this->results(), 'geen route of middleware van de site op de gereserveerde paden'));
+        $this->artisan('fsc:doctor', ['--skip-env' => true])->assertExitCode(1);
+    }
+
+    public function testASiteMiddlewareThatRedirectsAVisitorPathIsAFailure(): void
+    {
+        $this->site(static function (Router $router): void {
+            // `app()` is the application being built (`$this->app` still is the previous one while the routes load).
+            app(\Illuminate\Contracts\Http\Kernel::class)->pushMiddleware(DoctorTestPathMiddleware::class);
+        });
+
+        $failures = array_values(array_filter($this->failures($this->results()), fn (string $label): bool => str_contains($label, 'Bezoekerspagina\'s')));
+
+        // `/a/l/…` is moved and the file path is blocked; the other paths are left alone.
+        self::assertContains('Bezoekerspagina\'s: een middleware van de site stuurt /a/l/fsc-doctor om naar https://example.nl/elders', $failures);
+        self::assertContains('Bezoekerspagina\'s: /api/v1/downloads/fsc-doctor geeft 403 in plaats van de bezoekerspagina (een middleware van de site blokkeert of vervangt het antwoord)', $failures);
+        self::assertCount(2, $failures, implode(' | ', $failures));
+    }
+
+    public function testSwitchedOffTheShadowCheckStaysQuiet(): void
+    {
+        $this->site(static function (Router $router): void {
+            $router->get('/t/over-ons', fn () => 'site');
+        }, ['content.auto.visitor_pages' => false]);
+
+        $results = $this->results();
+
+        $this->assertLine($results, Doctor::INFO, 'Bezoekerspagina\'s van de Hub via het domein van de site staan uit (FSC_AUTO_VISITOR_PAGES=false)');
+        self::assertNull($this->statusOf($results, 'gereserveerde paden'));
+        self::assertSame([], array_values(array_filter($this->failures($results), fn (string $label): bool => str_contains($label, 'Bezoekerspagina\'s'))));
+    }
+
+    /** @param array<string, mixed>|null $siteProxy @param list<string> $modules */
+    private function hubWithSiteProxy(?array $siteProxy, array $modules = ['pages', 'seo']): void
+    {
+        $project = ['name' => 'Voorbeeld', 'defaultLocale' => 'nl', 'locales' => ['nl'], 'modules' => $modules];
+
+        if ($siteProxy !== null) {
+            $project['siteProxy'] = $siteProxy;
+        }
+
+        $this->hub(['robotsIndex' => true, 'canonicalOrigin' => 'https://example.nl', 'entries' => [['path' => '/']]], ['canonicalOrigin' => 'https://example.nl', 'robotsIndex' => true], 200, $project);
+    }
+
+    public function testOnlineAVerifiedSiteIsOkWithTheDateInDutchTime(): void
+    {
+        $this->site();
+        $this->hubWithSiteProxy(['origin' => 'https://example.nl', 'verified' => true, 'verifiedAt' => '2026-11-23T10:30:00Z', 'proxyVersion' => 1, 'sdkVersion' => '0.30.0', 'lastProbeAt' => '2026-11-23T10:30:00Z', 'failedProbes' => 0, 'linksOnSite' => true]);
+
+        $results = $this->onlineResults();
+
+        $this->assertLine($results, Doctor::OK, 'Bezoekerspagina\'s: geverifieerd door de Hub sinds 23-11-2026 11:30 (https://example.nl, proxy 1)');
+        self::assertSame([], $this->failures($results));
+    }
+
+    /** @return array<string, array{0: array<string, mixed>, 1: string}> */
+    public static function unverifiedStates(): array
+    {
+        return [
+            'never probed' => [['origin' => 'https://example.nl', 'verified' => false, 'verifiedAt' => null, 'failedProbes' => 0], 'na een wijziging van de canonicalOrigin en daarna elke dag'],
+            'probes without an answer' => [['origin' => 'https://example.nl', 'verified' => false, 'verifiedAt' => null, 'failedProbes' => 2], 'kreeg 2x geen bevestiging terug'],
+            'no canonical origin' => [['origin' => null, 'verified' => false, 'verifiedAt' => null, 'failedProbes' => 0], 'Zet de canonicalOrigin'],
+        ];
+    }
+
+    /** @param array<string, mixed> $siteProxy */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unverifiedStates')]
+    public function testOnlineASiteTheHubDidNotVerifyIsInfoWithTheReason(array $siteProxy, string $hint): void
+    {
+        $this->site();
+        $this->hubWithSiteProxy($siteProxy);
+
+        $results = $this->onlineResults();
+
+        $this->assertLine($results, Doctor::INFO, 'Bezoekerspagina\'s: nog niet geverifieerd door de Hub');
+        $line = array_values(array_filter($results, fn (array $r): bool => str_contains($r['label'], 'nog niet geverifieerd')))[0];
+        self::assertStringContainsString($hint, (string) $line['hint']);
+        self::assertSame([], $this->failures($results));
+        self::assertSame([], $this->labels($results, Doctor::WARN));
+    }
+
+    public function testOnlineAnOlderHubWithoutTheStatusIsInfo(): void
+    {
+        $this->site();
+        $this->hubWithSiteProxy(null);
+
+        $this->assertLine($this->onlineResults(), Doctor::INFO, 'Bezoekerspagina\'s: de Hub geeft geen verificatiestatus');
+    }
+
+    public function testOnlineSwitchedOffButStillVerifiedAtTheHubIsAWarning(): void
+    {
+        $this->site(null, ['content.auto.visitor_pages' => false]);
+        $this->hubWithSiteProxy(['origin' => 'https://example.nl', 'verified' => true, 'verifiedAt' => '2026-11-01T08:00:00Z', 'proxyVersion' => 1]);
+
+        $results = $this->onlineResults();
+        $this->assertLine($results, Doctor::WARN, 'Bezoekerspagina\'s staan uit, maar de Hub houdt deze site nog voor geverifieerd');
+
+        $this->hubWithSiteProxy(['origin' => 'https://example.nl', 'verified' => false]);
+        self::assertNull($this->statusOf($this->onlineResults(), 'geverifieerd'));
+    }
+
+    public function testOnlineTheUploadLimitIsComparedWithTheHubTicketFileLimit(): void
+    {
+        $this->site();
+        $this->hubWithSiteProxy(['verified' => false, 'origin' => 'https://example.nl'], ['pages', 'tickets']);
+
+        try {
+            putenv('FSC_UPLOAD_MAX_MB=8');
+            $results = $this->onlineResults();
+            $this->assertLine($results, Doctor::WARN, 'FSC_UPLOAD_MAX_MB is 8 MB, onder de 10 MB per bijlage die een ticket toestaat');
+
+            putenv('FSC_UPLOAD_MAX_MB=10');
+            $this->assertLine($this->onlineResults(), Doctor::OK, 'FSC_UPLOAD_MAX_MB is 10 MB: genoeg voor de bijlagen van tickets');
+
+            putenv('FSC_UPLOAD_MAX_MB');
+            // Unset: the image's default of 20 MB.
+            $this->assertLine($this->onlineResults(), Doctor::OK, 'FSC_UPLOAD_MAX_MB is 20 MB');
+
+            // Not a number: the entrypoint refuses to start, nothing for the doctor to compare.
+            putenv('FSC_UPLOAD_MAX_MB=veel');
+            self::assertNull($this->statusOf($this->onlineResults(), 'FSC_UPLOAD_MAX_MB'));
+        } finally {
+            putenv('FSC_UPLOAD_MAX_MB');
+        }
+    }
+
+    public function testOnlineWithoutTheTicketsModuleTheUploadLimitIsNotChecked(): void
+    {
+        $this->site();
+        $this->hubWithSiteProxy(['verified' => false, 'origin' => 'https://example.nl']);
+
+        try {
+            putenv('FSC_UPLOAD_MAX_MB=2');
+            self::assertNull($this->statusOf($this->onlineResults(), 'FSC_UPLOAD_MAX_MB'));
+        } finally {
+            putenv('FSC_UPLOAD_MAX_MB');
+        }
+    }
+
+    public function testOfflineNeverAsksTheHubForTheVerification(): void
+    {
+        $this->site();
+        $this->hubWithSiteProxy(['verified' => true, 'origin' => 'https://example.nl']);
+
+        $results = $this->results();
+
+        self::assertNull($this->statusOf($results, 'geverifieerd'));
+        self::assertNull($this->statusOf($results, 'FSC_UPLOAD_MAX_MB'));
+    }
 }
 
 /** Probes for the welcome route detection: never called, only read. */
@@ -985,5 +1180,22 @@ final class WelcomeProbeInvokable
     public function __invoke(): string
     {
         return view('welcome')->render();
+    }
+}
+
+/** A site's global middleware that moves one visitor path and blocks another. */
+final class DoctorTestPathMiddleware
+{
+    public function handle(\Illuminate\Http\Request $request, \Closure $next): mixed
+    {
+        if (str_starts_with($request->path(), 'a/l/')) {
+            return redirect('https://example.nl/elders');
+        }
+
+        if (str_starts_with($request->path(), 'api/v1/downloads/')) {
+            return response('verboden', 403);
+        }
+
+        return $next($request);
     }
 }

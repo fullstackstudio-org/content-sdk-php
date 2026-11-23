@@ -407,6 +407,16 @@ path). The response is `private, no-store`, `noindex`, without cookies, and fram
 server token, `FSC_PREVIEW_ENABLED=false` switches it off. Hide the cookie banner under `html[data-fsc-preview]` and never set `X-Frame-Options`
 outside PHP; `php artisan fsc:doctor` checks both. Details: `AGENTS.md`, A17.
 
+## Visitor pages on the site's own domain
+
+The Hub's pages for visitors (booking, cancel and calendar links, event signup and tickets, newsletter confirm, unsubscribe and manage links,
+support tickets and returns, invoice, privacy export and order downloads) are answered by the SDK on the site's own domain and forwarded to
+the Hub with the server token (`Laravel\Visitor\VisitorRoutes`, switch `FSC_AUTO_VISITOR_PAGES`, on by default). No site code, session or cookie
+is involved, and the paths `a/`, `e/`, `n/`, `t/`, `r/` and the file links are reserved. The Hub only puts links on the site's domain after
+it verified the site: it calls `GET /_fsc/x/verify?n=<nonce>` on `canonicalOrigin` and the SDK confirms with its server token. `php artisan
+fsc:doctor` checks that no route or middleware of the site shadows these paths, and `--online` shows the verification state. Details: `AGENTS.md`
+(A14).
+
 ## Example site
 
 `examples/laravel` is a small but real Laravel 13 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for

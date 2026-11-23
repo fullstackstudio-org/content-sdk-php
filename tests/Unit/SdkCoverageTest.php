@@ -40,6 +40,7 @@ final class SdkCoverageTest extends TestCase
         '/intelligence/me' => '`intelligenceMe()`: the visitor\'s own profile for the site dev panel; Laravel/PHP only, the JS SDK is frozen and gets no new routes.',
         '/products/recommended' => '`recommendations()`: ranked product ids from FullStack Intelligence (plan ootb-integrations C9); Laravel/PHP only, the JS SDK is frozen and gets no new routes.',
         '/members/me/marketing' => '`getMarketingConsent()`/`setMarketingConsent()`: marketing consent of a member (plan ootb-integrations D11) is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
+        '/site-proxy/confirm' => '`confirmSiteProxy()`: the callback of the visitor page verification (plan sdk-out-of-the-box, section 8); the visitor proxy is Laravel/PHP only, the JS SDK is frozen and gets no new routes.',
         '/pages/_preview' => '`getPagePreview()`: the portal preview (plan page-builder B) is rendered by the Laravel site only; the JS SDK is frozen and gets no new routes.',
         '/api/media/*' => '`mediaUrl()`: the JS version builds it from a template string that does not start with a slash, so the scan does not see it.',
     ];
