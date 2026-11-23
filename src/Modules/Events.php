@@ -49,10 +49,21 @@ final class Events
         return ($options['cache'] ?? null) === true ? ['tags' => [Tags::EVENTS]] : [];
     }
 
-    /** @param array<string, mixed> $input @param array<string, mixed> $options @return array<string, mixed> */
+    /**
+     * Registers a visitor. With a server token the visitor's IP goes along as `X-FSC-Client-Ip` (`clientIp` in the options, else the
+     * client's configured IP), so the Hub's per-visitor limits count the visitor and not your server.
+     *
+     * @param array<string, mixed> $input @param array{clientIp?: string, timeoutMs?: int} $options @return array<string, mixed>
+     */
     public function register(string $idOrSlug, array $input, array $options = []): array
     {
-        return $this->ctx->write('POST', '/events/' . ModuleContext::seg($idOrSlug) . '/registrations', $input, $options);
+        return $this->ctx->execute([
+            'method' => 'POST',
+            'path' => '/events/' . ModuleContext::seg($idOrSlug) . '/registrations',
+            'body' => $input,
+            'headers' => $this->ctx->visitorHeaders(null, $options['clientIp'] ?? null),
+            'options' => $options,
+        ])->data;
     }
 
     /** @param array<string, mixed> $options @return array<string, mixed> `payment` */

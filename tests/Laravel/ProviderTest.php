@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Tests\Laravel;
 
 use FullStackStudio\Content\Cache\ContentCache;
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\ContentServiceProvider;
 use FullStackStudio\Content\Laravel\Events\ContentWebhookReceived;
 use FullStackStudio\Content\Laravel\Facades\Content;
 use FullStackStudio\Content\Laravel\RedirectMiddleware;
@@ -49,6 +50,17 @@ final class ProviderTest extends LaravelTestCase
 
         $this->http->always(FakeTransport::json(['article' => ['slug' => 'hi']]));
         self::assertSame(['slug' => 'hi'], Content::getArticle('hi'));
+    }
+
+    public function testDefaultClientIpPrefersTheProxyVisitorHeader(): void
+    {
+        $request = Request::create('/', 'GET', server: ['REMOTE_ADDR' => '10.42.0.7', 'HTTP_CF_CONNECTING_IP' => '81.204.10.7']);
+
+        self::assertSame('81.204.10.7', ContentServiceProvider::visitorIp($request, 'cf-connecting-ip'));
+        self::assertSame('10.42.0.7', ContentServiceProvider::visitorIp($request, null));
+
+        $spoofed = Request::create('/', 'GET', server: ['REMOTE_ADDR' => '10.42.0.7', 'HTTP_CF_CONNECTING_IP' => 'not-an-ip']);
+        self::assertSame('10.42.0.7', ContentServiceProvider::visitorIp($spoofed, 'cf-connecting-ip'));
     }
 
     public function testDefaultBindingBuildsAClientFromConfig(): void

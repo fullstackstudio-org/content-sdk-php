@@ -148,6 +148,22 @@ final class MembersTest extends ModuleTestCase
         self::assertSame('192.0.2.1', $this->http->last()->headers['X-FSC-Client-Ip']);
     }
 
+    public function testEventRegistrationForwardsTheVisitorIp(): void
+    {
+        $this->http->always(FakeTransport::json(['registration' => []]));
+
+        $this->client()->events->register('open-dag', ['name' => 'Jan'], ['clientIp' => '203.0.113.5']);
+        self::assertSame('POST', $this->http->last()->method);
+        self::assertStringEndsWith('/events/open-dag/registrations', $this->http->last()->url);
+        self::assertSame('203.0.113.5', $this->http->last()->headers['X-FSC-Client-Ip']);
+
+        $this->client(self::SERVER, ['clientIp' => '192.0.2.1'])->events->register('open-dag', ['name' => 'Jan']);
+        self::assertSame('192.0.2.1', $this->http->last()->headers['X-FSC-Client-Ip']);
+
+        $this->client(self::PUB)->events->register('open-dag', ['name' => 'Jan'], ['clientIp' => '203.0.113.5']);
+        self::assertArrayNotHasKey('X-FSC-Client-Ip', $this->http->last()->headers);
+    }
+
     public function testAMemberGetterUnwrapsAndErrorsBecomeExceptions(): void
     {
         $this->http->always(FakeTransport::json(['member' => ['id' => 'm1']]));
