@@ -1,0 +1,26 @@
+name: Image op build01
+# On every push to main this builds the site's Docker image on build01 (the self-hosted runner of fullstackstudio-org, private
+# repositories only) and pushes it to the own registry (reachable over the VPN only):
+#   registry.int0.net/rt/<repo>:<short-sha>  and  registry.int0.net/rt/<repo>:main
+# The FullStack Studio platform deploys that image to the k3s cluster ("Live zetten").
+# No secrets needed: the runner is logged in to the registry already. The Dockerfile in the root is built without .env or build args.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  image:
+    runs-on: [self-hosted, build01]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push to registry.int0.net
+        run: |
+          docker buildx build \
+            --label org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            -t "registry.int0.net/rt/${{ github.event.repository.name }}:${GITHUB_SHA::7}" \
+            -t "registry.int0.net/rt/${{ github.event.repository.name }}:${{ github.ref_name }}" \
+            --push .

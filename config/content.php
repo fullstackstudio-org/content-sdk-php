@@ -332,7 +332,7 @@ return [
      * - `visitor_pages` (env FSC_AUTO_VISITOR_PAGES): the Hub's visitor pages on this site's domain (booking, cancel and feed links `/a/...`,
      *   event signup and tickets `/e/...`, newsletter and member links `/n/...`, tickets and returns `/t/...`, `/r/...`, invoice, privacy export
      *   and order download links). The SDK forwards these paths to the Hub with the server token; the Hub only links here after it verified
-     *   the site. `timeout` and `connect_timeout` in seconds.
+     *   the site. `timeout` and `connect_timeout` in seconds; `per_minute` = requests per visitor IP per minute (0 = no limit).
      */
     'auto' => [
         'enabled' => (bool) env('FSC_AUTO', true),
@@ -361,6 +361,7 @@ return [
             'enabled' => (bool) env('FSC_AUTO_VISITOR_PAGES', true),
             'timeout' => 20,
             'connect_timeout' => 3,
+            'per_minute' => 120,
         ],
         'trailing_slash' => (bool) env('FSC_AUTO_TRAILING_SLASH', false),
         'trailing_slash_skip' => [],
