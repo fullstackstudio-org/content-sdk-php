@@ -2,11 +2,11 @@
      (`content.links.event`, e.g. `/evenementen/{slug}`) when set, else to the Hub's registration page. Renders nothing on any Hub error or with
      the module off; an empty agenda prints `emptyText` when the block has one. Replace it with a view of your own: `content.blocks.eventList`. --}}
 @php($events = \FullStackStudio\Content\Laravel\ModuleBlockData::eventList($block))
-@if ($events !== null && ($events !== [] || trim((string) ($block['emptyText'] ?? '')) !== ''))
+@if ($events !== null && ($events !== [] || trim((string) ($block['emptyText'] ?? '')) !== '' || $preview))
 <section class="fsc-block fsc-block--eventList{{ ($look ?? '') === '' ? '' : ' ' . $look }}">
-    @if (($block['heading'] ?? '') !== '')<h2 class="fsc-eventlist__heading">{{ $block['heading'] }}</h2>@endif
+    @if (($block['heading'] ?? '') !== '' || $preview)<h2 class="fsc-eventlist__heading"{!! $edit('heading') !!}>{{ $block['heading'] ?? '' }}</h2>@endif
     @if ($events === [])
-    <p class="fsc-eventlist__empty">{{ $block['emptyText'] }}</p>
+    <p class="fsc-eventlist__empty"{!! $edit('emptyText') !!}>{{ $block['emptyText'] ?? '' }}</p>
     @else
     <ul class="fsc-eventlist">
     @foreach ($events as $event)

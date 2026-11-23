@@ -270,7 +270,7 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
   **Override a block type** with a view of your own, per call (`:views="['articleList' => 'blocks.articles']"`) or globally in `config/content.php`
   (`'blocks' => ['articleList' => 'blocks.articles']`; `'unknown'` handles types without a view). Your view receives `$block`, `$index`,
   `$baseUrl` and `$resolve($mediaId)` (media info or null). To restyle a default view instead, publish the views.
-  In a portal preview (see "Portal preview" below) each block is wrapped in `<div data-fsc-block style="display:contents">`.
+  In a portal preview (see "Portal preview" below) each block is wrapped in `<div data-fsc-block data-fsc-block-type data-fsc-block-default data-fsc-layouts style="display:contents">`.
 - **`image`** renders `<img>` with a `srcset` of Content's on-demand variants (png, jpeg, still webp; widths 320-1920, never upscaled) and `sizes`
   (default `100vw`). `formats="avif,webp"` renders a `<picture>`. `alt` defaults to the media record's alt; `alt=""` marks a decorative image;
   `:eager="true"` for the image above the fold. Gif, svg and other types render the original without `srcset`.

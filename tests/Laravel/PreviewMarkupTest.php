@@ -47,7 +47,7 @@ final class PreviewMarkupTest extends LaravelTestCase
         $html = $this->blocks();
 
         self::assertSame(6, substr_count($html, 'style="display:contents"'), 'one wrapper per rendered block (the unknown type is skipped)');
-        self::assertStringContainsString('<div data-fsc-block="2" data-fsc-block-index="2" style="display:contents">', $html, 'a block without id is marked by its index');
+        self::assertStringContainsString('<div data-fsc-block="2" data-fsc-block-index="2" data-fsc-block-type="', $html, 'a block without id is marked by its index');
         self::assertStringContainsString('<fieldset disabled', $html);
 
         self::assertStringStartsWith('<div class="fsc-blocks x" data-fsc-preview-blocks >', $html);

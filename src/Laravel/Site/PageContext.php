@@ -30,6 +30,16 @@ final class PageContext
         $this->resolved = $resolved;
     }
 
+    /**
+     * Drops the resolved resource and the meta overrides set for it, e.g. when a 404 or 503 replaces the response after the resolve: the
+     * error page must not carry the resource's title, canonical, hreflang or JSON-LD. Printed parts stay printed.
+     */
+    public function forget(): void
+    {
+        $this->resolved = null;
+        $this->seo = [];
+    }
+
     public function status(): ?int
     {
         return $this->status;

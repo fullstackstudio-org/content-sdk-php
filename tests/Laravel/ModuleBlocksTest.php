@@ -469,8 +469,8 @@ final class ModuleBlocksTest extends LaravelTestCase
         $html = $this->render([['id' => 'ev', 'type' => 'eventList', 'limit' => 6], ['id' => 'fq', 'type' => 'faq']]);
 
         self::assertStringContainsString('data-fsc-preview-blocks', $html);
-        self::assertStringContainsString('<div data-fsc-block="ev" data-fsc-block-index="0" style="display:contents">', $html);
-        self::assertStringContainsString('<div data-fsc-block="fq" data-fsc-block-index="1" style="display:contents">', $html);
+        self::assertStringContainsString('<div data-fsc-block="ev" data-fsc-block-index="0" data-fsc-block-type="', $html);
+        self::assertStringContainsString('<div data-fsc-block="fq" data-fsc-block-index="1" data-fsc-block-type="', $html);
         self::assertStringContainsString('fsc-block--eventList', $html);
         self::assertStringContainsString('fsc-block--faq', $html);
     }

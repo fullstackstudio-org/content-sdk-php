@@ -355,6 +355,60 @@ final class SiteViewsTest extends FakeHubTestCase
         }
     }
 
+    public function testA404AfterTheResolveDoesNotLeakTheResourceIntoTheHead(): void
+    {
+        config(['content.auto.handlers.article' => SiteViewsTestAbortHandler::class]);
+        $this->article('geheim', 'nl', ['title' => 'Geheime titel', 'seoTitle' => 'Geheime titel', 'excerpt' => 'Geheime samenvatting']);
+
+        $response = $this->get('/blog/geheim');
+
+        $response->assertNotFound();
+        $html = (string) $response->getContent();
+        self::assertStringContainsString('Pagina niet gevonden', $html);
+        self::assertStringNotContainsString('Geheime', $html, 'no title, description or og of the resource');
+        self::assertStringNotContainsString('application/ld+json', $html, 'no Article JSON-LD');
+        self::assertStringNotContainsString('rel="canonical"', $html);
+        self::assertStringNotContainsString('hreflang', $html);
+        self::assertStringContainsString('noindex', $html);
+    }
+
+    public function testTheAbortInTheEventViewDoesNotLeakTheEvent(): void
+    {
+        // The resolver only skips drafts; the event view aborts for any other status it cannot show (`abort_if` in site/event).
+        $this->eventFixture(['title' => 'Geheim evenement', 'summary' => 'Geheime samenvatting', 'status' => 'archived']);
+
+        $html = (string) $this->get('/agenda/open-dag')->assertNotFound()->getContent();
+
+        self::assertStringContainsString('Pagina niet gevonden', $html);
+        self::assertStringNotContainsString('Geheim', $html);
+        self::assertStringNotContainsString('application/ld+json', $html);
+        self::assertStringNotContainsString('rel="canonical"', $html);
+    }
+
+    public function testTheSitesOwn404ViewIsNoindexToo(): void
+    {
+        View::addNamespace('site', __DIR__ . '/views');
+        config(['content.auto.handlers.article' => SiteViewsTestAbortHandler::class]);
+        $this->article('geheim', 'nl', ['title' => 'Geheime titel']);
+        $errors = sys_get_temp_dir() . '/fsc-site-404-' . bin2hex(random_bytes(4));
+        mkdir($errors . '/errors', 0777, true);
+        file_put_contents($errors . '/errors/404.blade.php', '<html><head><x-content::head /></head><body>EIGEN 404</body></html>');
+        View::getFinder()->prependLocation($errors);
+
+        try {
+            $html = (string) $this->get('/blog/geheim')->assertNotFound()->getContent();
+        } finally {
+            @unlink($errors . '/errors/404.blade.php');
+            @rmdir($errors . '/errors');
+            @rmdir($errors);
+        }
+
+        self::assertStringContainsString('EIGEN 404', $html);
+        self::assertStringContainsString('noindex', $html);
+        self::assertStringNotContainsString('Geheime', $html);
+        self::assertStringNotContainsString('rel="canonical"', $html);
+    }
+
     // --- publishing -------------------------------------------------------------------------------------------------------------------
 
     #[DataProvider('types')]
@@ -383,5 +437,14 @@ final class SiteViewsTestHandler
     public function __invoke(Request $request, Resolved $resolved): string
     {
         return 'handled ' . $resolved->type . ' ' . $resolved->path . ' x=' . $request->query('x');
+    }
+}
+
+/** A site handler that decides after the resolve that the resource cannot be shown. */
+final class SiteViewsTestAbortHandler
+{
+    public function __invoke(Request $request, Resolved $resolved): never
+    {
+        abort(404);
     }
 }

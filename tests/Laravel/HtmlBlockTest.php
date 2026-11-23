@@ -168,7 +168,7 @@ final class HtmlBlockTest extends LaravelTestCase
 
         $html = Blade::render('<x-content::page-blocks :blocks="$b" />', ['b' => [self::block(['isolate' => false, 'consent' => 'marketing'])]]);
 
-        self::assertStringContainsString('<div data-fsc-block="h1" data-fsc-block-index="0" style="display:contents">', $html);
+        self::assertStringContainsString('<div data-fsc-block="h1" data-fsc-block-index="0" data-fsc-block-type="', $html);
         self::assertStringContainsString('<iframe class="fsc-html__frame" data-fsc-html-frame', $html, 'inline code is isolated in a preview');
         self::assertStringContainsString('sandbox="' . self::SANDBOX . '"', $html);
         self::assertStringContainsString('<template data-fsc-code data-consent="marketing"', $html, 'consent still gates it');

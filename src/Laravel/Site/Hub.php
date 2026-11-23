@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\Site;
 
 use FullStackStudio\Content\ContentException;
+use FullStackStudio\Content\Laravel\Auto\AutoErrors;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
@@ -30,7 +31,8 @@ final class Hub
 
     /**
      * Like {@see call()} for code that must produce a response: null or a 404 becomes `abort(404)`, any other failure is reported and becomes
-     * `abort(503)` (the Hub is down, the page is not missing). HTTP exceptions thrown inside the callable pass through.
+     * `abort(503)` with `Retry-After: 300` and `Cache-Control: no-store` (the Hub is down, the page is not missing; also with
+     * `content.auto.errors` off). HTTP exceptions thrown inside the callable pass through.
      */
     public static function orAbort(callable $read): mixed
     {
@@ -40,7 +42,7 @@ final class Hub
             throw $e;
         } catch (Throwable $e) {
             report($e);
-            abort(503);
+            abort(503, '', ['Retry-After' => (string) AutoErrors::RETRY_AFTER, 'Cache-Control' => 'no-store']);
         }
 
         return $result ?? abort(404);

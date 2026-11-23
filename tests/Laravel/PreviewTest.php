@@ -173,8 +173,8 @@ final class PreviewTest extends LaravelTestCase
 
         self::assertStringContainsString('<html data-fsc-preview lang="nl"><head><script src="/_fsc/p/preview.js?v=' . ContentClient::VERSION . '" data-endpoint="/_fsc/p" data-token="' . self::TOKEN . '" data-origin="' . self::PORTAL . '" data-version="7" data-sdk="' . ContentClient::VERSION . '"></script><meta charset="utf-8">', $html);
         self::assertStringContainsString('<div class="fsc-blocks" data-fsc-preview-blocks >', $html);
-        self::assertStringContainsString('<div data-fsc-block="b1" data-fsc-block-index="0" style="display:contents">', $html);
-        self::assertStringContainsString('<div data-fsc-block="1" data-fsc-block-index="1" style="display:contents">', $html);
+        self::assertStringContainsString('<div data-fsc-block="b1" data-fsc-block-index="0" data-fsc-block-type="', $html);
+        self::assertStringContainsString('<div data-fsc-block="1" data-fsc-block-index="1" data-fsc-block-type="', $html);
     }
 
     public function testThePreviewRendersNoAnalyticsAndAFormThatCannotSubmit(): void
@@ -342,9 +342,9 @@ final class PreviewTest extends LaravelTestCase
         $this->postPreview('fscpv_' . str_repeat('B', 43))->assertNotFound();
     }
 
-    public function testTheDefaultLimitIs60PerToken(): void
+    public function testTheDefaultLimitIs240PerToken(): void
     {
-        self::assertSame(60, config('content.preview.rate_limit'));
+        self::assertSame(240, config('content.preview.rate_limit'));
     }
 
     public function testGuessedTokensAreLimitedPerIp(): void

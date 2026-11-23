@@ -28,10 +28,10 @@ final class PersonalizationOffTest extends LaravelTestCase
             self::assertSame('<section class="g-hero"><h1 data-fsi-field="title">Websites die werken</h1></section>', trim($html));
         }
 
-        // No route of its own: a POST finds only the automatic content route (GET), so 405; a GET reaches that route and is a 404.
-        self::assertSame(405, $this->post('/_fsc/i/decide', ['s' => ['home-hero'], 'p' => '/'])->status());
+        // No route of its own: a POST finds only the automatic 404 fallback for other methods; a GET reaches the content route, also a 404.
+        self::assertSame(404, $this->post('/_fsc/i/decide', ['s' => ['home-hero'], 'p' => '/'])->status());
         $this->get('/_fsc/i/slots.js')->assertNotFound();
-        self::assertSame(405, $this->post('/_fsc/i/me')->status());
+        self::assertSame(404, $this->post('/_fsc/i/me')->status());
         // The content route may read the Hub for the unknown path; nothing of the intelligence module is asked.
         foreach ($content->requests as $request) {
             self::assertDoesNotMatchRegularExpression('#intelligence|personali|slots|decide#', $request->url);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\Auto;
 
 use FullStackStudio\Content\Laravel\Site\HealthController;
+use FullStackStudio\Content\Laravel\Site\NotFoundController;
 use FullStackStudio\Content\Laravel\Site\RobotsController;
 use FullStackStudio\Content\Laravel\Site\SiteController;
 use FullStackStudio\Content\Laravel\Site\SitemapController;
@@ -22,6 +23,8 @@ use Throwable;
  * - A route whose method and URI the site already registered is skipped (adding it would replace the site's).
  * - The content route is a fallback route, matched after every normal route, also after routes added later; a site's own
  *   `Route::fallback()` was registered first and wins among the fallbacks.
+ * - A second fallback for POST, PUT, PATCH and DELETE keeps Laravel's answers for those methods (404 for an unknown path, 405 for a known
+ *   one) instead of the 405 the GET content route would cause.
  * - With cached routes nothing is registered at runtime: `route:cache` booted the app, so the cache holds these routes in the same order.
  *
  * Every action is a controller class (no closures), so `route:cache` works. No Hub call here.
@@ -35,6 +38,11 @@ final class AutoRoutes
     public const ROBOTS = 'content.auto.robots';
 
     public const HEALTH = 'content.auto.health';
+
+    public const NOT_FOUND = 'content.auto.not-found';
+
+    /** Methods the second fallback answers with Laravel's own 404/405: the content route is GET only. */
+    private const OTHER_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
     /** Route parameter of the content route: the whole path. */
     public const PATH_PARAMETER = 'fscPath';
@@ -83,6 +91,18 @@ final class AutoRoutes
             $added = true;
         }
 
+        // Without this, the GET fallback makes Laravel answer every other method on an unknown path with a 405. Registered without a
+        // middleware group (no CSRF 419, no session), only for the methods the site did not catch itself with the same URI.
+        $methods = array_values(array_filter(self::OTHER_METHODS, static fn (string $method): bool => ! self::taken($router, $method, $uri)));
+
+        if ($methods !== []) {
+            $router->match($methods, $uri, NotFoundController::class)
+                ->where(self::PATH_PARAMETER, '.*')
+                ->name(self::NOT_FOUND)
+                ->fallback();
+            $added = true;
+        }
+
         if ($added) {
             // Names are set after `add()`, so the lookups must be rebuilt for `route()` and `Route::has()`.
             $routes = $router->getRoutes();
@@ -107,6 +127,11 @@ final class AutoRoutes
             $route = $router->getRoutes()->match(Request::create('/' . ltrim($path, '/'), strtoupper($method)));
         } catch (Throwable) {
             // No route for this method and path (404 or 405), or a router that cannot match outside a request.
+            return $none;
+        }
+
+        // The 404 fallback for other methods answers nothing.
+        if ($route->getName() === self::NOT_FOUND) {
             return $none;
         }
 

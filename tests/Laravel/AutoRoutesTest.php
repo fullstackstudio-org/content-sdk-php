@@ -38,6 +38,20 @@ final class AutoRoutesTest extends LaravelTestCase
     {
         parent::setUp();
         $this->fakes();
+
+        // CI runs this class twice per Laravel major: as is, and with FSC_TEST_ROUTE_CACHE=1, where every application of a test answers
+        // from a compiled route cache (what `route:cache` at container start gives), so each precedence rule is proven both ways.
+        if (self::cachedMode() && ! in_array($this->name(), self::OWN_CACHE, true)) {
+            $this->site();
+        }
+    }
+
+    /** Tests that build or fake the route cache themselves. */
+    private const OWN_CACHE = ['testCachedRoutesGiveTheSameRoutesAndAnswers', 'testCachedRoutesAreNotRegisteredTwice'];
+
+    private static function cachedMode(): bool
+    {
+        return getenv('FSC_TEST_ROUTE_CACHE') === '1';
     }
 
     protected function tearDown(): void
@@ -67,13 +81,61 @@ final class AutoRoutesTest extends LaravelTestCase
         }
     }
 
-    /** A fresh application with these site routes and `content.auto` values. */
-    private function site(?Closure $routes = null, array $auto = []): void
+    /**
+     * A fresh application with these site routes and `content.auto` values. `$later` adds routes after the automatic ones (a package or
+     * a booted callback that runs later); in the cached mode `route:cache` saw them too, as it boots the whole application.
+     *
+     * @param (Closure(Router): void)|null $later
+     */
+    private function site(?Closure $routes = null, array $auto = [], ?Closure $later = null): void
     {
         $this->siteRoutes = $routes;
         $this->auto = $auto;
+        $cached = self::cachedMode() && ! in_array($this->name(), self::OWN_CACHE, true);
+
+        if ($cached) {
+            // Boot without the previous cache first, so the cache holds exactly this site's routes.
+            unset($_SERVER['APP_ROUTES_CACHE'], $_ENV['APP_ROUTES_CACHE']);
+            putenv('APP_ROUTES_CACHE');
+        }
+
         $this->refreshApplication();
         $this->fakes();
+
+        if ($later !== null) {
+            $later($this->app['router']);
+        }
+
+        if ($cached) {
+            $this->writeRouteCache();
+            $this->refreshApplication();
+            $this->loadRouteCache();
+            $this->fakes();
+        }
+    }
+
+    /** What `php artisan route:cache` writes: the compiled collection of the freshly booted application. */
+    private function writeRouteCache(): void
+    {
+        $collection = $this->app['router']->getRoutes();
+
+        foreach ($collection as $route) {
+            $route->prepareForSerialization();
+        }
+
+        $this->routeCache ??= sys_get_temp_dir() . '/fsc-auto-routes-' . bin2hex(random_bytes(4)) . '.php';
+        file_put_contents($this->routeCache, "<?php\n\napp('router')->setCompiledRoutes(\n    " . var_export($collection->compile(), true) . "\n);\n");
+        $_SERVER['APP_ROUTES_CACHE'] = $_ENV['APP_ROUTES_CACHE'] = $this->routeCache;
+        putenv('APP_ROUTES_CACHE=' . $this->routeCache);
+    }
+
+    /** A container start with cached routes: nothing is registered at runtime, the cache is loaded as RouteServiceProvider does. */
+    private function loadRouteCache(): void
+    {
+        self::assertTrue($this->app->routesAreCached());
+        require $this->routeCache;
+        $this->app['router']->getRoutes()->refreshNameLookups();
+        $this->app['router']->getRoutes()->refreshActionLookups();
     }
 
     private function fakes(): void
@@ -206,11 +268,11 @@ final class AutoRoutesTest extends LaravelTestCase
         $this->site(static function (Router $router): void {
             $router->middleware('web')->get('/contact', AutoRoutesTestSite::class);
             $router->middleware('web')->get('/', AutoRoutesTestSite::class);
+        }, [], static function (Router $router): void {
+            // Added after the automatic routes (a package or a booted callback that runs later).
+            $router->middleware('web')->get('/later', AutoRoutesTestSite::class);
+            $router->get('/robots.txt', AutoRoutesTestSite::class);
         });
-
-        // Added after the automatic routes (a package or a booted callback that runs later).
-        $this->app['router']->middleware('web')->get('/later', AutoRoutesTestSite::class);
-        $this->app['router']->get('/robots.txt', AutoRoutesTestSite::class);
 
         self::assertSame('site:contact', $this->get('/contact')->getContent());
         self::assertSame('site:', $this->get('/')->getContent());
@@ -230,23 +292,9 @@ final class AutoRoutesTest extends LaravelTestCase
         $before = $this->routeList();
         $answers = $this->answers($paths);
 
-        // What `php artisan route:cache` writes: the compiled collection of a freshly booted application.
-        $collection = $this->app['router']->getRoutes();
-
-        foreach ($collection as $route) {
-            $route->prepareForSerialization();
-        }
-
-        $this->routeCache = sys_get_temp_dir() . '/fsc-auto-routes-' . bin2hex(random_bytes(4)) . '.php';
-        file_put_contents($this->routeCache, "<?php\n\napp('router')->setCompiledRoutes(\n    " . var_export($collection->compile(), true) . "\n);\n");
-        $_SERVER['APP_ROUTES_CACHE'] = $_ENV['APP_ROUTES_CACHE'] = $this->routeCache;
-        putenv('APP_ROUTES_CACHE=' . $this->routeCache);
-
-        // A container start with cached routes: nothing is registered at runtime, the cache is loaded as RouteServiceProvider does.
+        $this->writeRouteCache();
         $this->site($routes);
-        self::assertTrue($this->app->routesAreCached());
-        require $this->routeCache;
-        $this->app['router']->getRoutes()->refreshNameLookups();
+        $this->loadRouteCache();
 
         self::assertInstanceOf(\Illuminate\Routing\CompiledRouteCollection::class, $this->app['router']->getRoutes());
         self::assertSame($before, $this->routeList());
@@ -340,6 +388,34 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertSame(['by' => 'sdk', 'uri' => '{fscPath}', 'action' => SiteController::class], AutoRoutes::owner('GET', '/'));
         self::assertSame('none', AutoRoutes::owner('POST', '/contact')['by']);
         self::assertSame('none', AutoRoutes::owner('DELETE', '/iets')['by']);
+    }
+
+    public function testOtherMethodsOnUnknownPathsAre404AsWithoutThePackage(): void
+    {
+        $this->site(static function (Router $router): void {
+            $router->middleware('web')->get('/contact', AutoRoutesTestSite::class);
+            $router->post('/aanmelden', AutoRoutesTestSite::class);
+        });
+
+        foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
+            $this->call($method, '/bestaat-niet')->assertNotFound();
+            $this->call($method, '/')->assertNotFound();
+        }
+
+        // A known path with another method stays 405, a site's own route still answers, and nothing ran the web group (no 419, no cookie).
+        $this->call('POST', '/contact')->assertStatus(405)->assertHeader('Allow', 'GET, HEAD');
+        self::assertSame('site:aanmelden', $this->call('POST', '/aanmelden')->getContent());
+        self::assertSame([], $this->call('POST', '/bestaat-niet')->headers->getCookies());
+        self::assertSame('none', AutoRoutes::owner('POST', '/bestaat-niet')['by'], 'the 404 route answers nothing');
+    }
+
+    public function testWithASiteFallbackForOtherMethodsTheSiteWins(): void
+    {
+        $this->site(static function (Router $router): void {
+            $router->any('{any}', AutoRoutesTestSite::class)->where('any', '.*')->fallback();
+        });
+
+        self::assertSame('site:iets', $this->call('POST', '/iets')->getContent());
     }
 
     public function testThePortalPreviewReachesTheContentRoute(): void

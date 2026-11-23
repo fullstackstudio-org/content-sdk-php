@@ -75,7 +75,7 @@ final class Urls
 
     /**
      * The Hub's SEO `articlePathTemplate`: a same-site path with exactly one `{slug}` (and optionally `{locale}`), else `/blog/{slug}`.
-     * A Hub failure other than "not found" is thrown.
+     * Normalised by {@see template()}: no trailing slash. A Hub failure other than "not found" is thrown.
      */
     public function articleTemplate(): string
     {
@@ -87,11 +87,14 @@ final class Urls
 
         return $this->articleTemplate = is_string($template) && str_starts_with($template, '/') && ! str_starts_with($template, '//')
             && substr_count($template, '{slug}') === 1 && substr_count($template, '{locale}') <= 1
-            ? $template
+            ? self::template($template)
             : self::DEFAULT_ARTICLE_TEMPLATE;
     }
 
-    /** `content.links.event` when it is a same-site path with one `{slug}` or `{id}`; null otherwise (events are then not served by the site). */
+    /**
+     * `content.links.event` when it is a same-site path with one `{slug}` or `{id}`; null otherwise (events are then not served by the site).
+     * Normalised by {@see template()}: no trailing slash.
+     */
     public function eventTemplate(): ?string
     {
         $template = config('content.links.event');
@@ -100,7 +103,18 @@ final class Urls
             return null;
         }
 
-        return substr_count($template, '{slug}') + substr_count($template, '{id}') === 1 ? $template : null;
+        return substr_count($template, '{slug}') + substr_count($template, '{id}') === 1 ? self::template($template) : null;
+    }
+
+    /**
+     * The one normalisation of a path template: without trailing slash (the Hub accepts `/blog/{slug}/`), except `/` itself. Both the
+     * links built here and the resolver's matching use this form; the trailing slash of a link comes from `trailing_slash` only.
+     */
+    public static function template(string $template): string
+    {
+        $trimmed = rtrim($template, '/');
+
+        return $trimmed === '' ? '/' : $trimmed;
     }
 
     /** @param array<string, mixed> $page */

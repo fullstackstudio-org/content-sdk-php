@@ -123,7 +123,7 @@ return [
     'preview' => [
         'enabled' => (bool) env('FSC_PREVIEW_ENABLED', true),
         'path' => env('FSC_PREVIEW_PATH', '_fsc/p'),
-        'rate_limit' => (int) env('FSC_PREVIEW_RATE_LIMIT', 60),
+        'rate_limit' => (int) env('FSC_PREVIEW_RATE_LIMIT', 240),
         'page_path' => null,
     ],
 
