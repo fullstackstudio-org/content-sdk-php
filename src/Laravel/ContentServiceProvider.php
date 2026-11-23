@@ -107,7 +107,7 @@ final class ContentServiceProvider extends ServiceProvider
         $this->publishes([__DIR__ . '/../../resources/views/partials/banner.blade.php' => $this->app->resourcePath('views/vendor/content/partials/banner.blade.php')], 'content-consent');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([AgentsCommand::class, DoctorCommand::class]);
+            $this->commands([AgentsCommand::class, DoctorCommand::class, Console\InstallCommand::class]);
         }
 
         // The Hub's visitor pages (`/a/...`, `/e/...`, `/n/...`, `/t/...`, `/r/...` and the file links): here in `boot()`, before the site's

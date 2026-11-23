@@ -1,0 +1,28 @@
+# Exclude everything, then allow only what the build needs.
+*
+
+!app/
+!bootstrap/
+!config/
+!docker/
+!public/
+!resources/
+!routes/
+!storage/
+!artisan
+!composer.json
+!composer.lock
+!package.json
+!package-lock.json
+!vite.config.js
+
+# Exceptions inside the allowed folders
+public/build
+public/hot
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*
+**/.DS_Store
+**/.env*
