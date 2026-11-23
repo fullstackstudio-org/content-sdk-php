@@ -32,6 +32,9 @@ final class PersonalizationOffTest extends LaravelTestCase
         self::assertSame(405, $this->post('/_fsc/i/decide', ['s' => ['home-hero'], 'p' => '/'])->status());
         $this->get('/_fsc/i/slots.js')->assertNotFound();
         self::assertSame(405, $this->post('/_fsc/i/me')->status());
-        self::assertSame([], $content->requests);
+        // The content route may read the Hub for the unknown path; nothing of the intelligence module is asked.
+        foreach ($content->requests as $request) {
+            self::assertDoesNotMatchRegularExpression('#intelligence|personali|slots|decide#', $request->url);
+        }
     }
 }

@@ -101,6 +101,7 @@ final class ContentServiceProvider extends ServiceProvider
 
         $this->publishes([__DIR__ . '/../../resources/assets/content.css' => $this->app->publicPath('vendor/content/content.css')], 'content-assets');
         $this->publishes([__DIR__ . '/../../resources/views' => $this->app->resourcePath('views/vendor/content')], 'content-views');
+        $this->publishes([__DIR__ . '/../../resources/views/partials/banner.blade.php' => $this->app->resourcePath('views/vendor/content/partials/banner.blade.php')], 'content-consent');
 
         if ($this->app->runningInConsole()) {
             $this->commands([AgentsCommand::class, DoctorCommand::class]);
@@ -119,8 +120,12 @@ final class ContentServiceProvider extends ServiceProvider
         }
 
         self::registerHtmlBlockRoute();
+        \FullStackStudio\Content\Laravel\Site\ConsentController::registerRoutes();
         \FullStackStudio\Content\Laravel\Auto\AutoRoutes::register($this->app);
+        foreach (\FullStackStudio\Content\Laravel\Site\SiteViews::publishable() as $tag => $paths) { $this->publishes($paths, $tag); }
+        \FullStackStudio\Content\Laravel\Auto\AutoErrors::register($this->app, fn (array $paths, string $tag) => $this->publishes($paths, $tag));
         \FullStackStudio\Content\Laravel\Sitemap::registerRouteMacro();
+        \FullStackStudio\Content\Laravel\Auto\AutoPlatform::register($this->app);
 
         if ($this->app['config']->get('content.analytics.enabled', true)) {
             self::registerAnalyticsRoutes();

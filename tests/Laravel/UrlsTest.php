@@ -127,6 +127,8 @@ final class UrlsTest extends FakeHubTestCase
 
         $this->seo = [];
         config(['app.url' => 'http://localhost']);
+        // Urls is scoped (one per request) and remembers the SEO settings it read.
+        $this->app->forgetScopedInstances();
         self::assertSame('http://localhost/over-ons', $this->app->make(Urls::class)->absolute('over-ons'));
     }
 

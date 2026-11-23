@@ -21,6 +21,20 @@ function build_block_css(string $source): string
     return ':where(:root){' . implode(' ', $root) . '}' . "\n" . implode("\n", $rules) . "\n";
 }
 
+/**
+ * Builds `resources/assets/site.css` from `resources/assets/site-source.css`: the default views of the out of the box site, every selector in
+ * `:where()`. It declares no variables: `blocks.css` (printed in front of it) holds the theme layer.
+ *
+ * @return string the generated stylesheet
+ */
+function build_site_css(string $source): string
+{
+    $root = [];
+    $rules = rules((string) preg_replace('#/\*.*?\*/#s', '', $source), $root);
+
+    return implode("\n", $rules) . "\n";
+}
+
 /** Literal colours of the base rules that become theme variables (the defaults live in the `:root` rule of content.css). */
 const LITERALS = [
     '#fff' => 'var(--fsc-hero-text)',
@@ -125,4 +139,6 @@ if (PHP_SAPI === 'cli' && realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE
     $dir = dirname(__DIR__) . '/resources/assets';
     file_put_contents($dir . '/blocks.css', build_block_css((string) file_get_contents($dir . '/content.css')));
     echo "resources/assets/blocks.css written\n";
+    file_put_contents($dir . '/site.css', build_site_css((string) file_get_contents($dir . '/site-source.css')));
+    echo "resources/assets/site.css written\n";
 }

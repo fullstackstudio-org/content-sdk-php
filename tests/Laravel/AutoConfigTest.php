@@ -12,6 +12,13 @@ use FullStackStudio\Content\Laravel\Site\Resolved;
 
 final class AutoConfigTest extends LaravelTestCase
 {
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+        // The base test case switches the Hub redirect lookup off; the defaults are what this test checks.
+        $app['config']->set('content.auto.redirects', true);
+    }
+
     public function testDefaults(): void
     {
         foreach (['pages', 'articles', 'legal', 'sitemap', 'robots', 'health', 'redirects', 'errors', 'platform', 'consent'] as $feature) {
