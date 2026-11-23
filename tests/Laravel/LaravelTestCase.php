@@ -22,6 +22,8 @@ abstract class LaravelTestCase extends TestCase
         // The inline block styles are printed once per request and are tested on their own (BlockStyleTest); off here keeps the other markup tests exact.
         $app['config']->set('content.blocks.inline_styles', false);
         $app['config']->set('cache.default', 'array');
+        // The Hub redirect lookup in the `web` group (AutoPlatform) would eat queued fake Hub answers of tests that render a page; AutoPlatformTest switches it on.
+        $app['config']->set('content.auto.redirects', false);
         // Unknown paths reach the automatic content route in the `web` group (cookies, session), which needs a key like every real site has.
         $app['config']->set('app.key', 'base64:' . base64_encode(str_repeat('t', 32)));
     }
