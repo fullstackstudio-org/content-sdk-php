@@ -121,6 +121,25 @@ final class AutoErrors
         }
     }
 
+    /**
+     * A 503 for a failure outside Laravel's exception flow (the visitor page proxy): the site's `errors/503` (or `errors/5xx`) view when it
+     * exists, else the package's standalone `content::errors.503`, else plain markup. `Retry-After: 300` and `Cache-Control: no-store`.
+     */
+    public static function unavailable(): Response
+    {
+        try {
+            return self::respond(new HttpException(503, '', null, ['Retry-After' => (string) self::RETRY_AFTER, 'Cache-Control' => 'no-store']));
+        } catch (Throwable) {
+            return self::standalone(503);
+        }
+    }
+
+    /** The standalone page (no layout, no components, no site view) with this status; 503 adds `Retry-After` and `no-store`. */
+    public static function standaloneResponse(int $status): Response
+    {
+        return self::standalone($status);
+    }
+
     /** Layout the package's 404 view extends: the same as the default site views ({@see \FullStackStudio\Content\Laravel\Site\Layout::name()}). */
     public static function layout(): string
     {

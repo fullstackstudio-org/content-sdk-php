@@ -41,6 +41,8 @@ final class TrailingSlashTest extends LaravelTestCase
     {
         parent::defineEnvironment($app);
         $app['config']->set('content.auto.trailing_slash', true);
+        // The visitor paths would be answered by the proxy; off, the site's catch-all shows that the middleware let them through.
+        $app['config']->set('content.auto.visitor_pages', false);
 
         self::$seen = [];
         // Registered before the package's own booted callback, so it sits between the preview middleware and the trailing slash middleware.
@@ -118,11 +120,14 @@ final class TrailingSlashTest extends LaravelTestCase
 
     public function testSkipsTheVisitorProxyPaths(): void
     {
-        foreach (['/a/l/tok', '/a/c/tok/afspraak', '/e/i/proj', '/n/u/tok', '/t/tok', '/r/tok', '/a'] as $path) {
+        foreach (['/a/l/tok', '/a/c/tok/afspraak', '/a/c/tok/afspraak.ics', '/e/i/proj', '/n/u/tok', '/t/tok', '/t', '/r/tok', '/api/v1/downloads/tok'] as $path) {
             $this->get($path)->assertOk();
         }
 
-        // A longer first segment that merely starts with one of those letters is an ordinary page.
+        // Only the paths of the proxy table (VisitorRoutes::matches) are skipped: the same first segment with another shape is an ordinary
+        // page, and so is a longer first segment that merely starts with one of those letters.
+        $this->get('/a')->assertStatus(301);
+        $this->get('/a/over-ons')->assertStatus(301);
         $this->get('/afspraak')->assertStatus(301);
         $this->get('/nieuws')->assertStatus(301);
     }

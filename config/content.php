@@ -320,6 +320,10 @@ return [
      * - `views`: type => view name, replaces the default view of `page`, `article`, `articles`, `category`, `event`, `legal`.
      * - `handlers`: type => invokable controller class (receives `Request` and `Resolved`). Class names only, never closures
      *   (config:cache must work).
+     * - `visitor_pages` (env FSC_AUTO_VISITOR_PAGES): the Hub's visitor pages on this site's domain (booking, cancel and feed links `/a/...`,
+     *   event signup and tickets `/e/...`, newsletter and member links `/n/...`, tickets and returns `/t/...`, `/r/...`, invoice, privacy export
+     *   and order download links). The SDK forwards these paths to the Hub with the server token; the Hub only links here after it verified
+     *   the site. `timeout` and `connect_timeout` in seconds.
      */
     'auto' => [
         'enabled' => (bool) env('FSC_AUTO', true),
@@ -344,6 +348,11 @@ return [
         'errors' => (bool) env('FSC_AUTO_ERRORS', true),
         'platform' => (bool) env('FSC_AUTO_PLATFORM', true),
         'consent' => (bool) env('FSC_AUTO_CONSENT', true),
+        'visitor_pages' => [
+            'enabled' => (bool) env('FSC_AUTO_VISITOR_PAGES', true),
+            'timeout' => 20,
+            'connect_timeout' => 3,
+        ],
         'trailing_slash' => (bool) env('FSC_AUTO_TRAILING_SLASH', false),
         'trailing_slash_skip' => [],
         'layout' => env('FSC_AUTO_LAYOUT'),

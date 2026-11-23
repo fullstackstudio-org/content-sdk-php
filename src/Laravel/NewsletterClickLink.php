@@ -18,7 +18,10 @@ final class NewsletterClickLink
 {
     public function handle(Request $request, Closure $next): Response
     {
-        IntelligenceProxy::newsletterClickLater($request);
+        // A visitor page of the Hub (also the newsletter click link `/n/l/...`) is the Hub's business, not a tracked site page.
+        if (! \FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::handles($request)) {
+            IntelligenceProxy::newsletterClickLater($request);
+        }
 
         return $next($request);
     }

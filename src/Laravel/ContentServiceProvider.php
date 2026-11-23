@@ -72,6 +72,9 @@ final class ContentServiceProvider extends ServiceProvider
         // The `html` blocks of one request: their CSP sources and whether the loader and the frame sizer are printed (Octane safe).
         $this->app->scoped(HtmlBlock::class, static fn (): HtmlBlock => new HtmlBlock());
 
+        // The Hub connection of the visitor page proxy (section 8 of the plan); tests bind a fake.
+        $this->app->bindIf(\FullStackStudio\Content\Laravel\Visitor\Upstream::class, \FullStackStudio\Content\Laravel\Visitor\CurlUpstream::class);
+
         $this->app->singleton(Errors::class, fn ($app): Errors => new Errors($app));
         $this->app->singleton(ErrorReporter::class, fn ($app): ErrorReporter => new ErrorReporter($app, $app->make(Errors::class)));
     }
@@ -106,6 +109,10 @@ final class ContentServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([AgentsCommand::class, DoctorCommand::class]);
         }
+
+        // The Hub's visitor pages (`/a/...`, `/e/...`, `/n/...`, `/t/...`, `/r/...` and the file links): here in `boot()`, before the site's
+        // route files, so a site catch-all does not shadow them (plan decision V2).
+        \FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::register($this->app);
 
         if ($this->app['config']->get('content.webhook.enabled')) {
             self::registerWebhookRoute();
@@ -205,6 +212,31 @@ final class ContentServiceProvider extends ServiceProvider
                     });
                 }
             });
+        }
+
+        if (\FullStackStudio\Content\Laravel\Auto\Auto::on('visitor_pages')) {
+            self::registerVisitorProxyHooks();
+        }
+    }
+
+    /**
+     * The visitor page proxy outside its controller: the Hub's headers are the last word over every site middleware and no cookie leaves a
+     * proxied response (registered last, so this listener runs after the other `RequestHandled` listeners), and Laravel's `TrimStrings` and
+     * `ConvertEmptyStringsToNull` leave these requests alone, so a multipart form reaches the Hub as the visitor typed it.
+     */
+    private function registerVisitorProxyHooks(): void
+    {
+        $this->app['events']->listen(RequestHandled::class, static function (RequestHandled $event): void {
+            \FullStackStudio\Content\Laravel\Visitor\VisitorProxyController::finalize($event->request, $event->response);
+        });
+
+        // Static callbacks on the middleware classes, once per application boot (Laravel flushes them between tests).
+        $skip = static fn (Request $request): bool => \FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::handles($request);
+
+        foreach ([\Illuminate\Foundation\Http\Middleware\TrimStrings::class, \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class] as $middleware) {
+            if (class_exists($middleware) && method_exists($middleware, 'skipWhen')) {
+                $middleware::skipWhen($skip);
+            }
         }
     }
 

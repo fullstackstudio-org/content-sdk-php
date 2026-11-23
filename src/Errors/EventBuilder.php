@@ -26,8 +26,13 @@ final class EventBuilder
 
     private const PATH = '~^(app|bootstrap|config|routes|resources|database|src|vendor|lib|modules|packages|tests)/[A-Za-z0-9_./-]+\.php$~D';
 
-    /** @return array<string, mixed> */
-    public static function fromThrowable(Throwable $error, ErrorsConfig $config, string $basePath, ?string $route = null, ?string $eventId = null, ?float $now = null): array
+    /**
+     * @param array<string, string> $redact literal text => replacement, applied to every message before scrubbing (the visitor page proxy
+     *                                      removes the capability tokens of the request path this way)
+     *
+     * @return array<string, mixed>
+     */
+    public static function fromThrowable(Throwable $error, ErrorsConfig $config, string $basePath, ?string $route = null, ?string $eventId = null, ?float $now = null, array $redact = []): array
     {
         $chain = [];
 
@@ -41,7 +46,7 @@ final class EventBuilder
         foreach (array_reverse($chain) as $exception) {
             $value = [
                 'type' => self::type($exception::class),
-                'value' => self::message($exception->getMessage()),
+                'value' => self::message($redact === [] ? $exception->getMessage() : strtr($exception->getMessage(), $redact)),
                 'mechanism' => ['type' => 'generic', 'handled' => true],
             ];
             $frames = self::frames($exception, $basePath);

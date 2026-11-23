@@ -26,5 +26,7 @@ abstract class LaravelTestCase extends TestCase
         $app['config']->set('content.auto.redirects', false);
         // Unknown paths reach the automatic content route in the `web` group (cookies, session), which needs a key like every real site has.
         $app['config']->set('app.key', 'base64:' . base64_encode(str_repeat('t', 32)));
+        // The visitor page proxy never reaches a real Hub from a test: VisitorProxyTest binds its own fake upstream.
+        $app->instance(\FullStackStudio\Content\Laravel\Visitor\Upstream::class, new \FullStackStudio\Content\Tests\Support\NoNetworkUpstream());
     }
 }
