@@ -9,6 +9,7 @@ use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\AnalyticsSettings;
 use FullStackStudio\Content\Laravel\ContentServiceProvider;
 use FullStackStudio\Content\Laravel\HtmlBlock;
+use FullStackStudio\Content\Laravel\Site\PageContext;
 use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Site;
 use Illuminate\Support\Facades\Facade;
@@ -33,6 +34,23 @@ final class Content extends Facade
     public static function isPreview(): bool
     {
         return \FullStackStudio\Content\Laravel\Preview\Preview::isActive();
+    }
+
+    /** The request scoped context of the out of the box site (resolved resource, status, meta overrides). */
+    public static function context(): PageContext
+    {
+        return app(PageContext::class);
+    }
+
+    /**
+     * Overrides site meta (`title`, `description`, `canonical`, `image`, ...) for this request; merges over earlier calls. The head
+     * component prints it over the Hub values.
+     *
+     * @param array<string, mixed> $meta
+     */
+    public static function seo(array $meta): void
+    {
+        self::context()->seo($meta);
     }
 
     public static function formRoutes(): void

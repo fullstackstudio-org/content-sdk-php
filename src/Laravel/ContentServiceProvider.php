@@ -9,6 +9,7 @@ use FullStackStudio\Content\Cache\LaravelStore;
 use FullStackStudio\Content\Cache\VersionedTagCache;
 use FullStackStudio\Content\ClientOptions;
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\Auto\Auto;
 use FullStackStudio\Content\Laravel\Console\AgentsCommand;
 use FullStackStudio\Content\Laravel\Console\DoctorCommand;
 use FullStackStudio\Content\Laravel\Errors\ErrorReporter;
@@ -35,6 +36,7 @@ final class ContentServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__ . '/../../config/content.php', 'content');
+        Auto::register($this->app);
 
         $this->app->singleton(ContentCache::class, function ($app): ContentCache {
             $store = $app['config']->get('content.cache.store');

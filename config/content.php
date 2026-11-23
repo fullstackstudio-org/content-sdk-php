@@ -300,4 +300,54 @@ return [
         'scripts' => [],
         'aliases' => [],
     ],
+
+    /*
+     * Out of the box site: the SDK serves Hub pages, articles, legal documents, sitemap, robots and health by itself. Everything below is a
+     * default; a site only sets what differs (a sparse `auto` array in the app config is deep-merged over these defaults).
+     * A feature value is a bool, or an array with its own options where it has some (`articles`, `sitemap`); `false` switches it off.
+     * - `enabled` (env FSC_AUTO): master switch. Off = none of the features below is active.
+     * - `pages`, `articles`, `legal`, `sitemap`, `robots`, `health`, `redirects`, `errors`, `platform`, `consent` (env FSC_AUTO_<FEATURE>):
+     *   one switch per feature. Events follow `content.links.event`, not a switch of their own.
+     * - `trailing_slash` (env FSC_AUTO_TRAILING_SLASH, default false): build and canonicalise content URLs with a trailing slash.
+     * - `articles.category_segment`: path segment of a category list under the article parent (`/blog/categorie/<slug>`).
+     *   `articles.per_page`: page size of the article list.
+     * - `legal_paths`: path => legal document kind. Replaces the default list as a whole when the app sets it.
+     * - `sitemap.exclude`: path patterns (`*` wildcard) left out of the sitemap.
+     * - `layout` (env FSC_AUTO_LAYOUT): Blade layout the default views extend, `section`: its content section, `wrap` (env FSC_AUTO_WRAP):
+     *   classes of the content container. Without `layout` the package layout is used.
+     * - `views`: type => view name, replaces the default view of `page`, `article`, `articles`, `category`, `event`, `legal`.
+     * - `handlers`: type => invokable controller class (receives `Request` and `Resolved`). Class names only, never closures
+     *   (config:cache must work).
+     */
+    'auto' => [
+        'enabled' => (bool) env('FSC_AUTO', true),
+        'pages' => (bool) env('FSC_AUTO_PAGES', true),
+        'articles' => [
+            'enabled' => (bool) env('FSC_AUTO_ARTICLES', true),
+            'category_segment' => 'categorie',
+            'per_page' => 12,
+        ],
+        'legal' => (bool) env('FSC_AUTO_LEGAL', true),
+        'sitemap' => [
+            'enabled' => (bool) env('FSC_AUTO_SITEMAP', true),
+            'exclude' => [],
+        ],
+        'robots' => (bool) env('FSC_AUTO_ROBOTS', true),
+        'health' => (bool) env('FSC_AUTO_HEALTH', true),
+        'redirects' => (bool) env('FSC_AUTO_REDIRECTS', true),
+        'errors' => (bool) env('FSC_AUTO_ERRORS', true),
+        'platform' => (bool) env('FSC_AUTO_PLATFORM', true),
+        'consent' => (bool) env('FSC_AUTO_CONSENT', true),
+        'trailing_slash' => (bool) env('FSC_AUTO_TRAILING_SLASH', false),
+        'layout' => env('FSC_AUTO_LAYOUT'),
+        'section' => 'content',
+        'wrap' => env('FSC_AUTO_WRAP'),
+        'legal_paths' => [
+            'privacyverklaring' => 'privacy_statement',
+            'algemene-voorwaarden' => 'terms',
+            'cookieverklaring' => 'cookie_statement',
+        ],
+        'views' => [],
+        'handlers' => [],
+    ],
 ];
