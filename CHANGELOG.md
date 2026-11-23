@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The default `FSC_API_URL` is now `https://hub.fullstackstudio.nl`. `https://content.fullstackstudio.nl` is the same Hub and keeps working.
+
 - The default client IP (`X-FSC-Client-Ip` with a server token) now reads the visitor header the site's proxy sets (`content.forms.ip_header`,
   default `cf-connecting-ip`, env `FSC_IP_HEADER`) when it holds a valid IP, else `request()->ip()`. Behind Cloudflare and Traefik the request IP
   could be a proxy hop, so all visitors of a shop shared one per-visitor limit at the Hub.

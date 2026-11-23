@@ -1,6 +1,6 @@
 # fullstackstudio/content (PHP)
 
-PHP SDK for [FullStack Hub](https://content.fullstackstudio.nl): a typed-by-convention client for `/api/v1`, a tag-based read cache,
+PHP SDK for [FullStack Hub](https://hub.fullstackstudio.nl): a typed-by-convention client for `/api/v1`, a tag-based read cache,
 webhook verification and a Laravel integration.
 
 - PHP 8.2 or newer, `ext-curl` and `ext-json`. No other runtime dependency: Laravel, PSR-18 and PSR-16 are optional.
@@ -441,7 +441,7 @@ then) and refuses to start without `APP_KEY`. Environment variables:
 | `APP_KEY` | required (`php artisan key:generate --show`) |
 | `FSC_SERVER_TOKEN` | server token (`fsc_srv_...`) |
 | `FSC_WEBHOOK_SECRET` | secret of the webhook you created in the admin; the webhook URL is `https://<site>/content/webhook` |
-| `FSC_API_URL` | defaults to `https://content.fullstackstudio.nl` |
+| `FSC_API_URL` | defaults to `https://hub.fullstackstudio.nl` |
 | `FSC_UPLOAD_MAX_MB` | largest request body in MB for form uploads, default `20` (1-55). Sets nginx `client_max_body_size`, PHP `upload_max_filesize` and `post_max_size`, and `memory_limit` to 64 + 3× this value (the SDK holds the files in memory). Content allows 25 MB per file and 50 MB per submission; above 20, also raise the pod's memory limit. |
 
 Optional: `FSC_IP_HEADER`, `FSC_CACHE_TTL`, `CACHE_STORE=redis` (the default file cache is per container, so with several replicas the webhook only

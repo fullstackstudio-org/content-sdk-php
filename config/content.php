@@ -8,7 +8,7 @@ return [
      */
     'token' => env('FSC_SERVER_TOKEN'),
 
-    'base_url' => env('FSC_API_URL', 'https://content.fullstackstudio.nl'),
+    'base_url' => env('FSC_API_URL', 'https://hub.fullstackstudio.nl'),
 
     'timeout_ms' => (int) env('FSC_TIMEOUT_MS', 10_000),
 

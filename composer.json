@@ -4,7 +4,7 @@
     "type": "library",
     "license": "MIT",
     "keywords": ["fullstack-content", "cms", "headless", "laravel"],
-    "homepage": "https://content.fullstackstudio.nl",
+    "homepage": "https://hub.fullstackstudio.nl",
     "require": {
         "php": ">=8.2",
         "ext-curl": "*",

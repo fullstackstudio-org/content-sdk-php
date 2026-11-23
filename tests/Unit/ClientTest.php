@@ -64,7 +64,7 @@ final class ClientTest extends TestCase
         self::assertSame('Bearer ' . self::SERVER, $this->http->last()->headers['Authorization']);
         self::assertSame('application/json', $this->http->last()->headers['Accept']);
         self::assertNull($this->http->last()->body);
-        self::assertStringStartsWith('https://content.fullstackstudio.nl/api/v1', $this->http->last()->url);
+        self::assertStringStartsWith('https://hub.fullstackstudio.nl/api/v1', $this->http->last()->url);
     }
 
     public function testSingleObjectsAreUnwrapped(): void
@@ -109,9 +109,9 @@ final class ClientTest extends TestCase
     {
         $c = $this->client();
 
-        self::assertSame('https://content.fullstackstudio.nl/api/media/a%2Fb', $c->mediaUrl('a/b'));
-        self::assertSame('https://content.fullstackstudio.nl/api/media/x', $c->assetUrl('/api/media/x'));
-        self::assertSame('https://content.fullstackstudio.nl/api/media/x', $c->assetUrl('api/media/x'));
+        self::assertSame('https://hub.fullstackstudio.nl/api/media/a%2Fb', $c->mediaUrl('a/b'));
+        self::assertSame('https://hub.fullstackstudio.nl/api/media/x', $c->assetUrl('/api/media/x'));
+        self::assertSame('https://hub.fullstackstudio.nl/api/media/x', $c->assetUrl('api/media/x'));
         self::assertSame('https://cdn.example.com/a.png', $c->assetUrl('https://cdn.example.com/a.png'));
         self::assertCount(0, $this->http->requests);
     }

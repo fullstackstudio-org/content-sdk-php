@@ -1,6 +1,6 @@
 # AGENTS.md: fullstackstudio/content (PHP SDK)
 
-Guide for AI coding agents that build or change a Laravel site on **FullStack Hub** (the CMS at `https://content.fullstackstudio.nl`, API `/api/v1`;
+Guide for AI coding agents that build or change a Laravel site on **FullStack Hub** (the CMS at `https://hub.fullstackstudio.nl`, API `/api/v1`;
 older names: Fullstack Content, "Content"). Assume this file and the installed package are all you have: everything a site needs is in here, from an
 empty Laravel app to a site that is ready to go live. Everything below matches the code of this version; if the code and this file disagree, the code
 wins. Full API reference of the package: `README.md` next to this file.
@@ -64,7 +64,7 @@ needed: every switch has an env var. Publish `config/content.php` (`php artisan 
 | Variable | Value | Note |
 |---|---|---|
 | `FSC_SERVER_TOKEN` | `fsc_srv_...` | Required. Server token of the Hub project. |
-| `FSC_API_URL` | `https://content.fullstackstudio.nl` | The default; keep it, also on the FSS cluster (media URLs are built from it). |
+| `FSC_API_URL` | `https://hub.fullstackstudio.nl` | The default; keep it, also on the FSS cluster (media URLs are built from it). `https://content.fullstackstudio.nl` is the old address of the same Hub and keeps working. |
 | `FSC_WEBHOOK_ENABLED` | `true` | Registers `POST /content/webhook` (A8). |
 | `FSC_WEBHOOK_SECRET` | `fsc_whsec_...` | Shown once when the webhook is created in the Hub. |
 | `FSC_FORMS_ENABLED` | `true` | Registers `POST /content/forms/{key}` (A9). |
@@ -543,14 +543,14 @@ Vite::useCspNonce();                                      // before rendering: t
 $response = $next($request);
 $nonce = Vite::cspNonce();
 $csp = "default-src 'self'; script-src 'self' 'nonce-{$nonce}'; style-src 'self' 'nonce-{$nonce}'; "
-    . "img-src 'self' data: https://content.fullstackstudio.nl; connect-src 'self'; worker-src 'self' blob: data:; "
+    . "img-src 'self' data: https://hub.fullstackstudio.nl https://content.fullstackstudio.nl; connect-src 'self'; worker-src 'self' blob: data:; "
     . "form-action 'self'; frame-ancestors 'self'";
 $response->headers->set('Content-Security-Policy', Content::analyticsCspMerge(Content::siteCspMerge($csp)));
 ```
 
 - `form-action` also applies to the redirect after a POST: `'self'` only works with A4 (https). A payment form redirects to the checkout of
   the payment provider: add that host (look at one `payment.checkoutUrl`).
-- The chat widget (module `chatbot`) needs `https://content.fullstackstudio.nl` in `script-src` and `connect-src`.
+- The chat widget (module `chatbot`) needs `https://hub.fullstackstudio.nl` and `https://content.fullstackstudio.nl` in `script-src` and `connect-src`.
 - First-party analytics, error reporting, the address field and the dev panel need nothing beyond `'self'`.
 - The portal preview (A17) needs nothing either: its script is same-origin (and carries the Vite nonce when one is set), and on the preview
   response only the SDK replaces `frame-ancestors` with the portal origin. Keep `frame-ancestors 'self'` (or none) for every other page. Never
@@ -837,7 +837,7 @@ The widget on every page where the bot should be, with a publishable token (`fsc
 from `FSC_PUBLISHABLE_TOKEN` in `config/services.php`), never `env()` in a view.
 
 ```blade
-<script src="https://content.fullstackstudio.nl/widget/chat.v1.js" defer></script>
+<script src="https://hub.fullstackstudio.nl/widget/chat.v1.js" defer></script>
 <fsc-chat token="{{ config('services.fsc.publishable_token') }}" lang="nl" @if (config('content.intelligence.enabled')) open-url="/_fsc/i/chat" @endif></fsc-chat>
 ```
 
@@ -971,7 +971,7 @@ window.dispatchEvent(new CustomEvent('fsc:consent', { detail: choice })); // thi
 
 ## What it is
 
-`fullstackstudio/content` is the PHP client for **FullStack Hub**, a headless CMS (`https://content.fullstackstudio.nl`, API `/api/v1`).
+`fullstackstudio/content` is the PHP client for **FullStack Hub**, a headless CMS (`https://hub.fullstackstudio.nl`, API `/api/v1`).
 The site renders; Content stores pages (blocks), articles, categories, forms and their submissions, media, SEO settings and redirects.
 It also has webshop, members, appointments, tickets, invoices, newsletter, chat, FAQ, events and legal modules (see the end).
 
@@ -1004,7 +1004,7 @@ php artisan fsc:doctor                            # checks the "Altijd verplicht
 | Variable | Default | Purpose |
 |---|---|---|
 | `FSC_SERVER_TOKEN` | none | Server token `fsc_srv_...`. Required. |
-| `FSC_API_URL` | `https://content.fullstackstudio.nl` | Must be https (http only for localhost). |
+| `FSC_API_URL` | `https://hub.fullstackstudio.nl` | Must be https (http only for localhost). |
 | `FSC_WEBHOOK_SECRET` | none | Secret `fsc_whsec_...` of the webhook created in Content (shown once). |
 | `FSC_WEBHOOK_ENABLED` | `false` | Registers `POST content/webhook` (route name `content.webhook`). |
 | `FSC_WEBHOOK_PATH` / `FSC_WEBHOOK_TOLERANCE` | `content/webhook` / `300` | Path / allowed clock skew in seconds. |
@@ -1412,7 +1412,7 @@ Intelligence profile and, for a logged-in or recognised visitor, to who they are
 `recognition`). The site adds the consented browser id and the HttpOnly `fsi_rec` cookie server-side, so never print either value into the page:
 
 ```blade
-<script src="https://content.fullstackstudio.nl/widget/chat.v1.js" defer></script>
+<script src="https://hub.fullstackstudio.nl/widget/chat.v1.js" defer></script>
 <fsc-chat token="fsc_pub_…" lang="nl" open-url="/_fsc/i/chat"></fsc-chat>
 ```
 

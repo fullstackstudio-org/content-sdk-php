@@ -10,7 +10,7 @@ use FullStackStudio\Content\Http\Transport;
 /** Settings of a {@see ContentClient}. */
 final class ClientOptions
 {
-    public const DEFAULT_BASE_URL = 'https://content.fullstackstudio.nl';
+    public const DEFAULT_BASE_URL = 'https://hub.fullstackstudio.nl';
     public const DEFAULT_TIMEOUT_MS = 10_000;
     public const DEFAULT_CACHE_TTL = 3600;
 
