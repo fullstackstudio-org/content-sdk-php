@@ -22,6 +22,9 @@ final class FormController
 {
     private const META_LIMIT = 500;
 
+    /** The hidden field of `<x-content::form>` that carries the language of the page (multilingual projects only). */
+    public const LOCALE_FIELD = '_fsc_locale';
+
     /** Cookie session driver only: at most this many characters per old-input value and in total (see oldInput()). */
     private const COOKIE_OLD_INPUT_VALUE = 300;
 
@@ -29,6 +32,15 @@ final class FormController
 
     public function __invoke(Request $request, ContentClient $client, Repository $config, string $key): RedirectResponse
     {
+        // The language of the page the form sat on (hidden field of the component, multilingual projects only): this request is not a page,
+        // so the path resolver did not set it. Only an enabled language counts (the Hub refuses anything else).
+        $posted = $request->input(self::LOCALE_FIELD);
+        $postedLocale = is_string($posted) && in_array($posted, $client->enabledLocales(), true) ? $posted : null;
+
+        if ($postedLocale !== null) {
+            $client = $client->withLocale($postedLocale);
+        }
+
         try {
             $definition = $client->getForm($key);
         } catch (ContentException $e) {
@@ -36,10 +48,10 @@ final class FormController
                 abort(404);
             }
 
-            return $this->back($request, $key)->with("content_form.{$key}", ['status' => 'error', 'message' => Forms::labels($this->locale($config))['genericError']]);
+            return $this->back($request, $key)->with("content_form.{$key}", ['status' => 'error', 'message' => Forms::labels($postedLocale ?? $this->locale($config))['genericError']]);
         }
 
-        $labels = Forms::labels($this->locale($config), (array) $config->get('content.forms.labels', []));
+        $labels = Forms::labels($postedLocale ?? $this->locale($config), (array) $config->get('content.forms.labels', []));
         // A POST over `post_max_size` arrives completely empty (PHP drops body and files): never submit that.
         if ((int) $request->server('CONTENT_LENGTH', 0) > 0 && $request->all() === [] && $request->allFiles() === []) {
             return $this->failed($request, $key, $definition, [], $labels['fileTooLarge']);
@@ -67,7 +79,7 @@ final class FormController
             return $this->failed($request, $key, $definition, $errors, $general);
         }
 
-        $options = ['meta' => $this->meta($request, $config)];
+        $options = ['meta' => $this->meta($request, $config, $postedLocale)];
         $ip = $this->visitorIp($request, $config);
 
         if ($ip !== null) {
@@ -104,14 +116,17 @@ final class FormController
             return redirect()->away($checkout);
         }
 
-        return $this->back($request, $key)->with("content_form.{$key}", ['status' => 'success', 'message' => (string) (($result['successMessage'] ?? '') ?: ($definition['successMessage'] ?? ''))]);
+        // In a language the definition holds the success message in it; the submit answer may not.
+        $message = $postedLocale !== null ? (($definition['successMessage'] ?? '') ?: ($result['successMessage'] ?? '')) : (($result['successMessage'] ?? '') ?: ($definition['successMessage'] ?? ''));
+
+        return $this->back($request, $key)->with("content_form.{$key}", ['status' => 'success', 'message' => (string) $message]);
     }
 
     /** @param array<string, mixed> $definition @param array<string, string> $errors */
     private function failed(Request $request, string $key, array $definition, array $errors, ?string $general): RedirectResponse
     {
         // Uploaded files cannot go into the session: drop them from the old input (the visitor picks them again).
-        $hidden = ['_token', 'cf-turnstile-response', (string) ($definition['honeypotField'] ?? ''), ...array_keys($request->allFiles())];
+        $hidden = ['_token', self::LOCALE_FIELD, 'cf-turnstile-response', (string) ($definition['honeypotField'] ?? ''), ...array_keys($request->allFiles())];
         $redirect = $this->back($request, $key)->withInput($this->oldInput($request->except($hidden)));
 
         if ($errors !== []) {
@@ -193,9 +208,9 @@ final class FormController
     }
 
     /** @return array<string, string> */
-    private function meta(Request $request, Repository $config): array
+    private function meta(Request $request, Repository $config, ?string $locale = null): array
     {
-        $meta = ['locale' => $this->locale($config)];
+        $meta = ['locale' => $locale ?? $this->locale($config)];
         $previous = $this->previous($request);
 
         if ($previous !== null) {

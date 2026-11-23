@@ -6,9 +6,14 @@
 @else
 @php
     $turnstileKey = $definition['turnstileSiteKey'] ?? null;
+    // Only a multilingual project answers `availableLocales` with two or more entries: a single-language form has no extra field.
+    $formLocale = is_string($definition['locale'] ?? null) && count((array) ($definition['availableLocales'] ?? [])) >= 2 ? $definition['locale'] : null;
 @endphp
 <form {{ $attributes->class(['fsc-form']) }} method="POST" action="{{ $action }}"@if (\FullStackStudio\Content\Forms::hasFileField($definition)) enctype="multipart/form-data"@endif novalidate>
     @csrf
+@if ($formLocale !== null)
+    <input type="hidden" name="{{ \FullStackStudio\Content\Laravel\FormController::LOCALE_FIELD }}" value="{{ $formLocale }}">
+@endif
 @if ($preview)<fieldset disabled class="fsc-form__preview" style="border:0;margin:0;padding:0;min-width:0">@endif
 @foreach ($definition['fields'] ?? [] as $field)
     @php
@@ -41,8 +46,8 @@
         @elseif ($type === 'select')
         <select id="{{ $id }}" name="{{ $name }}" class="fsc-field__control" @required($field['required'] ?? false) {!! $aria !!}>
             <option value="">{{ $labels['selectPlaceholder'] }}</option>
-            @foreach ($field['options'] ?? [] as $option)
-            <option value="{{ $option }}" @selected((string) $value === (string) $option)>{{ $option }}</option>
+            @foreach ($field['options'] ?? [] as $optionIndex => $option)
+            <option value="{{ $option }}" @selected((string) $value === (string) $option)>{{ $field['optionLabels'][$optionIndex] ?? $option }}</option>
             @endforeach
         </select>
         @elseif ($type === 'payment' || $type === 'number')

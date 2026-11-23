@@ -120,6 +120,12 @@ final class ContentClient
     /** @var array<string, list<array<string, mixed>>> the html blocks of the last pages `getPage()` returned, by page id (at most 20) */
     private array $htmlBlocksByPage = [];
 
+    /** The visitor's content language, see setLocale(); null = none (the Hub answers in the project's default language). */
+    private ?string $locale = null;
+
+    /** @var list<string>|null the languages enabled for the project, read once per locale change (see enabledLocales()) */
+    private ?array $enabledLocales = null;
+
     /** @param array<string, mixed>|ClientOptions $options see {@see ClientOptions}; throws {@see ContentException} (`invalid_config`) on misuse */
     public function __construct(array|ClientOptions $options)
     {
@@ -162,6 +168,89 @@ final class ContentClient
     public function baseUrl(): string
     {
         return $this->context->baseUrl();
+    }
+
+    // --- Content language -------------------------------------------------------------------------------------------------
+
+    /**
+     * Sets the visitor's content language for this client (the request, in a PHP-FPM site). Reads that take a language and were given none
+     * ({@see getConsentConfig()}, {@see getSeo()}, {@see getForm()}) then ask the Hub for it, but only when the project has two or more
+     * enabled languages and `$locale` is one of them: on a single-language project no `locale` is ever sent, so requests and cache keys
+     * stay what they were. `null` or an empty string clears it. A locale change also forgets the remembered project languages.
+     */
+    public function setLocale(?string $locale): void
+    {
+        $locale = $locale === null ? '' : trim($locale);
+        $this->locale = $locale === '' ? null : $locale;
+        $this->enabledLocales = null;
+    }
+
+    /** The content language set with {@see setLocale()}, or null. */
+    public function locale(): ?string
+    {
+        return $this->locale;
+    }
+
+    /** A copy of this client (same token, transport and cache) whose content language is `$locale`; the original is untouched. */
+    public function withLocale(?string $locale): static
+    {
+        $copy = clone $this;
+        $copy->setLocale($locale);
+
+        return $copy;
+    }
+
+    /**
+     * The `locale` query value of a read that takes a language: the caller's own (`$options['locale']`) wins; otherwise the client's content
+     * language, when the project is multilingual and the language is enabled; otherwise null (nothing is sent).
+     *
+     * @param array<string, mixed> $options
+     */
+    private function localeQuery(array $options): ?string
+    {
+        $explicit = $options['locale'] ?? null;
+
+        if (is_string($explicit) && trim($explicit) !== '') {
+            return trim($explicit);
+        }
+
+        if ($this->locale === null) {
+            return null;
+        }
+
+        $enabled = $this->enabledLocales();
+
+        return count($enabled) >= 2 && in_array($this->locale, $enabled, true) ? $this->locale : null;
+    }
+
+    /**
+     * The languages enabled in the Hub (`GET /project`: `defaultLocale` first, then `locales`). Empty when the project cannot be read: the
+     * read then goes without a language, as on a single-language site. Remembered until the next setLocale().
+     *
+     * @return list<string>
+     */
+    public function enabledLocales(): array
+    {
+        if ($this->enabledLocales !== null) {
+            return $this->enabledLocales;
+        }
+
+        try {
+            $project = $this->getProject();
+        } catch (ContentException) {
+            return [];
+        }
+
+        $default = $project['defaultLocale'] ?? null;
+        $locales = is_string($default) && $default !== '' ? [$default] : [];
+
+        foreach ((array) ($project['locales'] ?? []) as $locale) {
+            if (is_string($locale) && $locale !== '' && ! in_array($locale, $locales, true)) {
+                $locales[] = $locale;
+            }
+        }
+
+        return $this->enabledLocales = $locales;
     }
 
     // --- Project, articles, categories ------------------------------------------------------------------------------------
@@ -373,12 +462,16 @@ final class ContentClient
     /**
      * The definition of an active form.
      *
+     * With a content language ({@see setLocale()}, or `$options['locale']`) the Hub resolves labels and the success message in it and adds
+     * `optionLabels` (same order as `options`, which stay the submitted values) to select fields; `locale` and `availableLocales` are in
+     * the answer.
+     *
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
     public function getForm(string $key, array $options = []): array
     {
-        return $this->context->get('/forms/' . ModuleContext::seg($key), [Tags::form($key)], null, $options)->data['form'] ?? [];
+        return $this->context->get('/forms/' . ModuleContext::seg($key), [Tags::form($key)], ['locale' => $this->localeQuery($options)], $options)->data['form'] ?? [];
     }
 
     /**
@@ -636,12 +729,15 @@ final class ContentClient
     }
 
     /**
+     * With a content language ({@see setLocale()}, or `$options['locale']`) the Hub resolves the three SEO texts in it; `locale` and
+     * `availableLocales` are in the answer.
+     *
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
     public function getSeo(array $options = []): array
     {
-        return $this->context->get('/seo', [Tags::SEO], null, $options)->data['seo'] ?? [];
+        return $this->context->get('/seo', [Tags::SEO], ['locale' => $this->localeQuery($options)], $options)->data['seo'] ?? [];
     }
 
     /**
@@ -806,14 +902,16 @@ final class ContentClient
     // --- Cookie consent --------------------------------------------------------------------------------------------------
 
     /**
-     * The cookie banner settings (module `privacy`, scope `privacy:consent`): version, texts, policy link and the offered categories.
+     * The cookie banner settings (module `privacy`, scope `privacy:consent`): version, texts, policy link and the offered categories. With a
+     * content language ({@see setLocale()}, or `$options['locale']`) the texts come in that language; `locale` and `availableLocales` are
+     * in the answer.
      *
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
     public function getConsentConfig(array $options = []): array
     {
-        return $this->context->get('/consent', [Tags::PROJECT], null, $options)->data['consent'] ?? [];
+        return $this->context->get('/consent', [Tags::PROJECT], ['locale' => $this->localeQuery($options)], $options)->data['consent'] ?? [];
     }
 
     /**

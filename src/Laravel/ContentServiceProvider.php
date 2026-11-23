@@ -99,6 +99,9 @@ final class ContentServiceProvider extends ServiceProvider
     {
         $this->loadViewsFrom(__DIR__ . '/../../resources/views', 'content');
         Blade::componentNamespace('FullStackStudio\\Content\\Laravel\\View\\Components', 'content');
+        // SDK-owned texts of the default views: `__('content::content.<key>')`, Dutch and English; override per site with `--tag=content-lang`.
+        $this->loadTranslationsFrom(__DIR__ . '/../../resources/lang', 'content');
+        $this->publishes([__DIR__ . '/../../resources/lang' => $this->app->langPath('vendor/content')], 'content-lang');
 
         $this->publishes([__DIR__ . '/../../config/content.php' => $this->app->configPath('content.php')], 'content-config');
 

@@ -1266,6 +1266,15 @@ first). Content can only exist in those languages (the Hub answers `422` otherwi
 - `<x-content::head :page="$page" />` prints hreflang (self, the published translations in enabled languages, `x-default`) only on a
   multilingual site and only when there are two or more versions. The automatic `sitemap.xml` leaves out entries in a language that is not enabled.
 - Form texts follow the language of the Hub page being rendered (also `en`), see `FSC_FORMS_LOCALE`.
+- **Content language of the request.** `Content::setLocale('en')` / `Content::locale()` (`ContentClient::setLocale()`, `locale()`, `withLocale()` for a copy);
+  `PathResolver` sets it on every page request. Once the project has two or more enabled languages, the reads of the cookie banner (`getConsentConfig()`), the SEO
+  settings (`getSeo()`) and forms (`getForm()`) ask the Hub for that language by themselves (`?locale=`); `['locale' => 'nl']` in the call options overrides it. On a single-language
+  project nothing is sent, so requests and cache keys are the ones of a site without this feature. A Hub older than this feature ignores the parameter. On your own routes (no
+  `PathResolver`) call `Content::setLocale($locale)` once per request. PHP-FPM keeps it per request; under Octane set it on every request.
+- `<x-content::form>` shows `optionLabels` (the Hub's labels of a select's options, same order) as the visible text and keeps `options` as the submitted value; without `optionLabels` the
+  options are shown. On a multilingual project the form carries the language of its page in a hidden field, so the submit (a separate request) answers in it too.
+- The banner prints the Hub's resolved texts; its own strings (`resources/lang/{nl,en}/content.php`, `__('content::content.consent.<key>')`) fill in only what the Hub does not send (category
+  names, "altijd aan", fallbacks). Override them with `php artisan vendor:publish --tag=content-lang` (`lang/vendor/content`).
 
 With your own routes: a route prefix per enabled language, `['locale' => ...]` on reads, `localePrefix` in `Sitemap::response()`, and hreflang via
 `<x-content::head :page="$page" />` or yourself from the page's `translations` (`[{ id, locale, slug, status }]`), building every URL with

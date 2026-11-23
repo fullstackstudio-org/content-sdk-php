@@ -64,6 +64,7 @@ final class PathResolver
 
         $locale ??= $default;
         app()->setLocale($locale);
+        $this->client->setLocale($locale);
 
         $preview = Preview::isActive() ? app(Preview::class) : null;
 
@@ -120,6 +121,7 @@ final class PathResolver
                 $own = $page['locale'] ?? null;
                 $locale = is_string($own) && in_array($own, $this->urls->locales(), true) ? $own : $locale;
                 app()->setLocale($locale);
+                $this->client->setLocale($locale);
 
                 return new Resolved('page', $page, $rest, $locale);
             }
