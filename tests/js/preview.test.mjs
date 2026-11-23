@@ -1171,6 +1171,57 @@ describe('keyed swap, ack and reload (protocol 2, AD7)', () => {
         expect(t.blocks.children[0]).toBe(fresh);
     });
 
+    it('a swapped-in block that was typed in and then cancelled takes unchanged server markup again (no stale signature)', async () => {
+        const t = run();
+        t.init();
+        // Take b1 over from a refresh, so it carries the signature of that markup.
+        const taken = page([['b1', { text: 'Kop' }], 'b2'], 9);
+        const takenB1 = taken.blocks.children[0];
+        takenB1.setAttribute('data-server', 'ja');
+        await refresh(t, taken, 0);
+        expect(t.blocks.children[0]).toBe(takenB1);
+
+        // Type, then undo or a refused edit: the portal cancels, the document is back to "Kop".
+        const field = heading(t.blocks, 0);
+        t.fire('click', field);
+        field.textContent = 'Getypt';
+        t.fire('input', field);
+        t.message(msg('edit-cancel', { blockId: 'b1' }));
+        expect(field.textContent).toBe('Getypt');
+
+        // The server renders exactly the markup of the takeover again: it must still replace what was typed.
+        const same = page([['b1', { text: 'Kop' }], 'b2'], 10);
+        const sameB1 = same.blocks.children[0];
+        sameB1.setAttribute('data-server', 'ja');
+        await refresh(t, same, 0);
+        expect(t.blocks.children[0]).toBe(sameB1);
+        expect(heading(t.blocks, 0).textContent).toBe('Kop');
+    });
+
+    it('a block typed in whose edit the portal refused takes unchanged server markup after blur', async () => {
+        const t = run();
+        t.init();
+        const taken = page([['b1', { text: 'Kop' }], 'b2'], 9);
+        taken.blocks.children[0].setAttribute('data-server', 'ja');
+        await refresh(t, taken, 0);
+
+        const field = heading(t.blocks, 0);
+        t.fire('click', field);
+        field.textContent = 'Getypt';
+        t.fire('input', field);
+        t.clock.tick(100);
+        field.textContent = 'Getypt!';
+        t.fire('input', field);
+        t.fire('keydown', field, { key: 'Enter' });
+
+        const same = page([['b1', { text: 'Kop' }], 'b2'], 10);
+        const sameB1 = same.blocks.children[0];
+        sameB1.setAttribute('data-server', 'ja');
+        await refresh(t, same, 2);
+        expect(t.blocks.children[0]).toBe(sameB1);
+        expect(heading(t.blocks, 0).textContent).toBe('Kop');
+    });
+
     it('inserts and removes blocks by id from a refresh', async () => {
         const t = run();
         t.init();

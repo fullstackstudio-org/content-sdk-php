@@ -576,6 +576,9 @@
         var field = el.getAttribute('data-fsc-edit');
         if (!ID.test(id) || !FIELD.test(field) || (editing && editing.el === el)) { return; }
         if (editing) { endEdit('switch'); }
+        // From here the block's DOM is the user's, not the markup it was adopted from: drop that signature, so a later refresh with the
+        // same server markup (after undo, edit-cancel or a refused edit) is compared with the live DOM and swaps the typing away.
+        if (block) { block.__fscSig = null; }
         var kind = kindOf(el);
         if (kind === 'rich') {
             el.contentEditable = 'true';
