@@ -308,7 +308,9 @@ return [
      * - `enabled` (env FSC_AUTO): master switch. Off = none of the features below is active.
      * - `pages`, `articles`, `legal`, `sitemap`, `robots`, `health`, `redirects`, `errors`, `platform`, `consent` (env FSC_AUTO_<FEATURE>):
      *   one switch per feature. Events follow `content.links.event`, not a switch of their own.
-     * - `trailing_slash` (env FSC_AUTO_TRAILING_SLASH, default false): build and canonicalise content URLs with a trailing slash.
+     * - `trailing_slash` (env FSC_AUTO_TRAILING_SLASH, default false): build and canonicalise content URLs with a trailing slash, and 301
+     *   GET/HEAD page paths without one to the slashed form (global middleware, query kept). Skips `/`, files, `api`, `_fsc`, `content`,
+     *   `build`, `storage` and the visitor proxy paths (`a`, `e`, `n`, `t`, `r`). `trailing_slash_skip`: extra first path segments to skip.
      * - `articles.category_segment`: path segment of a category list under the article parent (`/blog/categorie/<slug>`).
      *   `articles.per_page`: page size of the article list.
      * - `legal_paths`: path => legal document kind. Replaces the default list as a whole when the app sets it.
@@ -343,6 +345,7 @@ return [
         'platform' => (bool) env('FSC_AUTO_PLATFORM', true),
         'consent' => (bool) env('FSC_AUTO_CONSENT', true),
         'trailing_slash' => (bool) env('FSC_AUTO_TRAILING_SLASH', false),
+        'trailing_slash_skip' => [],
         'layout' => env('FSC_AUTO_LAYOUT'),
         'section' => 'content',
         'wrap' => env('FSC_AUTO_WRAP'),
