@@ -7,6 +7,7 @@ namespace FullStackStudio\Content\Laravel\View\Components;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Devmode;
 use FullStackStudio\Content\Laravel\RichStyle;
+use FullStackStudio\Content\Laravel\Facades\Content;
 use FullStackStudio\Content\Laravel\Site\Alternates;
 use FullStackStudio\Content\Laravel\Site\PageContext;
 use FullStackStudio\Content\Laravel\Site\Parts;
@@ -113,7 +114,7 @@ final class Head extends Component
             $resolved !== null && in_array($resolved->type, ['page', 'article', 'event', 'legal'], true) => [$resolved->type, $resolved->resource],
             default => [null, null],
         };
-        $path = self::cleanPath($this->path) ?? ($resolved?->path !== null && $resolved->path !== '' ? $resolved->path : null) ?? self::requestPath();
+        $path = self::cleanPath($this->path) ?? self::resolvedPath($resolved) ?? self::requestPath();
         $overrides = array_replace($context?->seo() ?? [], $this->meta ?? []);
 
         try {
@@ -185,6 +186,20 @@ final class Head extends Component
         $path = preg_split('/[?#]/', $path, 2)[0] ?? '';
 
         return $path === '' ? null : '/' . ltrim($path, '/');
+    }
+
+    /** The public path of the resolved resource: `Resolved::$path` has no locale prefix, `Urls::path()` adds it and the trailing-slash setting. */
+    private static function resolvedPath(?\FullStackStudio\Content\Laravel\Site\Resolved $resolved): ?string
+    {
+        if ($resolved === null || $resolved->path === '') {
+            return null;
+        }
+
+        try {
+            return Content::urls()->path($resolved->path, $resolved->locale);
+        } catch (Throwable) {
+            return $resolved->path;
+        }
     }
 
     private static function requestPath(): ?string

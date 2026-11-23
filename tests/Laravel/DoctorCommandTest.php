@@ -62,6 +62,16 @@ final class DoctorCommandTest extends LaravelTestCase
         }
     }
 
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+
+        // A bare site from before the automatic routes; the doctor checks for those come with their own tests.
+        if (! $this->completeRoutes) {
+            $app['config']->set('content.auto.enabled', false);
+        }
+    }
+
     protected function defineRoutes($router): void
     {
         if (! $this->completeRoutes) {
@@ -290,10 +300,17 @@ final class DoctorCommandTest extends LaravelTestCase
 
     public function testFormsInAViewNeedTheFormRoute(): void
     {
-        // No completeSite(): the form route stays unregistered while a view uses the component.
+        // The route is on by default: remove it to simulate FSC_FORMS_ENABLED=false while a view uses the component.
+        $off = new \Illuminate\Routing\RouteCollection();
+        foreach ($this->app['router']->getRoutes()->getRoutes() as $route) {
+            if ($route->getName() !== 'content.form') {
+                $off->add($route);
+            }
+        }
+        $this->app['router']->setRoutes($off);
         file_put_contents($this->views . '/contact.blade.php', '<x-content::form form-key="contact" />');
 
-        self::assertSame(Doctor::FAIL, $this->statusOf($this->results(), 'maar de formulierroute ontbreekt'));
+        self::assertSame(Doctor::FAIL, $this->statusOf($this->results(), 'formulierroute staat uit'));
     }
 
     public function testFullRequestUrlInAViewIsAWarning(): void

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Laravel\Site;
 
-use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Facades\Content;
 use Throwable;
 
@@ -14,14 +13,6 @@ use Throwable;
  */
 final class Alternates
 {
-    /** @var object|null test seam: replaces `Content::urls()` (an object with `page()`, `article()` and `absolute()`) */
-    private static ?object $urls = null;
-
-    public static function useUrls(?object $urls): void
-    {
-        self::$urls = $urls;
-    }
-
     /**
      * @param 'page'|'article' $type
      * @param array<string, mixed> $resource a page or article with its `translations` (`[{id, locale, slug, status}]`)
@@ -32,15 +23,15 @@ final class Alternates
         $none = ['alternates' => [], 'default' => null];
 
         try {
-            $urls = self::$urls ?? (method_exists(Content::class, 'urls') ? Content::urls() : null);
+            $urls = Content::urls();
             $translations = is_array($resource['translations'] ?? null) ? $resource['translations'] : [];
 
-            if ($urls === null || $translations === []) {
+            if ($translations === []) {
                 return $none;
             }
 
             $self = $locale ?? (is_string($resource['locale'] ?? null) ? $resource['locale'] : null);
-            $default = self::defaultLocale();
+            $default = $urls->defaultLocale();
             $entries = [];
 
             foreach ($translations as $translation) {
@@ -74,18 +65,6 @@ final class Alternates
             return ['alternates' => $alternates, 'default' => $defaultUrl];
         } catch (Throwable) {
             return $none;
-        }
-    }
-
-    private static function defaultLocale(): ?string
-    {
-        try {
-            $project = app(ContentClient::class)->getProject();
-            $default = $project['defaultLocale'] ?? null;
-
-            return is_string($default) && $default !== '' ? $default : (string) config('app.locale');
-        } catch (Throwable) {
-            return (string) config('app.locale');
         }
     }
 }

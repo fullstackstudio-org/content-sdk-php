@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel;
 
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\Site\Urls;
 use Throwable;
 
 /**
@@ -38,7 +39,8 @@ final class BlockData
             $client = app(ContentClient::class);
             // A server token also sees drafts: ask for published articles only.
             $list = $client->listArticles(['status' => 'published', 'category' => $category, 'locale' => $locale, 'limit' => $limit]);
-            $template = self::articleTemplate($client);
+            $urls = new Urls($client);
+            $urls->articleTemplate();
         } catch (Throwable) {
             return null;
         }
@@ -52,13 +54,12 @@ final class BlockData
                 continue;
             }
 
-            $articleLocale = is_string($article['locale'] ?? null) ? $article['locale'] : '';
             $cards[] = [
                 'title' => (string) ($article['title'] ?? ''),
                 'excerpt' => (string) ($article['excerpt'] ?? ''),
                 'date' => is_string($article['publishedAt'] ?? null) ? $article['publishedAt'] : null,
                 'cover' => is_array($article['cover'] ?? null) ? $article['cover'] : null,
-                'href' => str_replace(['{slug}', '{locale}'], [rawurlencode($slug), rawurlencode($articleLocale)], $template),
+                'href' => $urls->article($article),
             ];
         }
 
@@ -111,19 +112,5 @@ final class BlockData
         } catch (Throwable) {
             return $iso;
         }
-    }
-
-    private static function articleTemplate(ContentClient $client): string
-    {
-        try {
-            $template = $client->getSeo()['articlePathTemplate'] ?? null;
-        } catch (Throwable) {
-            $template = null;
-        }
-
-        // The Hub guarantees a path with exactly one `{slug}`; anything else falls back to its default.
-        return is_string($template) && str_starts_with($template, '/') && !str_starts_with($template, '//') && substr_count($template, '{slug}') === 1
-            ? $template
-            : '/blog/{slug}';
     }
 }

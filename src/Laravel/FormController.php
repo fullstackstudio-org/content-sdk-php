@@ -182,7 +182,7 @@ final class FormController
 
     private function locale(Repository $config): string
     {
-        return (string) ($config->get('content.forms.locale') ?: app()->getLocale());
+        return FormLocale::resolve();
     }
 
     private function turnstileToken(Request $request): ?string

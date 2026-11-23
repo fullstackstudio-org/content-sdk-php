@@ -9,7 +9,6 @@ use FullStackStudio\Content\Http\Request;
 use FullStackStudio\Content\Http\Response;
 use FullStackStudio\Content\Http\TransportException;
 use FullStackStudio\Content\Laravel\Facades\Content;
-use FullStackStudio\Content\Laravel\Site\Alternates;
 use FullStackStudio\Content\Laravel\Site\PageContext;
 use FullStackStudio\Content\Laravel\Site\Resolved;
 use FullStackStudio\Content\Tests\Support\FakeTransport;
@@ -54,12 +53,6 @@ final class HeadScriptsTest extends LaravelTestCase
         $this->routes['/analytics'] = FakeTransport::json(['analytics' => ['ready' => true, 'websiteId' => self::WEBSITE, 'domains' => ['jansen.nl']]]);
         $this->routes['/project/errors'] = FakeTransport::json(['errors' => ['status' => 'ready', 'backend' => null, 'browser' => ['dsn' => self::BROWSER], 'environment' => 'production']]);
         $this->routes['/project'] = FakeTransport::json(['project' => ['name' => 'Jansen'], 'defaultLocale' => 'nl', 'locales' => ['nl', 'en']]);
-    }
-
-    protected function tearDown(): void
-    {
-        Alternates::useUrls(null);
-        parent::tearDown();
     }
 
     private function answer(Request $request): Response
@@ -201,6 +194,14 @@ final class HeadScriptsTest extends LaravelTestCase
         self::assertSame(1, substr_count($html, '"@type":"Article"'));
     }
 
+    public function testTheCanonicalOfAResolvedResourceCarriesTheLocalePrefix(): void
+    {
+        $this->app->forgetScopedInstances();
+        app(PageContext::class)->resolve(new Resolved('page', ['title' => 'About'], '/about', 'en'));
+
+        self::assertStringContainsString('<link rel="canonical" href="https://www.jansen.nl/en/about">', Blade::render('<x-content::head />'));
+    }
+
     public function testAnEventGetsEventJsonLdWithOnlyTheFieldsItHas(): void
     {
         $this->app->forgetScopedInstances();
@@ -220,22 +221,6 @@ final class HeadScriptsTest extends LaravelTestCase
 
     public function testHreflangHasSelfTranslationsAndXDefault(): void
     {
-        Alternates::useUrls(new class {
-            public function page(array $page): string
-            {
-                return ($page['locale'] === 'nl' ? '' : '/' . $page['locale']) . '/' . $page['slug'];
-            }
-
-            public function article(array $article): string
-            {
-                return $this->page($article);
-            }
-
-            public function absolute(string $path): string
-            {
-                return 'https://www.jansen.nl' . $path;
-            }
-        });
         $page = ['title' => 'Over ons', 'slug' => 'over-ons', 'locale' => 'nl', 'translations' => [
             ['id' => '1', 'locale' => 'nl', 'slug' => 'over-ons', 'status' => 'published'],
             ['id' => '2', 'locale' => 'en', 'slug' => 'about', 'status' => 'published'],

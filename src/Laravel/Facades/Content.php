@@ -10,6 +10,7 @@ use FullStackStudio\Content\Laravel\AnalyticsSettings;
 use FullStackStudio\Content\Laravel\ContentServiceProvider;
 use FullStackStudio\Content\Laravel\HtmlBlock;
 use FullStackStudio\Content\Laravel\Site\PageContext;
+use FullStackStudio\Content\Laravel\Site\Urls;
 use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Site;
 use Illuminate\Support\Facades\Facade;
@@ -40,6 +41,12 @@ final class Content extends Facade
     public static function context(): PageContext
     {
         return app(PageContext::class);
+    }
+
+    /** Builds every content URL (page, article, event, legal, locale prefix, trailing slash, absolute) in one place. */
+    public static function urls(): Urls
+    {
+        return app(Urls::class);
     }
 
     /**

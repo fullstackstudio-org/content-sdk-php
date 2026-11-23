@@ -280,8 +280,8 @@ php artisan vendor:publish --tag=content-views    # optional: copy every view to
   redirects to the checkout (a `choice` amount is entered in euros and sent as cents). With a Turnstile site key the widget is rendered (that needs
   JavaScript; without a token the submit is refused with a message). A `file` field renders as `<input type="file">` (`accept` from the field's allowed
   types, `name[]` + `multiple` when it takes several files) and the `<form>` gets `enctype="multipart/form-data"`; the route forwards the uploads.
-  The route is opt-in and needs the `web` middleware group (session and CSRF): set `FSC_FORMS_ENABLED=true` or call `Content::formRoutes()`
-  (`POST content/forms/{key}`, name `content.form`). `locale` (`en`/`nl`, default `content.forms.locale` or the app locale) and `:labels="[...]"` change the
+  The route is registered by default and needs the `web` middleware group (session and CSRF); `FSC_FORMS_ENABLED=false` switches it off (then call `Content::formRoutes()`)
+  (`POST content/forms/{key}`, name `content.form`). `locale` (`en`/`nl`, default `content.forms.locale`, then the page locale, then the app locale, then `nl`; Laravel's default `en` counts as not set) and `:labels="[...]"` change the
   texts. The visitor's IP is read from `content.forms.ip_header` (default `cf-connecting-ip`; set it to the header your proxy overwrites, or `null` to use
   the IP Laravel sees) and sent as `X-FSC-Client-Ip`, so Content's per-visitor limits work behind your server.
 

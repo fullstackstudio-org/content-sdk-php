@@ -119,12 +119,12 @@ return [
     ],
 
     /*
-     * The form route behind `<x-content::form>`. Opt-in: set `enabled` to true, or call `Content::formRoutes()` yourself. The `web` group is
+     * The form route behind `<x-content::form>` and the `form` page block. On by default; set `enabled` to false (`FSC_FORMS_ENABLED=false`) to register it yourself with `Content::formRoutes()`. The `web` group is
      * needed for session and CSRF. `ip_header`: the header with the visitor's IP behind your proxy (Cloudflare sets `cf-connecting-ip`); only set
-     * a header your proxy overwrites, otherwise a visitor can spoof it. null = use the IP Laravel sees. `locale` null = the app locale.
+     * a header your proxy overwrites, otherwise a visitor can spoof it. null = use the IP Laravel sees. `locale` null = the page locale, then the app locale, then `nl` (Laravel's default `en` counts as not set: English sites set `FSC_FORMS_LOCALE=en`).
      */
     'forms' => [
-        'enabled' => (bool) env('FSC_FORMS_ENABLED', false),
+        'enabled' => (bool) env('FSC_FORMS_ENABLED', true),
         'path' => env('FSC_FORMS_PATH', 'content/forms'),
         'middleware' => ['web', 'throttle:20,1'],
         'ip_header' => env('FSC_IP_HEADER', 'cf-connecting-ip'),
