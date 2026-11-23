@@ -16,6 +16,11 @@
  *   No content travels over postMessage: on refresh the page asks its own server again (POST with the token) and swaps the
  *   [data-fsc-preview-blocks] roots when their count matches (scroll kept), else it reloads with a form POST (scroll restored).
  * - Protocol 2 (page builder; plan page-builder-v2, AD6, AD7, AD10 and its message table) acts only after a valid `init {proto: 2}`.
+ *   Rich text (Task 16, AD9) is typed on the page only when `init` also says `rich: true`: `contenteditable` on `data-fsc-edit-kind="rich"`,
+ *   `edit` carries the field's innerHTML (untrusted until the Hub sanitized it), `edit-start`/`edit` and `edit-state {blockId, field, state}`
+ *   report the active formats for the portal's format bar, `format {command, value?, blockId?, field?}` applies bold, italic, link, unlink,
+ *   h2, h3, p, ul, ol, and Cmd/Ctrl+K asks the portal for an address (`shortcut link`). Pasted markup is reduced to those tags (no attribute
+ *   but a checked `href`) before it is inserted; nothing pasted ever runs.
  * - Works without a parent or opener (opened in its own window): no messages, the rest still applies.
  */
 (function () {
@@ -33,6 +38,7 @@
     var SCROLL = 'fsc-preview-scroll';
     var ID = /^[A-Za-z0-9_-]{1,40}$/;
     var FIELD = /^[A-Za-z0-9_.-]{1,80}$/;
+    var FORMATS = ['bold', 'italic', 'link', 'unlink', 'h2', 'h3', 'p', 'ul', 'ol'];
     var own = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
     var tag = d.currentScript;
     var attr = function (name) { return tag ? tag.getAttribute('data-' + name) || '' : ''; };
@@ -244,9 +250,10 @@
 
     /* Protocol 2: nothing below acts before a valid `init`. */
 
-    var editor = null; // {inline, labels, scale}
+    var editor = null; // {inline, rich, labels, scale}
     var ui = null;
-    var editing = null; // the plain field with the caret
+    var editing = null; // the field with the caret: {el, id, field, kind, sent, timer, last, composing, state}
+    var lastCaret = null; // the rich field edited last and its selection as text offsets: a `format` after a blur (the link popover) resumes there
     var needAck = {}; // blockId -> last seq sent; swapped only from a refresh with ack >= it
     var held = {}; // blockId -> {node, ack}: fresh markup for the block with the caret, applied after blur
     var selectedId = null, hoveredId = null, insertAt = null, mouse = null, lastPointer = 'mouse', seqNo = 0, reloadWaiting = false, moving = false;
@@ -265,7 +272,7 @@
         + 'color:#fff;font:600 @18/@24' + FONT + ';box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:pointer;pointer-events:auto}'
         + '.p:focus-visible{outline:@2 solid #fff;outline-offset:@-4}').replace(/@(-?\d+)/g, 'calc($1px / var(--z))');
     var PAGE_CSS = '[data-fsc-edit-placeholder]:empty::before{content:attr(data-fsc-edit-placeholder);opacity:.45}'
-        + '[data-fsc-edit-kind="plain"]{cursor:text}[data-fsc-edit][contenteditable]{outline:1px dashed rgba(26,95,224,.6);outline-offset:2px}';
+        + '[data-fsc-edit-kind]{cursor:text}[data-fsc-edit][contenteditable]{outline:1px dashed rgba(26,95,224,.6);outline-offset:2px}';
 
     /** A constructed stylesheet where possible (not subject to a CSP style-src), else a <style> with the script's nonce. */
     function sheet(scope, css, parent) {
@@ -480,7 +487,7 @@
         if (editing && field === editing.el) { return; }
         var name = field && FIELD.test(field.getAttribute('data-fsc-edit')) ? field.getAttribute('data-fsc-edit') : null;
         // Touch: the first tap selects, a tap on the selected block edits.
-        var start = name && editor.inline && field.getAttribute('data-fsc-edit-kind') !== 'rich' && (lastPointer !== 'touch' || selectedId === id);
+        var start = name && canEdit(field) && (lastPointer !== 'touch' || selectedId === id);
         if (editing) { endEdit('blur'); }
         selectedId = id;
         queueDraw();
@@ -500,15 +507,20 @@
             first.scrollIntoView({ block: 'center', behavior: w.matchMedia && w.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
         }
         list(node.querySelectorAll('[data-fsc-edit]')).some(function (el) {
-            var match = editor.inline && el.getAttribute('data-fsc-edit') === field && el.getAttribute('data-fsc-edit-kind') !== 'rich';
+            var match = el.getAttribute('data-fsc-edit') === field && canEdit(el);
             if (match) { beginEdit(el); }
             return match;
         });
     }
 
-    /* Plain inline editing (AD7) */
+    /* Inline editing (AD7): plain text, and rich text once the portal said `rich: true` (Task 16) */
 
-    var valueOf = function (el) { return String(el.textContent || '').replace(/\s+/g, ' ').trim(); };
+    var kindOf = function (el) { return el.getAttribute('data-fsc-edit-kind') === 'rich' ? 'rich' : 'plain'; };
+    /** Whether the portal lets this marked element be typed in: plain with `inline`, rich only with `inline` and `rich`. */
+    var canEdit = function (el) { return !!editor && editor.inline && (kindOf(el) === 'plain' || editor.rich); };
+    var textOf = function (el) { return String(el.textContent || '').replace(/[\s\u00a0]+/g, ' ').trim(); };
+    /** Plain: the normalized text. Rich: the markup as it is (the Hub sanitizes it), or '' when nothing visible is left. */
+    var valueOf = function (el, kind) { return kind === 'rich' ? (textOf(el) === '' ? '' : String(el.innerHTML || '')) : textOf(el); };
     var selection = function () { return w.getSelection ? w.getSelection() : null; };
 
     function focusEl(el) {
@@ -564,14 +576,29 @@
         var field = el.getAttribute('data-fsc-edit');
         if (!ID.test(id) || !FIELD.test(field) || (editing && editing.el === el)) { return; }
         if (editing) { endEdit('switch'); }
-        try { el.contentEditable = 'plaintext-only'; } catch (error) { /* not supported */ }
-        if (el.contentEditable !== 'plaintext-only') { el.contentEditable = 'true'; }
-        editing = { el: el, id: id, field: field, sent: valueOf(el), timer: null, last: -Infinity, composing: false };
+        var kind = kindOf(el);
+        if (kind === 'rich') {
+            el.contentEditable = 'true';
+            command('defaultParagraphSeparator', 'p');
+            command('styleWithCSS', false);
+        } else {
+            try { el.contentEditable = 'plaintext-only'; } catch (error) { /* not supported */ }
+            if (el.contentEditable !== 'plaintext-only') { el.contentEditable = 'true'; }
+        }
+        editing = { el: el, id: id, field: field, kind: kind, sent: valueOf(el, kind), timer: null, last: -Infinity, composing: false, state: null };
         lastInput = now();
         queueDraw();
         focusEl(el);
-        placeCaret(el, x, y);
-        post('edit-start', { blockId: id, field: field, kind: 'plain' });
+        // An empty rich field starts with a paragraph, so the first line is one too (Enter then makes the next).
+        if (kind === 'rich' && textOf(el) === '' && !el.querySelector('p')) { el.innerHTML = '<p><br></p>'; placeCaret(el.querySelector('p') || el); } else { placeCaret(el, x, y); }
+        var start = { blockId: id, field: field, kind: kind };
+        if (kind === 'rich') { editing.state = formatState(); start.state = editing.state; remember(); }
+        post('edit-start', start);
+    }
+
+    /** document.execCommand, quietly (deprecated, but the only way that keeps the browser's own undo of the field). */
+    function command(name, value) {
+        try { return d.execCommand ? d.execCommand(name, false, value) : false; } catch (error) { return false; }
     }
 
     function sendEdit() {
@@ -579,12 +606,14 @@
         if (!e || e.composing) { return; }
         clearTimeout(e.timer);
         e.timer = null;
-        var value = valueOf(e.el);
+        var value = valueOf(e.el, e.kind);
         if (value === e.sent) { return; }
         e.sent = value;
         e.last = now();
         needAck[e.id] = ++seqNo;
-        post('edit', { blockId: e.id, field: e.field, kind: 'plain', value: value, seq: seqNo });
+        var message = { blockId: e.id, field: e.field, kind: e.kind, value: value, seq: seqNo };
+        if (e.kind === 'rich') { e.state = formatState(); message.state = e.state; }
+        post('edit', message);
     }
 
     function onInput() {
@@ -607,12 +636,13 @@
         if (!e) { return; }
         e.composing = false;
         sendEdit();
+        if (e.kind === 'rich') { remember(e); }
         editing = null;
         clearTimeout(e.timer);
         clearTimeout(idleTimer);
         e.el.removeAttribute('contenteditable');
         if (d.activeElement === e.el && e.el.blur) { e.el.blur(); }
-        post('edit-end', { blockId: e.id, field: e.field, kind: 'plain', seq: needAck[e.id] || 0, reason: reason });
+        post('edit-end', { blockId: e.id, field: e.field, kind: e.kind, seq: needAck[e.id] || 0, reason: reason });
         if (accept) { delete needAck[e.id]; delete held[e.id]; }
         var h = held[e.id];
         if (h && (needAck[e.id] || 0) <= h.ack) {
@@ -633,14 +663,30 @@
     listen('compositionend', function () { editing.composing = false; sendEdit(); });
     listen('beforeinput', function (event) {
         var kind = String(event.inputType || '');
+        if (editing.kind === 'rich') {
+            // Our own commands (format, cleaned paste) pass; of the browser's own only bold and italic (a context menu), never a drop or raw HTML.
+            if (ownCommand) { return; }
+            var allowed = kind === 'formatBold' || kind === 'formatItalic';
+            if ((kind.indexOf('format') === 0 && !allowed) || kind === 'insertFromDrop' || kind === 'insertHTML' || kind === 'insertFromPaste' || kind === 'insertLink') { event.preventDefault(); }
+            return;
+        }
         if (kind === 'insertParagraph' || kind === 'insertLineBreak') { event.preventDefault(); endEdit('enter'); }
         if (kind.indexOf('format') === 0 || kind === 'insertFromDrop' || kind === 'insertHTML') { event.preventDefault(); }
     });
     listen('paste', function (event) {
         event.preventDefault();
-        var text = event.clipboardData && event.clipboardData.getData ? String(event.clipboardData.getData('text/plain') || '') : '';
+        var data = event.clipboardData && event.clipboardData.getData ? event.clipboardData : null;
+        var text = data ? String(data.getData('text/plain') || '') : '';
+        if (editing.kind === 'rich') {
+            var markup = data ? String(data.getData('text/html') || '') : '';
+            var clean = markup && markup.length <= PASTE_MAX ? cleanHtml(markup) : '';
+            if (clean === '' && text !== '') { clean = textToHtml(text); }
+            if (clean !== '') { ours(function () { command('insertHTML', clean); }); sendEdit(); }
+            return;
+        }
         if (text && d.execCommand) { d.execCommand('insertText', false, text.replace(/\s+/g, ' ')); }
     });
+    listen('drop', function (event) { event.preventDefault(); });
     listen('focusout', function (event) {
         var el = editing.el;
         if (event.target !== el || moving) { return; }
@@ -649,6 +695,223 @@
             if (editing && editing.el === el && !(d.activeElement === el && (!d.hasFocus || d.hasFocus()))) { endEdit('blur'); }
         }, 0);
     });
+
+    /* Rich text: format state, format commands, paste cleaning (Task 16) */
+
+    var PASTE_MAX = 200000;
+    var ownCommand = false;
+    var TAGS = { p: 'p', h1: 'h2', h2: 'h2', h3: 'h3', h4: 'h3', h5: 'h3', h6: 'h3', strong: 'strong', b: 'strong', em: 'em', i: 'em', a: 'a', ul: 'ul', ol: 'ol', li: 'li', br: 'br' };
+    var DROP = /^(script|style|template|iframe|frame|frameset|object|embed|noscript|svg|math|img|picture|video|audio|source|track|canvas|head|title|meta|link|base|button|input|select|option|textarea|form)$/i;
+    var BLOCKISH = /^(div|section|article|aside|header|footer|main|nav|blockquote|figure|figcaption|pre|address|td|th|dd|dt|table|tr)$/i;
+    var esc = function (text) { return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); };
+
+    function ours(fn) {
+        ownCommand = true;
+        try { fn(); } finally { ownCommand = false; }
+    }
+
+    /** A link address we put on the page: https, mailto, tel, a path on the site or an anchor; anything else is ''. */
+    function safeHref(value) {
+        var href = String(value === null || value === undefined ? '' : value).trim();
+        if (href === '' || href.length > 2000 || /[\s\u0000-\u001f\u007f<>"'`\\]/.test(href)) { return ''; }
+        if (/^https:\/\/[^/?#\s]+/i.test(href) || /^mailto:[^\s]+$/i.test(href) || /^tel:\+?[0-9().-]{3,30}$/i.test(href)) { return href; }
+        if (/^\/(?!\/)/.test(href) || /^#[A-Za-z0-9_-]{1,100}$/.test(href)) { return href; }
+        return '';
+    }
+
+    /** Pasted markup reduced to the allowed tags (p, h2, h3, strong, em, a with a checked href, ul, ol, li, br); text is escaped. */
+    function cleanHtml(markup) {
+        var parsed;
+        try { parsed = new DOMParser().parseFromString(markup, 'text/html'); } catch (error) { return ''; }
+        var walk = function (node) {
+            return list(node.childNodes).map(function (child) {
+                if (child.nodeType === 3) { return esc(child.data); }
+                if (child.nodeType !== 1) { return ''; }
+                var tag = String(child.tagName).toLowerCase();
+                if (DROP.test(tag)) { return ''; }
+                // Google Docs wraps a whole paste in <b style="font-weight:normal">: that is no bold.
+                var weight = /font-weight\s*:\s*(normal|[1-4]00)\b/i.test(child.getAttribute('style') || '');
+                var to = weight && tag === 'b' ? null : TAGS[tag];
+                var inner = walk(child);
+                if (to === 'br') { return '<br>'; }
+                if (to === 'a') { var href = safeHref(child.getAttribute('href')); return href ? '<a href="' + esc(href) + '">' + inner + '</a>' : inner; }
+                if (to) { return '<' + to + '>' + inner + '</' + to + '>'; }
+                return BLOCKISH.test(tag) && inner.trim() !== '' && !/<(p|h2|h3|ul|ol|li)>/.test(inner) ? '<p>' + inner + '</p>' : inner;
+            }).join('');
+        };
+        return walk(parsed.body || parsed.documentElement).trim();
+    }
+
+    /** Plain pasted text as paragraphs (a blank line) and line breaks. */
+    function textToHtml(text) {
+        var parts = String(text).replace(/\r\n?/g, '\n').split(/\n{2,}/).map(function (part) { return part.trim(); }).filter(Boolean);
+        if (parts.length === 1 && parts[0].indexOf('\n') === -1) { return esc(parts[0]); }
+        return parts.map(function (part) { return '<p>' + esc(part).replace(/\n/g, '<br>') + '</p>'; }).join('');
+    }
+
+    /** Text offsets of the selection inside `el` ({start, end}), or null when the selection is not in there. */
+    function offsetsOf(el) {
+        var current = selection();
+        if (!current || !current.rangeCount) { return null; }
+        var range = current.getRangeAt(0);
+        if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) { return null; }
+        var measure = function (node, offset) { var before = d.createRange(); before.selectNodeContents(el); before.setEnd(node, offset); return before.toString().length; };
+        return { start: measure(range.startContainer, range.startOffset), end: measure(range.endContainer, range.endOffset) };
+    }
+
+    function pointAt(el, offset) {
+        var found = null;
+        var walk = function (node) {
+            return list(node.childNodes).some(function (child) {
+                if (child.nodeType !== 3) { return walk(child); }
+                if (offset <= child.data.length) { found = [child, offset]; return true; }
+                offset -= child.data.length;
+                return false;
+            });
+        };
+        walk(el);
+        return found;
+    }
+
+    function setOffsets(el, start, end) {
+        var a = pointAt(el, start);
+        var b = pointAt(el, end);
+        var range = d.createRange();
+        if (!a || !b) { range.selectNodeContents(el); range.collapse(false); setRange(range); return; }
+        range.setStart(a[0], a[1]);
+        range.setEnd(b[0], b[1]);
+        setRange(range);
+    }
+
+    /** Keeps the rich field and its selection, so a `format` (the link popover took the focus) can resume there. */
+    function remember(e) {
+        e = e || editing;
+        if (!e || e.kind !== 'rich') { return; }
+        var at = offsetsOf(e.el);
+        if (at) { lastCaret = { id: e.id, field: e.field, start: at.start, end: at.end }; } else if (!lastCaret || lastCaret.id !== e.id || lastCaret.field !== e.field) { lastCaret = null; }
+    }
+
+    /** Opens the rich field `field` of block `id` again with the selection it had (after the portal took the focus for a moment). */
+    function resume(id, field) {
+        if (!lastCaret || (id !== null && (lastCaret.id !== id || lastCaret.field !== field))) { return false; }
+        var block = blockById(lastCaret.id);
+        var target = null;
+        list(block ? block.querySelectorAll('[data-fsc-edit]') : []).some(function (el) {
+            if (el.getAttribute('data-fsc-edit') === lastCaret.field && closest(el, isBlock) === block) { target = el; }
+            return target !== null;
+        });
+        if (!target || kindOf(target) !== 'rich' || !canEdit(target)) { return false; }
+        var at = lastCaret;
+        beginEdit(target);
+        if (!editing || editing.el !== target) { return false; }
+        setOffsets(target, at.start, at.end);
+        return true;
+    }
+
+    /** The formats at the caret for the portal's bar: block (p, h2, h3, ul, ol), bold, italic, link. */
+    function formatState() {
+        var e = editing;
+        var state = { block: 'p', bold: false, italic: false, link: false };
+        var current = selection();
+        var node = current && current.rangeCount ? current.getRangeAt(0).startContainer : null;
+        if (!e || !node || !e.el.contains(node)) { return state; }
+        var blockSet = false;
+        for (; node && node !== e.el; node = node.parentNode) {
+            if (node.nodeType !== 1) { continue; }
+            var tag = String(node.tagName).toLowerCase();
+            if (tag === 'strong' || tag === 'b') { state.bold = true; }
+            if (tag === 'em' || tag === 'i') { state.italic = true; }
+            if (tag === 'a') { state.link = true; }
+            if (!blockSet && (tag === 'h2' || tag === 'h3' || tag === 'ul' || tag === 'ol')) { state.block = tag; blockSet = true; }
+        }
+        return state;
+    }
+
+    var stateTimer = null;
+
+    function postState() {
+        stateTimer = null;
+        var e = editing;
+        if (!e || e.kind !== 'rich') { return; }
+        remember(e);
+        var next = formatState();
+        if (e.state && next.block === e.state.block && next.bold === e.state.bold && next.italic === e.state.italic && next.link === e.state.link) { return; }
+        e.state = next;
+        post('edit-state', { blockId: e.id, field: e.field, state: next });
+    }
+
+    d.addEventListener('selectionchange', function () {
+        if (editing && editing.kind === 'rich' && !stateTimer) { stateTimer = setTimeout(postState, 60); }
+    });
+
+    /** The element around the caret with this tag inside the field, or null. */
+    function around(tag) {
+        var current = selection();
+        var node = current && current.rangeCount ? current.getRangeAt(0).startContainer : null;
+        for (; editing && node && node !== editing.el; node = node.parentNode) {
+            if (node.nodeType === 1 && String(node.tagName).toLowerCase() === tag) { return node; }
+        }
+        return null;
+    }
+
+    /** Chrome leaves a list it made inside the paragraph it came from (`<p><ul>`): the list takes the paragraph's place. */
+    function unnest(el) {
+        var at = offsetsOf(el);
+        var moved = false;
+        ['p', 'h2', 'h3'].forEach(function (tag) {
+            list(el.querySelectorAll(tag)).forEach(function (block) {
+                var kids = list(block.childNodes).filter(function (n) { return !(n.nodeType === 3 && /^\s*$/.test(n.data)); });
+                if (!kids.length || !kids.every(function (n) { return n.nodeType === 1 && /^(ul|ol)$/i.test(n.tagName); })) { return; }
+                kids.forEach(function (n) { block.parentNode.insertBefore(n, block); });
+                block.parentNode.removeChild(block);
+                moved = true;
+            });
+        });
+        // The text did not change, so the selection comes back at the same text offsets.
+        if (moved && at) { setOffsets(el, at.start, at.end); }
+    }
+
+    /** A `format` command of the portal's bar (or a key in the field): on the rich field with the caret, or the one left a moment ago. */
+    function format(message) {
+        var name = message.command;
+        if (FORMATS.indexOf(name) < 0) { return; }
+        var id = typeof message.blockId === 'string' && ID.test(message.blockId) ? message.blockId : null;
+        var field = typeof message.field === 'string' && FIELD.test(message.field) ? message.field : null;
+        var e = editing;
+        if (!e || e.kind !== 'rich' || (id !== null && (e.id !== id || e.field !== field))) {
+            if (!lastCaret || (id !== null && (lastCaret.id !== id || lastCaret.field !== field))) { return; }
+            if (e) { endEdit('switch'); }
+            if (!resume(id, field)) { return; }
+            e = editing;
+        } else if (!offsetsOf(e.el) && lastCaret && lastCaret.id === e.id && lastCaret.field === e.field) {
+            focusEl(e.el);
+            setOffsets(e.el, lastCaret.start, lastCaret.end);
+        }
+        ours(function () {
+            if (name === 'bold' || name === 'italic') { command(name); }
+            if (name === 'h2' || name === 'h3' || name === 'p') { command('formatBlock', '<' + name + '>'); }
+            // A list is made of paragraphs: a heading becomes one first (else the browser nests the list inside the heading).
+            if ((name === 'ul' || name === 'ol') && (around('h2') || around('h3'))) { command('formatBlock', '<p>'); }
+            if (name === 'ul') { command('insertUnorderedList'); }
+            if (name === 'ol') { command('insertOrderedList'); }
+            if (name === 'ul' || name === 'ol') { unnest(e.el); }
+            if (name === 'unlink' || name === 'link') {
+                var anchor = around('a');
+                var current = selection();
+                if (anchor && current && current.rangeCount && current.getRangeAt(0).collapsed) {
+                    var whole = d.createRange();
+                    whole.selectNodeContents(anchor);
+                    setRange(whole);
+                }
+                if (name === 'unlink') { command('unlink'); return; }
+                var href = safeHref(message.value);
+                if (href === '') { return; }
+                if (current && current.rangeCount && current.getRangeAt(0).collapsed && !anchor) { command('insertHTML', '<a href="' + esc(href) + '">' + esc(href) + '</a>'); } else { command('createLink', href); }
+            }
+        });
+        sendEdit();
+        postState();
+    }
 
     /* Keyed swap and moves (AD7 rules 3 and 4) */
 
@@ -745,14 +1008,14 @@
         var add = message.texts && typeof message.texts.add === 'string' && message.texts.add ? message.texts.add.slice(0, 60) : 'Sectie toevoegen';
         var scale = typeof message.scale === 'number' && message.scale >= 0.1 && message.scale <= 4 ? message.scale : 1;
         var first = !editor;
-        editor = { inline: message.inline === true, labels: labels, scale: scale };
+        editor = { inline: message.inline === true, rich: message.inline === true && message.rich === true, labels: labels, scale: scale };
         ui = first ? buildUi() : ui;
         if (ui) {
             ui.host.style.setProperty('--z', String(scale));
             ui.plus.setAttribute('aria-label', add);
             ui.plus.title = add;
         }
-        if (!editor.inline) { endEdit('cancel', true); }
+        if (editing && !canEdit(editing.el)) { endEdit('cancel', true); }
         if (first) {
             try { theme(); } catch (error) { /* no colours then */ }
             w.addEventListener('scroll', queueDraw, { passive: true });
@@ -790,8 +1053,13 @@
         var key = String(event.key || '').toLowerCase();
         var shortcut = function (name) { event.preventDefault(); post('shortcut', { name: name }); };
         if (editing && !(event.isComposing || event.keyCode === 229 || editing.composing)) {
-            if (key === 'enter') { event.preventDefault(); endEdit('enter'); return; }
+            if (key === 'enter' && editing.kind === 'plain') { event.preventDefault(); endEdit('enter'); return; }
             if (key === 'escape') { endEdit('escape'); shortcut('escape'); return; }
+            if (editing.kind === 'rich' && mod && !event.altKey) {
+                if (key === 'b' || key === 'i') { event.preventDefault(); format({ command: key === 'b' ? 'bold' : 'italic' }); return; }
+                if (key === 'k') { remember(); shortcut('link'); return; }
+                if (key === 'u') { event.preventDefault(); return; }
+            }
         }
         if (mod && key === 's') { sendEdit(); shortcut('save'); return; }
         // In the field the browser's undo applies.
@@ -823,6 +1091,8 @@
             queueDraw();
         } else if (editor && type === 'order') {
             order(message.ids);
+        } else if (editor && type === 'format') {
+            format(message);
         } else if (editor && type === 'edit-cancel') {
             if (editing && (id === null || id === editing.id)) { endEdit('cancel', true); } else if (id !== null) { delete needAck[id]; delete held[id]; }
         }
@@ -830,7 +1100,7 @@
 
     function ready() {
         restoreScroll();
-        post('ready', { version: cfg.version, sdk: cfg.sdk, proto: 2, caps: ['blocks', 'select', 'hover', 'insert', 'order', 'edit-plain', 'shortcut', 'theme', 'timing'] });
+        post('ready', { version: cfg.version, sdk: cfg.sdk, proto: 2, caps: ['blocks', 'select', 'hover', 'insert', 'order', 'edit-plain', 'edit-rich', 'format', 'shortcut', 'theme', 'timing'] });
     }
 
     if (d.readyState === 'loading') { d.addEventListener('DOMContentLoaded', ready); } else { ready(); }

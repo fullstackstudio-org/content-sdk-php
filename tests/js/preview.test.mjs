@@ -31,6 +31,13 @@ function el(tag, attrs = {}, kids = []) {
         get children() { return self.childNodes.filter((n) => n.nodeType === 1); },
         get nextElementSibling() { if (!self.parentNode) { return null; } const list = self.parentNode.children; return list[list.indexOf(self) + 1] ?? null; },
         get textContent() { return self.childNodes.map((n) => n.textContent).join(''); },
+        get innerHTML() { return self.childNodes.map((n) => (n.nodeType === 3 ? n.data.replace(/</g, '&lt;') : n.outerHTML)).join(''); },
+        // Only what preview.js writes itself: the first paragraph of an empty rich field.
+        set innerHTML(value) {
+            self.childNodes.forEach((n) => { n.parentNode = null; });
+            self.childNodes = [];
+            if (value === '<p><br></p>') { self.appendChild(el('p', {}, [el('br')])); } else if (value !== '') { throw new Error('unexpected innerHTML ' + value); }
+        },
         set textContent(value) { self.childNodes.forEach((n) => { n.parentNode = null; }); self.childNodes = []; if (value !== '') { self.appendChild(txt(String(value))); } },
         get className() { return self.attrs.class ?? ''; },
         set className(value) { self.attrs.class = String(value); },
@@ -80,7 +87,7 @@ function el(tag, attrs = {}, kids = []) {
 }
 
 function selectorMatch(selector) {
-    const match = /^([a-z]*)((?:\[[a-z-]+\])*)$/.exec(selector);
+    const match = /^([a-z0-9]*)((?:\[[a-z-]+\])*)$/.exec(selector);
     if (!match) { throw new Error('unsupported selector ' + selector); }
     const names = [...match[2].matchAll(/\[([a-z-]+)\]/g)].map((m) => m[1]);
     return (n) => (!match[1] || n.tagName === match[1].toUpperCase()) && names.every((name) => n.getAttribute(name) !== null);
@@ -142,6 +149,7 @@ class FakeRange {
     collapse(toStart) {
         if (toStart) { this.endContainer = this.startContainer; this.endOffset = this.startOffset; } else { this.startContainer = this.endContainer; this.startOffset = this.endOffset; }
     }
+    get collapsed() { return this.startContainer === this.endContainer && this.startOffset === this.endOffset; }
     toString() {
         const out = [];
         let done = false;
@@ -210,7 +218,14 @@ function run({ framed = true, opener = false, origin = PORTAL, fetchReply = null
         return Promise.resolve(typeof reply === 'function' ? reply() : reply);
     };
     let parsed = nextPage;
-    class DOMParser { parseFromString() { const p = typeof parsed === 'function' ? parsed() : parsed; return p ? fakeDoc(p.root, 'Nieuwe titel') : fakeDoc(el('html')); } }
+    const pasted = new Map(); // markup on the clipboard -> its parsed body (a fake DOMParser for the paste cleaning)
+    class DOMParser {
+        parseFromString(text) {
+            if (pasted.has(text)) { return { body: pasted.get(text) }; }
+            const p = typeof parsed === 'function' ? parsed() : parsed;
+            return p ? fakeDoc(p.root, 'Nieuwe titel') : fakeDoc(el('html'));
+        }
+    }
     const session = noStorage
         ? { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('SecurityError'); }, removeItem() { throw new Error('SecurityError'); } }
         : { getItem: (k) => storage[k] ?? null, setItem: (k, v) => { storage[k] = String(v); }, removeItem: (k) => { delete storage[k]; } };
@@ -228,7 +243,7 @@ function run({ framed = true, opener = false, origin = PORTAL, fetchReply = null
     const setNext = (value) => { parsed = value; };
     const init = (extra = {}) => message({ ns: 'fsc-preview', v: 1, type: 'init', proto: 2, inline: true, labels: { b1: 'Hero', b2: 'Tekst' }, texts: { add: 'Sectie toevoegen' }, ...extra });
 
-    return { win, doc, root, blocks, tag, sent, fetches, message, fire, flush, storage, listeners, parent, clock, selection, inserted, setNext, init };
+    return { win, doc, root, blocks, tag, sent, fetches, message, fire, flush, storage, listeners, parent, clock, selection, inserted, setNext, init, pasted };
 }
 
 const types = (sent) => sent.map((s) => s.message.type);
@@ -259,7 +274,7 @@ describe('preview.js on load', () => {
         expect(sent[0].target).toBe(PORTAL);
         expect(sent[0].message).toEqual({
             ns: 'fsc-preview', v: 1, type: 'ready', version: 3, sdk: '0.31.0', proto: 2,
-            caps: ['blocks', 'select', 'hover', 'insert', 'order', 'edit-plain', 'shortcut', 'theme', 'timing'],
+            caps: ['blocks', 'select', 'hover', 'insert', 'order', 'edit-plain', 'edit-rich', 'format', 'shortcut', 'theme', 'timing'],
         });
     });
 
@@ -794,6 +809,275 @@ describe('plain inline editing (protocol 2, AD7)', () => {
         t.clock.tick(0);
 
         expect(strip(last(t.sent, 'edit-end'))).toEqual({ type: 'edit-end', blockId: 'b1', field: 'heading', kind: 'plain', seq: 1, reason: 'blur' });
+    });
+});
+
+describe('rich inline editing (protocol 2, Task 16)', () => {
+    const richOf = (blocks, i) => blocks.children[i].children[0].children[1];
+    const commands = (t) => t.inserted.map((c) => c[0]);
+    const select = (t, node, start, end = start) => { const r = new FakeRange(); r.setStart(node, start); r.setEnd(node, end); t.selection.removeAllRanges(); t.selection.addRange(r); };
+
+    function richEditing(initExtra = {}) {
+        const t = run();
+        t.init({ rich: true, ...initExtra });
+        const field = richOf(t.blocks, 0);
+        t.doc.caretPoint = () => ({ offsetNode: field.childNodes[0], offset: 4 });
+        t.fire('click', field, { clientX: 60, clientY: 140 });
+        return { ...t, field };
+    }
+
+    it('edits a rich field only when the portal said rich: true (an older portal would drop the text)', () => {
+        const t = run();
+        t.init();
+        t.fire('click', richOf(t.blocks, 0));
+        expect(richOf(t.blocks, 0).getAttribute('contenteditable')).toBe(null);
+
+        t.init({ rich: true, inline: false });
+        t.fire('click', richOf(t.blocks, 1));
+        expect(richOf(t.blocks, 1).getAttribute('contenteditable')).toBe(null);
+        expect(types(t.sent)).not.toContain('edit-start');
+    });
+
+    it('a click on a rich field edits it as rich text, with paragraphs and the formats at the caret', () => {
+        const t = richEditing();
+
+        expect(t.field.getAttribute('contenteditable')).toBe('true');
+        expect(t.doc.activeElement).toBe(t.field);
+        expect(t.inserted.slice(0, 2)).toEqual([['defaultParagraphSeparator', 'p'], ['styleWithCSS', false]]);
+        expect(t.sent.slice(-2).map((s) => strip(s.message))).toEqual([
+            { type: 'select', blockId: 'b1', index: 0, field: 'html' },
+            { type: 'edit-start', blockId: 'b1', field: 'html', kind: 'rich', state: { block: 'p', bold: false, italic: false, link: false } },
+        ]);
+    });
+
+    it('an empty rich field starts with a paragraph', () => {
+        const t = run();
+        t.init({ rich: true });
+        const field = richOf(t.blocks, 1);
+        field.textContent = '';
+
+        t.fire('click', field);
+
+        expect(field.innerHTML).toBe('<p><br></br></p>');
+        expect(t.selection.ranges[0].startContainer).toBe(field.children[0]);
+    });
+
+    it('sends the markup with every edit (kind rich), Enter stays in the field, Escape ends it', () => {
+        const t = richEditing();
+
+        t.field.appendChild(el('strong', {}, [txt(' vet')]));
+        t.fire('input', t.field);
+        expect(strip(last(t.sent, 'edit'))).toEqual({ type: 'edit', blockId: 'b1', field: 'html', kind: 'rich', value: 'Rijke tekst<strong> vet</strong>', seq: 1, state: { block: 'p', bold: false, italic: false, link: false } });
+
+        expect(t.fire('keydown', t.field, { key: 'Enter' }).prevented).toBe(false);
+        expect(t.fire('beforeinput', t.field, { inputType: 'insertParagraph' }).prevented).toBe(false);
+        expect(t.fire('beforeinput', t.field, { inputType: 'insertLineBreak' }).prevented).toBe(false);
+        expect(types(t.sent)).not.toContain('edit-end');
+
+        t.fire('keydown', t.field, { key: 'Escape' });
+        expect(t.sent.slice(-2).map((s) => strip(s.message))).toEqual([
+            { type: 'edit-end', blockId: 'b1', field: 'html', kind: 'rich', seq: 1, reason: 'escape' },
+            { type: 'shortcut', name: 'escape' },
+        ]);
+    });
+
+    it('a field without visible text is sent as an empty value', () => {
+        const t = richEditing();
+        t.field.textContent = '';
+        t.field.appendChild(el('p', {}, [txt('  ')]));
+
+        t.fire('input', t.field);
+
+        expect(last(t.sent, 'edit').value).toBe('');
+    });
+
+    it('Cmd/Ctrl+B and I format, K asks the portal for an address, U does nothing', () => {
+        const t = richEditing();
+        t.inserted.length = 0;
+
+        expect(t.fire('keydown', t.field, { key: 'b', metaKey: true }).prevented).toBe(true);
+        expect(t.fire('keydown', t.field, { key: 'i', ctrlKey: true }).prevented).toBe(true);
+        expect(t.fire('keydown', t.field, { key: 'u', metaKey: true }).prevented).toBe(true);
+        expect(t.fire('keydown', t.field, { key: 'k', metaKey: true }).prevented).toBe(true);
+
+        expect(commands(t)).toEqual(['bold', 'italic']);
+        expect(strip(last(t.sent, 'shortcut'))).toEqual({ type: 'shortcut', name: 'link' });
+        expect(t.field.getAttribute('contenteditable')).toBe('true');
+    });
+
+    it('applies the format commands of the portal, only from the portal, only the known ones', () => {
+        const t = richEditing();
+        t.inserted.length = 0;
+
+        for (const command of ['bold', 'italic', 'h2', 'h3', 'p', 'ul', 'ol', 'unlink', 'underline', 'insertHTML']) { t.message(msg('format', { command })); }
+        t.message(msg('format', { command: 'bold' }), { origin: 'https://evil.test', source: t.parent });
+        t.message(msg('format', { command: 'bold' }), { origin: PORTAL, source: {} });
+
+        expect(t.inserted).toEqual([
+            ['bold', undefined], ['italic', undefined], ['formatBlock', '<h2>'], ['formatBlock', '<h3>'], ['formatBlock', '<p>'],
+            ['insertUnorderedList', undefined], ['insertOrderedList', undefined], ['unlink', undefined],
+        ]);
+    });
+
+    it('a list is made of paragraphs: a heading becomes one first, and a list Chrome left inside its paragraph takes its place', () => {
+        const t = richEditing();
+        const heading = el('h2', {}, [txt('Kop')]);
+        t.field.appendChild(heading);
+        select(t, heading.childNodes[0], 1);
+        t.inserted.length = 0;
+
+        t.message(msg('format', { command: 'ul' }));
+        expect(t.inserted).toEqual([['formatBlock', '<p>'], ['insertUnorderedList', undefined]]);
+
+        // What Chrome made of it: <p><ul><li>…</li></ul></p>.
+        const item = el('li', {}, [txt('Punt')]);
+        const wrapper = el('p', {}, [el('ol', {}, [item])]);
+        t.field.textContent = '';
+        t.field.appendChild(wrapper);
+        select(t, item.childNodes[0], 2);
+        t.inserted.length = 0;
+        t.message(msg('format', { command: 'ol' }));
+
+        expect(t.inserted).toEqual([['insertOrderedList', undefined]]);
+        expect(t.field.innerHTML).toBe('<ol><li>Punt</li></ol>');
+        expect([t.selection.ranges[0].startContainer, t.selection.ranges[0].startOffset]).toEqual([item.childNodes[0], 2]);
+    });
+
+    it('a link takes only https, mailto, tel, a path or an anchor', () => {
+        const t = richEditing();
+        select(t, t.field.childNodes[0], 0, 5);
+        t.inserted.length = 0;
+
+        for (const value of ['javascript:alert(1)', 'http://plain.test', '//evil.test', 'data:text/html,x', ' https://a b', 'https://ok.nl/pagina', '/contact', '#over', 'mailto:info@ok.nl', 'tel:+31201234567']) {
+            t.message(msg('format', { command: 'link', value }));
+        }
+
+        expect(t.inserted).toEqual([['createLink', 'https://ok.nl/pagina'], ['createLink', '/contact'], ['createLink', '#over'], ['createLink', 'mailto:info@ok.nl'], ['createLink', 'tel:+31201234567']]);
+    });
+
+    it('a link at a caret without a selection is inserted with the address as its text (escaped)', () => {
+        const t = richEditing();
+        select(t, t.field.childNodes[0], 3);
+        t.inserted.length = 0;
+
+        t.message(msg('format', { command: 'link', value: 'https://ok.nl/?a=1&b=2' }));
+
+        expect(t.inserted).toEqual([['insertHTML', '<a href="https://ok.nl/?a=1&amp;b=2">https://ok.nl/?a=1&amp;b=2</a>']]);
+    });
+
+    it('a link after the portal took the focus (its address popover) resumes the field with the same selection', () => {
+        const t = richEditing();
+        select(t, t.field.childNodes[0], 0, 5);
+        t.fire('selectionchange', t.doc);
+        t.clock.tick(60);
+
+        t.doc.activeElement = t.doc.body;
+        t.fire('focusout', t.field);
+        t.clock.tick(0);
+        expect(strip(last(t.sent, 'edit-end'))).toMatchObject({ blockId: 'b1', field: 'html', kind: 'rich', reason: 'blur' });
+        expect(t.field.getAttribute('contenteditable')).toBe(null);
+        t.inserted.length = 0;
+
+        // Another field, or no rich field left a moment ago: nothing happens.
+        t.message(msg('format', { command: 'bold', blockId: 'b2', field: 'html' }));
+        expect(t.inserted).toEqual([]);
+
+        t.message(msg('format', { command: 'link', value: 'https://ok.nl', blockId: 'b1', field: 'html' }));
+
+        expect(t.field.getAttribute('contenteditable')).toBe('true');
+        expect(last(t.sent, 'edit-start')).toMatchObject({ blockId: 'b1', field: 'html', kind: 'rich' });
+        const range = t.selection.ranges[0];
+        expect([range.startContainer, range.startOffset, range.endContainer, range.endOffset]).toEqual([t.field.childNodes[0], 0, t.field.childNodes[0], 5]);
+        expect(commands(t)).toContain('createLink');
+    });
+
+    it('reports the formats at the caret when they change (edit-state)', () => {
+        const t = richEditing();
+        const strong = el('strong', {}, [txt('vet')]);
+        t.field.appendChild(el('h2', {}, [strong]));
+
+        select(t, strong.childNodes[0], 1);
+        t.fire('selectionchange', t.doc);
+        t.clock.tick(60);
+        t.fire('selectionchange', t.doc);
+        t.clock.tick(60);
+
+        expect(t.sent.filter((s) => s.message.type === 'edit-state').map((s) => strip(s.message))).toEqual([
+            { type: 'edit-state', blockId: 'b1', field: 'html', state: { block: 'h2', bold: true, italic: false, link: false } },
+        ]);
+    });
+
+    it('refuses the browser formats it does not offer, drops and raw HTML', () => {
+        const t = richEditing();
+
+        for (const inputType of ['formatUnderline', 'formatStrikeThrough', 'formatFontColor', 'formatJustifyCenter', 'insertFromDrop', 'insertHTML', 'insertFromPaste', 'insertLink']) {
+            expect(t.fire('beforeinput', t.field, { inputType }).prevented).toBe(true);
+        }
+        for (const inputType of ['formatBold', 'formatItalic', 'insertText', 'deleteContentBackward', 'historyUndo']) {
+            expect(t.fire('beforeinput', t.field, { inputType }).prevented).toBe(false);
+        }
+        expect(t.fire('drop', t.field).prevented).toBe(true);
+    });
+
+    it('reduces pasted markup to the allowed tags: no script, no image, no event handler, no style, no unsafe link', () => {
+        const t = richEditing();
+        const markup = '<img src=x onerror=alert(1)><script>alert(1)</script><p style="color:red" onclick="steal()">Hoi <b>vet</b> <i>schuin</i> '
+            + '<a href="javascript:alert(1)">slecht</a> <a href="https://ok.nl" target="_blank" onmouseover="x()">goed</a></p><h1>Titel</h1><div>los</div><ul><li>een</li></ul>';
+        t.pasted.set(markup, el('body', {}, [
+            el('img', { src: 'x', onerror: 'alert(1)' }),
+            el('script', {}, [txt('alert(1)')]),
+            el('p', { style: 'color:red', onclick: 'steal()' }, [
+                txt('Hoi '), el('b', {}, [txt('vet')]), txt(' '), el('i', {}, [txt('schuin')]), txt(' '),
+                el('a', { href: 'javascript:alert(1)' }, [txt('slecht')]), txt(' '), el('a', { href: 'https://ok.nl', target: '_blank', onmouseover: 'x()' }, [txt('goed')]),
+            ]),
+            el('h1', {}, [txt('Titel')]),
+            el('div', {}, [txt('los <b>')]),
+            el('ul', {}, [el('li', {}, [txt('een')])]),
+        ]));
+        t.inserted.length = 0;
+
+        const paste = t.fire('paste', t.field, { clipboardData: { getData: (kind) => (kind === 'text/html' ? markup : 'platte tekst') } });
+
+        expect(paste.prevented).toBe(true);
+        expect(t.inserted).toEqual([['insertHTML', '<p>Hoi <strong>vet</strong> <em>schuin</em> slecht <a href="https://ok.nl">goed</a></p><h2>Titel</h2><p>los &lt;b&gt;</p><ul><li>een</li></ul>']]);
+        expect(JSON.stringify(t.inserted)).not.toMatch(/onerror|script|javascript|onclick|onmouseover|style|target|img/i);
+    });
+
+    it('a Google Docs paste (one <b style="font-weight:normal"> around it all) is not made bold', () => {
+        const t = richEditing();
+        const markup = '<b style="font-weight:normal;" id="docs-internal-guid-1"><p>Gewoon</p></b>';
+        t.pasted.set(markup, el('body', {}, [el('b', { style: 'font-weight:normal;', id: 'docs-internal-guid-1' }, [el('p', {}, [txt('Gewoon')])])]));
+        t.inserted.length = 0;
+
+        t.fire('paste', t.field, { clipboardData: { getData: (kind) => (kind === 'text/html' ? markup : '') } });
+
+        expect(t.inserted).toEqual([['insertHTML', '<p>Gewoon</p>']]);
+    });
+
+    it('pastes plain text as paragraphs and line breaks, escaped', () => {
+        const t = richEditing();
+        t.inserted.length = 0;
+
+        t.fire('paste', t.field, { clipboardData: { getData: (kind) => (kind === 'text/plain' ? 'Een <b>\n\nTwee\ndrie' : '') } });
+        t.fire('paste', t.field, { clipboardData: { getData: (kind) => (kind === 'text/plain' ? 'los & kort' : '') } });
+
+        expect(t.inserted).toEqual([['insertHTML', '<p>Een &lt;b&gt;</p><p>Twee<br>drie</p>'], ['insertHTML', 'los &amp; kort']]);
+    });
+
+    it('a swap waits for the ack while a rich field has the caret, like plain text', async () => {
+        const t = richEditing();
+        t.field.appendChild(txt('!'));
+        t.fire('input', t.field);
+        const next = page(['b1', 'b2'], 4);
+        richOf(next.blocks, 0).textContent = 'Van de server';
+        t.setNext(next);
+
+        t.message(msg('refresh', { version: 4, ack: 1 }));
+        await t.flush();
+        expect(t.blocks.children[0].children[0].children[1]).toBe(t.field);
+
+        t.fire('keydown', t.field, { key: 'Escape' });
+        expect(richOf(t.blocks, 0).textContent).toBe('Van de server');
     });
 });
 
