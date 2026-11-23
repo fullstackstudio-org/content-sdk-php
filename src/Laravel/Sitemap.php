@@ -110,6 +110,12 @@ final class Sitemap
                 }
 
                 $locale = is_string($entry['locale'] ?? null) && $entry['locale'] !== '' ? $entry['locale'] : null;
+
+                // Content in a language the project has not (or no longer) enabled is not served, so it is not announced either.
+                if ($locale !== null && ! in_array($locale, $urls->locales(), true)) {
+                    continue;
+                }
+
                 $url = self::hubUrl($urls, $origin, $path, $locale);
                 $lastmod = isset($entry['lastmod']) && $entry['lastmod'] !== '' ? (string) $entry['lastmod'] : null;
                 // The first entry of a URL stays; a later one only brings a missing lastmod.
