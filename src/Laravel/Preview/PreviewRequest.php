@@ -60,7 +60,7 @@ final class PreviewRequest
         $base = self::base();
         $path = '/' . trim($request->getPathInfo(), '/');
 
-        if ($path !== $base) {
+        if ($path !== $base || \FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::handles($request)) {
             return $next($request);
         }
 

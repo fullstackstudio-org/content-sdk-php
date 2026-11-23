@@ -8,8 +8,9 @@ use FullStackStudio\Content\Laravel\Facades\Content;
 use Throwable;
 
 /**
- * The hreflang alternates of a page or article: self plus every published translation, as absolute URLs built by `Content::urls()`
- * (so locale prefix and trailing slash agree with the sitemap and the canonical), and the `x-default` URL (the default locale version).
+ * The hreflang alternates of a page or article: self plus every published translation in an enabled project language, as absolute URLs
+ * built by `Content::urls()` (so locale prefix and trailing slash agree with the sitemap and the canonical), and the `x-default` URL (the
+ * default locale version). A single-language project, or a resource with no other enabled version, has none.
  */
 final class Alternates
 {
@@ -26,22 +27,29 @@ final class Alternates
             $urls = Content::urls();
             $translations = is_array($resource['translations'] ?? null) ? $resource['translations'] : [];
 
-            if ($translations === []) {
+            if ($translations === [] || ! $urls->multilingual()) {
                 return $none;
             }
+
+            $enabled = $urls->locales();
 
             $self = $locale ?? (is_string($resource['locale'] ?? null) ? $resource['locale'] : null);
             $default = $urls->defaultLocale();
             $entries = [];
 
             foreach ($translations as $translation) {
-                if (is_array($translation) && is_string($translation['locale'] ?? null) && $translation['locale'] !== '' && ($translation['status'] ?? 'published') === 'published') {
+                if (is_array($translation) && is_string($translation['locale'] ?? null) && in_array($translation['locale'], $enabled, true) && ($translation['status'] ?? 'published') === 'published') {
                     $entries[$translation['locale']] = $translation;
                 }
             }
 
-            if ($self !== null && ! isset($entries[$self])) {
+            if ($self !== null && ! isset($entries[$self]) && in_array($self, $enabled, true)) {
                 $entries[$self] = [...$resource, 'locale' => $self];
+            }
+
+            // One version is no alternate.
+            if (count($entries) < 2) {
+                return $none;
             }
 
             $alternates = [];

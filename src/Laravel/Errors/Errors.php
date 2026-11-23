@@ -99,6 +99,48 @@ final class Errors
         }
     }
 
+    /**
+     * Text to remove from exception messages of the current request: on a visitor page of the Hub (plan sdk-out-of-the-box, section 8) the
+     * path holds capability tokens, so the path becomes its scrubbed form (`/a/l/…`) and each token `…`. Empty for every other request.
+     *
+     * @return array<string, string>
+     */
+    public function redactions(): array
+    {
+        try {
+            if (! $this->app->bound('request')) {
+                return [];
+            }
+
+            $request = $this->app['request'];
+            $path = $request->getPathInfo();
+
+            if (! \FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::matches($path)) {
+                return [];
+            }
+
+            $scrubbed = \FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::scrub($path);
+            $redact = [];
+
+            foreach ([$path, rawurldecode($path)] as $raw) {
+                $redact[$raw] = $scrubbed;
+                $redact[ltrim($raw, '/')] = ltrim($scrubbed, '/');
+            }
+
+            foreach (\FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::parameters($path) as $value) {
+                // Short values are slugs, not secrets; replacing them would garble the message.
+                if (strlen($value) >= 8) {
+                    $redact[$value] = '…';
+                    $redact[rawurlencode($value)] = '…';
+                }
+            }
+
+            return array_filter($redact, static fn (string $to, string $from): bool => $from !== '' && $from !== '/', ARRAY_FILTER_USE_BOTH);
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
     public function store(): ?Store
     {
         try {

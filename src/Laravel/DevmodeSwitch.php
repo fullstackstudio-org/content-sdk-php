@@ -21,7 +21,7 @@ final class DevmodeSwitch
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (!Devmode::enabled() || !$request->isMethod('GET') || !$request->query->has(Devmode::PARAM)) {
+        if (!Devmode::enabled() || !$request->isMethod('GET') || !$request->query->has(Devmode::PARAM) || \FullStackStudio\Content\Laravel\Visitor\VisitorRoutes::handles($request)) {
             return $next($request);
         }
 

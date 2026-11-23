@@ -9,8 +9,10 @@ use Throwable;
 
 /**
  * The language of the form texts when nothing was passed explicitly. Order: `content.forms.locale` (env `FSC_FORMS_LOCALE`), the locale of the
- * Hub page being rendered, the Laravel app locale, and finally `nl`. Laravel's own default `en` counts as "never set" (a fresh skeleton has it
- * and Dutch sites forget to change it), so an English site sets `FSC_FORMS_LOCALE=en` or passes `locale="en"` to the component.
+ * Hub page being rendered, the Laravel app locale, and finally `nl`. The page locale comes from the Hub (an enabled project language), so it
+ * counts as is, `en` included: the English version of a multilingual site gets English form texts. Laravel's own default app locale `en`
+ * counts as "never set" (a fresh skeleton has it and Dutch sites forget to change it), so an English site without Hub pages sets
+ * `FSC_FORMS_LOCALE=en` or passes `locale="en"` to the component.
  */
 final class FormLocale
 {
@@ -22,15 +24,15 @@ final class FormLocale
             return $configured;
         }
 
-        foreach ([self::pageLocale(), self::appLocale()] as $candidate) {
-            $short = strtolower(substr((string) $candidate, 0, 2));
+        $page = strtolower(substr((string) self::pageLocale(), 0, 2));
 
-            if ($short !== '' && $short !== 'en') {
-                return $short;
-            }
+        if ($page !== '') {
+            return $page;
         }
 
-        return 'nl';
+        $app = strtolower(substr((string) self::appLocale(), 0, 2));
+
+        return $app !== '' && $app !== 'en' ? $app : 'nl';
     }
 
     private static function pageLocale(): ?string

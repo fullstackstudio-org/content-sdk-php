@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\Site;
 
 use Closure;
 use FullStackStudio\Content\Laravel\Auto\Auto;
+use FullStackStudio\Content\Laravel\Visitor\VisitorRoutes;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -16,15 +17,12 @@ use Symfony\Component\HttpFoundation\Response;
  * {@see \FullStackStudio\Content\Laravel\Auto\AutoPlatform}, only when that switch is on. {@see Urls} builds the same slashed form.
  *
  * Left alone: `/`, files (a dot in the last segment), the technical prefixes in {@see self::SKIP} and `content.auto.trailing_slash_skip`,
- * the visitor proxy paths of the Hub (first segment `a`, `e`, `n`, `t`, `r`, which have their own URL shape) and the portal preview request.
+ * the visitor proxy paths of the Hub ({@see VisitorRoutes::matches()}, which have their own URL shape) and the portal preview request.
  */
 final class TrailingSlash
 {
     /** First path segments that are never redirected. */
     public const SKIP = ['api', '_fsc', 'content', 'build', 'storage'];
-
-    /** First segments of the Hub's visitor pages (appointments, events, newsletter, tickets, returns); the proxy answers them as they are. */
-    public const VISITOR = ['a', 'e', 'n', 't', 'r'];
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -49,6 +47,11 @@ final class TrailingSlash
             return false;
         }
 
+        // The Hub's visitor pages: the proxy answers them exactly as the Hub's URLs are shaped.
+        if (VisitorRoutes::matches($path)) {
+            return false;
+        }
+
         $first = explode('/', ltrim($path, '/'))[0];
 
         return ! in_array($first, self::skipped(), true);
@@ -66,6 +69,6 @@ final class TrailingSlash
             }
         }
 
-        return array_merge(self::SKIP, self::VISITOR, $extra);
+        return array_merge(self::SKIP, $extra);
     }
 }
