@@ -23,6 +23,16 @@ return [
     ],
 
     /*
+     * Headers the SDK adds to every successful HTML page (never JSON, redirects, the webhook, `/_fsc/*` or streamed responses).
+     * - `preconnect`: `Link: <Hub origin>; rel=preconnect`, because images and files load directly from the Hub.
+     * - `version`: `X-FSC-SDK: <SDK version>`, the version only.
+     */
+    'response_headers' => [
+        'preconnect' => (bool) env('FSC_PRECONNECT', true),
+        'version' => (bool) env('FSC_VERSION_HEADER', true),
+    ],
+
+    /*
      * The webhook receiver. The route is opt-in: set `enabled` to true, or call `Content::routes()` yourself.
      * Content calls it server to server, so it must not use CSRF protection: the default `api` middleware group has none.
      * If you put it in the `web` group, add the path to the CSRF exceptions (`$middleware->validateCsrfTokens(except: ['content/webhook'])`).

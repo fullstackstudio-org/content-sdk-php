@@ -345,6 +345,16 @@ final class DoctorCommandTest extends LaravelTestCase
         }
     }
 
+    public function testTheResponseHeadersLineShowsBothSwitches(): void
+    {
+        $this->completeSite();
+
+        self::assertSame(Doctor::INFO, $this->statusOf($this->results(), 'preconnect naar de Hub aan (FSC_PRECONNECT), SDK-versie aan'));
+
+        $this->app['config']->set('content.response_headers.preconnect', false);
+        self::assertSame(Doctor::INFO, $this->statusOf($this->results(), 'preconnect naar de Hub uit (FSC_PRECONNECT), SDK-versie aan'));
+    }
+
     public function testThePreviewLineFollowsTheKillSwitchAndTheToken(): void
     {
         $this->completeSite();

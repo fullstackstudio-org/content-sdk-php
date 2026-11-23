@@ -42,6 +42,8 @@ Every snippet you need is in this file. FullStack Studio staff also have the wor
 
 Every site on this package has all of these. Format per item: **what**, then where (file and snippet), then how to verify.
 
+Automatic, nothing to do: the SDK adds `Link: <Hub origin>; rel=preconnect` and `X-FSC-SDK: <version>` to successful HTML pages (see A14).
+
 ### A1. Package and agent pointer
 
 ```json
@@ -582,6 +584,7 @@ The provider registers these itself; do not copy, wrap or block them:
 | Error reporter and tunnel | `/_fsc/e/reporter.js`, `POST /_fsc/e/envelope` | also reports backend exceptions through Laravel's handler; do not add `sentry/sentry-laravel` |
 | Address autocomplete | `/_fsc/address/*` | for `<x-content::address-field>` |
 | Dev panel | `?fsc_devmode=1`, `/_fsc/d/*` | off for everybody; a CDN that caches HTML must bypass it for the cookie `fsc_devmode=1` |
+| Response headers | global middleware `ContentResponseHeaders` | `Link: <Hub origin>; rel=preconnect` and `X-FSC-SDK` on successful HTML pages; nothing to do, an existing `Link` header is kept |
 | Newsletter click links | global middleware `NewsletterClickLink` | never read, strip or store `?fscn=` yourself |
 | Cookie encryption exceptions | `fsi_rec`, `fsi_sess` | the provider calls `EncryptCookies::except()`; a cookie of your own that JavaScript writes and PHP reads needs `$middleware->encryptCookies(except: [...])` too |
 | Intelligence routes | `/_fsc/i/*` | only while `FSC_INTELLIGENCE_ENABLED=true` |
@@ -1011,6 +1014,8 @@ php artisan fsc:doctor                            # checks the "Altijd verplicht
 | `FSC_FORMS_ENABLED` | `false` | Registers `POST content/forms/{key}` (route name `content.form`), needed by `<x-content::form>`. |
 | `FSC_FORMS_PATH` / `FSC_FORMS_LOCALE` | `content/forms` / app locale | Form route path / `nl` or `en` labels. |
 | `FSC_IP_HEADER` | `cf-connecting-ip` | Header holding the visitor's IP behind your proxy (`content.forms.ip_header`). Only a header your proxy overwrites. |
+| `FSC_PRECONNECT` | `true` | Adds `Link: <Hub origin>; rel=preconnect` to successful HTML pages (images and files load directly from the Hub). |
+| `FSC_VERSION_HEADER` | `true` | Adds `X-FSC-SDK: <version>` to successful HTML pages (the SDK version only). |
 | `FSC_CACHE_ENABLED` / `FSC_CACHE_STORE` / `FSC_CACHE_TTL` | `true` / default store / `3600` | Read cache on/off, Laravel cache store, safety-net TTL in seconds. |
 | `FSC_TIMEOUT_MS` | `10000` | Timeout per API call. |
 | `FSC_UPLOAD_MAX_MB` | `20` | Only in the example Docker image: largest request body for form uploads (nginx + PHP limits, PHP memory follows). |

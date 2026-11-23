@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- New global middleware `ContentResponseHeaders`, on for every site with no site code: successful HTML pages (not JSON, redirects, the webhook,
+  `/_fsc/*` or streamed and binary responses) get `Link: <Hub origin>; rel=preconnect` (origin from `FSC_API_URL`, no `crossorigin`, appended to
+  an existing `Link` header) and `X-FSC-SDK: <version>`. Switches `content.response_headers.preconnect` (`FSC_PRECONNECT`) and
+  `content.response_headers.version` (`FSC_VERSION_HEADER`), both default true. `fsc:doctor` shows whether both are on.
+
 - The default client IP (`X-FSC-Client-Ip` with a server token) now reads the visitor header the site's proxy sets (`content.forms.ip_header`,
   default `cf-connecting-ip`, env `FSC_IP_HEADER`) when it holds a valid IP, else `request()->ip()`. Behind Cloudflare and Traefik the request IP
   could be a proxy hop, so all visitors of a shop shared one per-visitor limit at the Hub.
