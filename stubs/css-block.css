@@ -1,0 +1,30 @@
+/* fsc:install:start (php artisan content:install) - theme variables of the FullStack Hub blocks. Uncomment a line to change it; the defaults apply otherwise. */
+:root {
+    /* --fsc-accent: #1d4ed8; */
+    /* --fsc-accent-contrast: #fff; */
+    /* --fsc-danger: #b91c1c; */
+    /* --fsc-text: inherit; */
+    /* --fsc-muted: color-mix(in srgb, currentColor 75%, transparent); */
+    /* --fsc-surface: transparent; */
+    /* --fsc-border: color-mix(in srgb, currentColor 25%, transparent); */
+    /* --fsc-font: inherit; */
+    /* --fsc-heading-font: inherit; */
+    /* --fsc-h2-size: 1.75rem; */
+    /* --fsc-h3-size: 1.3rem; */
+    /* --fsc-line-height: 1.6; */
+    /* --fsc-gap: 1rem; */
+    /* --fsc-radius: 0.5rem; */
+    /* --fsc-content-width: 72rem; */
+    /* --fsc-content-pad: 1rem; */
+    /* --fsc-narrow-width: 42rem; */
+    /* --fsc-small-width: 32rem; */
+    /* --fsc-form-width: 40rem; */
+    /* --fsc-columns: 3; */
+    /* --fsc-button-bg: var(--fsc-accent); */
+    /* --fsc-button-text: var(--fsc-accent-contrast); */
+    /* --fsc-button-radius: var(--fsc-radius); */
+    /* --fsc-hero-text: #fff; */
+    /* --fsc-tone-soft-bg: color-mix(in srgb, var(--fsc-accent) 8%, transparent); */
+    /* --fsc-tone-pad: clamp(1.25rem, 4vw, 2.5rem); */
+}
+/* fsc:install:end */

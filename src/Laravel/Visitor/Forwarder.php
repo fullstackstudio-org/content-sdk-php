@@ -17,12 +17,15 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
  *
  * - Upstream: the origin of `content.base_url` + the same path and the raw query. Nothing else is reachable.
  * - From the browser only: method, path, query, body, `Accept`, `Accept-Language`, `Content-Type` (not for multipart: cURL sets its own
- *   boundary), the browser's client string, `If-None-Match`, `If-Modified-Since`, `Origin` and `Sec-Fetch-Site`. Every other header (cookies,
- *   `Authorization`, `X-FSC-*`, `X-Forwarded-*`, `Forwarded`) is dropped by construction.
+ *   boundary), the browser's client string, `If-None-Match`, `If-Modified-Since`, `Origin`, `Sec-Fetch-Site` and `Sec-GPC` (Global Privacy
+ *   Control: the Hub then leaves the recognition token out of a newsletter click). Every other header (cookies, `Authorization`, `X-FSC-*`,
+ *   `X-Forwarded-*`, `Forwarded`) is dropped by construction.
  * - Added: the server token as bearer, `X-FSC-Proxy: 1`, `X-FSC-Client-Ip` (the validated visitor IP, {@see ContentServiceProvider::visitorIp()})
- *   and `X-FSC-Site-Origin` (scheme and host of the request after proxy trust).
+ *   and `X-FSC-Site-Origin` ({@see self::siteOrigin()}: the site's public origin as the URL generator builds it, so it follows
+ *   `URL::forceScheme('https')` behind Cloudflare and Traefik, where the request itself arrives as http on port 80).
  * - Body: url-encoded and other raw bodies as they came (at most 1 MB); multipart rebuilt from the parsed fields and the uploaded temp files,
- *   which cURL streams from disk with their original names and types.
+ *   which cURL streams from disk with their original names and types. A field name that cannot be rebuilt unambiguously (`[`, `]`, `"`, CR or LF
+ *   inside a key) is refused with a 400.
  */
 final class Forwarder
 {
@@ -45,6 +48,7 @@ final class Forwarder
         'if-modified-since' => 'If-Modified-Since',
         'origin' => 'Origin',
         'sec-fetch-site' => 'Sec-Fetch-Site',
+        'sec-gpc' => 'Sec-GPC',
     ];
 
     /** Longest header value that is forwarded. */
@@ -122,7 +126,7 @@ final class Forwarder
 
         $headers['Authorization'] = 'Bearer ' . $token;
         $headers['X-FSC-Proxy'] = '1';
-        $headers['X-FSC-Site-Origin'] = $request->getSchemeAndHttpHost();
+        $headers['X-FSC-Site-Origin'] = self::siteOrigin($request);
 
         $ip = ContentServiceProvider::visitorIp($request, config('content.forms.ip_header'));
 
@@ -131,6 +135,31 @@ final class Forwarder
         }
 
         return $headers;
+    }
+
+    /**
+     * The site's public origin (`https://www.klant.nl`): scheme, host and a non-default port of the URL generator's root, so a forced scheme
+     * (`URL::forceScheme('https')`, set by the package in production) wins over the scheme the request arrived with. Behind Traefik the
+     * request is `http` with `X-Forwarded-Port: 80`; `getSchemeAndHttpHost()` would give `http://www.klant.nl`, which the Hub refuses (409).
+     * Ports 80 and 443 are never part of the origin: the public site is always on a default port.
+     */
+    public static function siteOrigin(Request $request): string
+    {
+        try {
+            $root = app('url')->to('/');
+        } catch (\Throwable) {
+            $root = $request->getSchemeAndHttpHost();
+        }
+
+        $parts = parse_url($root);
+
+        if (! is_array($parts) || ! isset($parts['scheme'], $parts['host'])) {
+            return $request->getSchemeAndHttpHost();
+        }
+
+        $port = $parts['port'] ?? null;
+
+        return strtolower($parts['scheme']) . '://' . strtolower($parts['host']) . ($port !== null && $port !== 80 && $port !== 443 ? ':' . $port : '');
     }
 
     private static function isMultipart(Request $request): bool
@@ -171,12 +200,22 @@ final class Forwarder
         return $fields;
     }
 
-    /** @param array<string, string|CURLFile> $fields */
+    /**
+     * @param array<string, string|CURLFile> $fields
+     *
+     * @throws VisitorProxyException a key with `[`, `]`, `"`, CR or LF: the rebuilt name would mean another field to the Hub (or break the part header)
+     */
     private static function flatten(mixed $value, string $name, array &$fields): void
     {
         if (is_array($value)) {
             foreach ($value as $key => $item) {
-                self::flatten($item, $name === '' ? (string) $key : $name . '[' . $key . ']', $fields);
+                $key = (string) $key;
+
+                if (strpbrk($key, "[]\"\r\n") !== false) {
+                    throw new VisitorProxyException(VisitorProxyException::BAD_REQUEST);
+                }
+
+                self::flatten($item, $name === '' ? $key : $name . '[' . $key . ']', $fields);
             }
 
             return;

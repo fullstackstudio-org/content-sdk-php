@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Laravel\Visitor;
 
+use FullStackStudio\Content\Laravel\Auto\Auto;
 use FullStackStudio\Content\Laravel\Auto\AutoErrors;
 use FullStackStudio\Content\Laravel\ContentResponseHeaders;
+use FullStackStudio\Content\Laravel\ContentServiceProvider;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Throwable;
@@ -19,9 +22,15 @@ use Throwable;
  *   cannot replace the Hub's CSP (V9).
  * - `Location`: relative passes as is; absolute to the Hub's own origin on a visitor path becomes relative (the visitor stays on the site);
  *   any other absolute target (Mollie, a newsletter click target, a direct file URL on the Hub) is the Hub's decision and passes (V10, V11).
- * - HTML without `Cache-Control` gets `no-store` (token pages are never cached).
- * - Hub unreachable, timeout, or a 401/409 refusal from the Hub: the site's 503 page with `Retry-After`; an answer over 2 MB: 502; a body
- *   over 1 MB: 413. Each failure is reported once, with the path scrubbed (`/a/l/…`).
+ * - Every answer without `Cache-Control` gets `private, no-store` (token pages are never cached). CDN cache headers a site middleware set
+ *   (`CDN-Cache-Control`, `Cloudflare-CDN-Cache-Control`, `Surrogate-Control`) are removed and `CDN-Cache-Control: no-store` is set on every
+ *   proxied answer, also an error page, so a Cloudflare cache rule of the site never stores a token page.
+ * - At most {@see self::DEFAULT_PER_MINUTE} requests per visitor IP per minute (`content.auto.visitor_pages.per_minute`), then a 429 without
+ *   a Hub call. The Hub has its own, stricter limits per page; this one keeps one address from filling the site's PHP workers.
+ * - The Hub no longer trusts this site's origin (409 `site_not_verified`, e.g. an old link after a domain switch): the neutral 404, not
+ *   reported. Hub unreachable, timeout, or a 401 refusal of the server token: the site's 503 page with `Retry-After`; an answer over 2 MB:
+ *   502; a body over 1 MB: 413; a multipart field name that cannot be forwarded: 400. Failures are reported with the path scrubbed
+ *   (`/a/l/…`), at most once per reason per {@see self::REPORT_EVERY_SECONDS} seconds, so an outage does not flood the error tracker.
  */
 final class VisitorProxyController
 {
@@ -52,6 +61,15 @@ final class VisitorProxyController
 
     private const MAX_PATH_BYTES = 2048;
 
+    /** Proxied requests per visitor IP per minute, unless `content.auto.visitor_pages.per_minute` says otherwise. */
+    public const DEFAULT_PER_MINUTE = 120;
+
+    /** One report per failure reason per this many seconds. */
+    public const REPORT_EVERY_SECONDS = 300;
+
+    /** CDN cache headers a site may set that would let a CDN store a token page. */
+    private const CDN_CACHE_HEADERS = ['CDN-Cache-Control', 'Cloudflare-CDN-Cache-Control', 'Surrogate-Control'];
+
     public function __invoke(Request $request, Forwarder $forwarder): Response
     {
         $request->attributes->set(self::ATTRIBUTE, true);
@@ -65,6 +83,10 @@ final class VisitorProxyController
             return self::plain(414, 'Adres te lang');
         }
 
+        if (self::throttled($request)) {
+            return self::plain(429, 'Te veel verzoeken', ['Retry-After' => '60']);
+        }
+
         try {
             $upstream = $forwarder->forward($request, $path);
         } catch (VisitorProxyException $error) {
@@ -73,8 +95,10 @@ final class VisitorProxyController
             return self::failed(new VisitorProxyException(VisitorProxyException::UNREACHABLE), $request, $path);
         }
 
-        if (self::refused($upstream)) {
-            return self::failed(new VisitorProxyException(VisitorProxyException::REFUSED), $request, $path);
+        $refusal = self::refusal($upstream);
+
+        if ($refusal !== null) {
+            return self::failed(new VisitorProxyException($refusal), $request, $path);
         }
 
         $headers = self::headers($upstream);
@@ -101,9 +125,18 @@ final class VisitorProxyController
         }
 
         $response->headers->remove('Set-Cookie');
+
+        foreach (self::CDN_CACHE_HEADERS as $name) {
+            $response->headers->remove($name);
+        }
+
+        $response->headers->set('CDN-Cache-Control', 'no-store');
         $headers = $request->attributes->get(self::HEADERS_ATTRIBUTE);
 
         if (! is_array($headers)) {
+            // The proxy's own answer (an error page, a refusal): never cacheable, whatever a site middleware set.
+            $response->headers->set('Cache-Control', 'private, no-store');
+
             return;
         }
 
@@ -116,7 +149,7 @@ final class VisitorProxyController
     }
 
     /**
-     * The allow-listed headers of the Hub's answer, with the `Location` rule and `no-store` for HTML without `Cache-Control`.
+     * The allow-listed headers of the Hub's answer, with the `Location` rule and `private, no-store` for any answer without `Cache-Control`.
      *
      * @return array<string, list<string>>
      */
@@ -136,10 +169,8 @@ final class VisitorProxyController
             $headers['Location'] = [self::location($headers['Location'][0])];
         }
 
-        $html = str_starts_with(strtolower($headers['Content-Type'][0] ?? ''), 'text/html');
-
-        if ($html && ! isset($headers['Cache-Control'])) {
-            $headers['Cache-Control'] = ['no-store'];
+        if (! isset($headers['Cache-Control'])) {
+            $headers['Cache-Control'] = ['private, no-store'];
         }
 
         return $headers;
@@ -175,38 +206,95 @@ final class VisitorProxyController
         }
     }
 
-    /** A 401 or 409 JSON answer is the Hub refusing the site (bad server token, site not verified), not a page. */
-    private static function refused(UpstreamResponse $upstream): bool
+    /**
+     * A 401 or 409 JSON answer is the Hub's proxy gate refusing the site, not a page (a page's own 409, e.g. a slot just taken, is HTML):
+     * 401 = the server token ({@see VisitorProxyException::REFUSED}), 409 = this origin is not (or no longer) trusted
+     * ({@see VisitorProxyException::NOT_VERIFIED}).
+     *
+     * @return VisitorProxyException::REFUSED|VisitorProxyException::NOT_VERIFIED|null
+     */
+    private static function refusal(UpstreamResponse $upstream): ?string
     {
-        return in_array($upstream->status, [401, 409], true)
-            && str_contains(strtolower((string) $upstream->header('content-type')), 'json');
+        if (! str_contains(strtolower((string) $upstream->header('content-type')), 'json')) {
+            return null;
+        }
+
+        return match ($upstream->status) {
+            401 => VisitorProxyException::REFUSED,
+            409 => VisitorProxyException::NOT_VERIFIED,
+            default => null,
+        };
+    }
+
+    /** The per-IP limit of the visitor routes. A cache failure never blocks a visitor. */
+    private static function throttled(Request $request): bool
+    {
+        $limit = (int) Auto::option('visitor_pages', 'per_minute', self::DEFAULT_PER_MINUTE);
+        $ip = ContentServiceProvider::visitorIp($request, config('content.forms.ip_header'));
+
+        if ($limit <= 0 || ! is_string($ip) || $ip === '') {
+            return false;
+        }
+
+        try {
+            $limiter = app(RateLimiter::class);
+            $key = 'fsc-visitor:' . hash('sha256', $ip);
+
+            if ($limiter->tooManyAttempts($key, $limit)) {
+                return true;
+            }
+
+            $limiter->hit($key, 60);
+        } catch (Throwable) {
+            return false;
+        }
+
+        return false;
     }
 
     private static function failed(VisitorProxyException $error, Request $request, string $path): Response
     {
-        // A body over the limit is the visitor's doing, not a fault of the site or the Hub.
-        if ($error->reason !== VisitorProxyException::REQUEST_TOO_LARGE) {
-            try {
-                report($error->forRequest($request->getMethod(), $path));
-            } catch (Throwable) {
-                // Reporting never breaks the answer.
-            }
+        // A body over the limit, or one that cannot be forwarded, is the visitor's doing; a site the Hub no longer trusts for this origin is
+        // an expected state (old links after a domain switch). Neither is a fault of the site or the Hub.
+        if (! in_array($error->reason, [VisitorProxyException::REQUEST_TOO_LARGE, VisitorProxyException::BAD_REQUEST, VisitorProxyException::NOT_VERIFIED], true)) {
+            self::report($error->forRequest($request->getMethod(), $path));
         }
 
         return match ($error->reason) {
             VisitorProxyException::REQUEST_TOO_LARGE => self::plain(413, 'Te groot'),
+            VisitorProxyException::BAD_REQUEST => self::plain(400, 'Ongeldig verzoek'),
+            VisitorProxyException::NOT_VERIFIED => self::plain(404, 'Niet gevonden'),
             VisitorProxyException::RESPONSE_TOO_LARGE => AutoErrors::standaloneResponse(502),
             default => AutoErrors::unavailable(),
         };
     }
 
-    private static function plain(int $status, string $title): Response
+    /** Reports a failure at most once per reason per {@see self::REPORT_EVERY_SECONDS}; without a working cache, every time. */
+    private static function report(VisitorProxyException $error): void
+    {
+        try {
+            if (! app('cache')->add('fsc:visitor-proxy:reported:' . $error->reason, 1, self::REPORT_EVERY_SECONDS)) {
+                return;
+            }
+        } catch (Throwable) {
+            // No cache: report anyway.
+        }
+
+        try {
+            report($error);
+        } catch (Throwable) {
+            // Reporting never breaks the answer.
+        }
+    }
+
+    /** @param array<string, string> $headers */
+    private static function plain(int $status, string $title, array $headers = []): Response
     {
         return new Response(
             '<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>' . e($title) . '</title></head>'
             . '<body><h1>' . e($title) . '</h1></body></html>',
             $status,
-            ['Content-Type' => 'text/html; charset=UTF-8', 'Cache-Control' => 'no-store'],
+            ['Content-Type' => 'text/html; charset=UTF-8', 'Cache-Control' => 'no-store', ...$headers],
         );
     }
 }
