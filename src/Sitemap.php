@@ -47,10 +47,19 @@ final class Sitemap
         return $entries;
     }
 
-    /** `sitemap.xml` for these entries (everything escaped). @param list<array{url: string, lastmod?: string|null}> $entries */
-    public static function xml(array $entries): string
+    /**
+     * `sitemap.xml` for these entries (everything escaped). `$comment` is printed as an XML comment inside the empty or filled `urlset`
+     * (a comment cannot contain `--`, so those are softened).
+     *
+     * @param list<array{url: string, lastmod?: string|null}> $entries
+     */
+    public static function xml(array $entries, ?string $comment = null): string
     {
         $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+
+        if ($comment !== null && $comment !== '') {
+            $xml .= '  <!-- ' . trim(str_replace(['--', '-->'], ['- -', '- ->'], $comment)) . " -->\n";
+        }
 
         foreach ($entries as $entry) {
             $xml .= '  <url><loc>' . htmlspecialchars($entry['url'], ENT_XML1 | ENT_QUOTES, 'UTF-8') . '</loc>';
