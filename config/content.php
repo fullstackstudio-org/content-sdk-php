@@ -332,7 +332,11 @@ return [
             'enabled' => (bool) env('FSC_AUTO_SITEMAP', true),
             'exclude' => [],
         ],
-        'robots' => (bool) env('FSC_AUTO_ROBOTS', true),
+        'robots' => [
+            'enabled' => (bool) env('FSC_AUTO_ROBOTS', true),
+            // Extra lines below `User-agent: *`, for example `Disallow: /account`.
+            'extra' => [],
+        ],
         'health' => (bool) env('FSC_AUTO_HEALTH', true),
         'redirects' => (bool) env('FSC_AUTO_REDIRECTS', true),
         'errors' => (bool) env('FSC_AUTO_ERRORS', true),

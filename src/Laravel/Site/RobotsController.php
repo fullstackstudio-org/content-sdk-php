@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Laravel\Site;
 
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use FullStackStudio\Content\Laravel\Robots;
+use Illuminate\Http\Response;
 
 /**
- * Placeholder action of `GET /robots.txt` (route `content.auto.robots`). Replaced by the automatic robots of task 6.
- * Until then it answers 404, so registering the route changes nothing a visitor can see.
+ * `GET /robots.txt` (route `content.auto.robots`): {@see Robots::automatic()}. No middleware group, so no session and no cookie.
  */
 final class RobotsController
 {
-    public function __invoke(): never
+    public function __invoke(): Response
     {
-        throw new NotFoundHttpException();
+        return Robots::automatic();
     }
 }

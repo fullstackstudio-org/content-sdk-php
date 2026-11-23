@@ -142,12 +142,6 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertSame([], $this->hub->requests);
     }
 
-    public function testThePlaceholderSitemapAndRobotsAnswer404(): void
-    {
-        $this->get('/sitemap.xml')->assertNotFound();
-        $this->get('/robots.txt')->assertNotFound();
-    }
-
     public function testTheContentRouteServesEveryPathThroughTheWebGroup(): void
     {
         $this->get('/')->assertOk()->assertSeeText('auto:');
