@@ -26,7 +26,8 @@ use Throwable;
  *
  * On the way out (and again in a `RequestHandled` listener, so nothing later can undo it): `preview.js` is inserted right after `<head>`, the
  * response becomes `private, no-store`, `noindex`, `no-referrer`, loses `Set-Cookie`, `ETag`, `Last-Modified` and `X-Frame-Options`, and its
- * CSP allows framing by exactly the embed origin the Hub stored with the preview. Any other method on the path is a 404.
+ * CSP allows framing by exactly the embed origin the Hub stored with the preview. `Server-Timing: fsc-hub;dur=…, fsc-render;dur=…` tells the
+ * builder how long the Hub call and the site's render took. Any other method on the path is a 404.
  */
 final class PreviewRequest
 {
@@ -87,12 +88,15 @@ final class PreviewRequest
 
         RateLimiter::hit($tokenKey, 60);
         $client = app(ContentClient::class);
+        $started = hrtime(true);
 
         try {
             $parsed = self::parse($client->getPagePreview($token));
         } catch (Throwable) {
             $parsed = null;
         }
+
+        $hubMs = (hrtime(true) - $started) / 1e6;
 
         if ($parsed === null) {
             RateLimiter::hit($missKey, 60);
@@ -106,6 +110,7 @@ final class PreviewRequest
         $preview->alias($parsed['path']);
         self::isolate();
         $client->overridePages(static fn (string $ref): ?array => $preview->pageFor($ref));
+        $started = hrtime(true);
 
         try {
             $response = $next(self::forward($request, $path));
@@ -129,6 +134,8 @@ final class PreviewRequest
         if ($response instanceof Response) {
             self::inject($response, $preview);
             self::secure($response, $preview->embedOrigin());
+            // For the builder's timing readout (preview.js reads it as `rendered.timing.server`); added to what the site already sends.
+            $response->headers->set('Server-Timing', sprintf('fsc-hub;dur=%.1F, fsc-render;dur=%.1F', $hubMs, (hrtime(true) - $started) / 1e6), false);
         }
 
         return $response;

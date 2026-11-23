@@ -167,6 +167,17 @@ final class PreviewTest extends LaravelTestCase
         self::assertSame(["default-src 'self'; frame-ancestors " . self::PORTAL], $headers->all('content-security-policy'));
     }
 
+    public function testThePreviewResponseCarriesServerTimingForTheBuilder(): void
+    {
+        $response = $this->postPreview();
+
+        self::assertMatchesRegularExpression('/^fsc-hub;dur=\d+\.\d, fsc-render;dur=\d+\.\d$/', (string) $response->headers->get('Server-Timing'));
+
+        $this->preview = null;
+        self::assertFalse($this->postPreview()->headers->has('Server-Timing'), 'a refusal says nothing about timing');
+        self::assertFalse($this->get('/over-ons')->headers->has('Server-Timing'), 'a live page is unchanged');
+    }
+
     public function testThePreviewHasTheScriptTagAndTheBlockMarkers(): void
     {
         $html = (string) $this->postPreview()->getContent();
