@@ -476,3 +476,143 @@
 .fsc-html__placeholder p {
     margin: 0;
 }
+
+/* Page blocks out of the box (PHP SDK). `resources/assets/blocks.css` is generated from this file (`php scripts/build-block-css.php`, checked by
+   a test): every selector wrapped in :where(), all :root rules merged into one, the consent banner left out and the two literal colours of the
+   hero replaced by their variables. <x-content::page-blocks> prints it inline once per page.
+
+   Theme layer: every visual value of a block goes through a variable declared once here. A site sets its own in `:root { ... }` and every
+   block follows. The names from the base above (--fsc-gap, --fsc-radius, --fsc-border, --fsc-accent, --fsc-accent-contrast, --fsc-danger,
+   --fsc-columns) are unchanged. */
+:root {
+    --fsc-font: inherit;
+    --fsc-heading-font: inherit;
+    --fsc-text: inherit;
+    --fsc-muted: color-mix(in srgb, currentColor 75%, transparent);
+    --fsc-surface: transparent;
+    --fsc-content-width: 72rem;
+    --fsc-content-pad: 1rem;
+    --fsc-button-bg: var(--fsc-accent);
+    --fsc-button-text: var(--fsc-accent-contrast);
+    --fsc-button-radius: var(--fsc-radius);
+    --fsc-embed-ratio: 16 / 9;
+    --fsc-hero-text: #fff;
+    --fsc-hero-shadow-color: rgb(0 0 0 / 0.6);
+}
+
+.fsc-blocks {
+    font-family: var(--fsc-font);
+    color: var(--fsc-text);
+}
+
+.fsc-blocks h1,
+.fsc-blocks h2,
+.fsc-blocks h3,
+.fsc-blocks h4,
+.fsc-blocks h5,
+.fsc-blocks h6 {
+    font-family: var(--fsc-heading-font);
+}
+
+/* Content width. Without a `wrap` attribute the component puts every default block in `.fsc-wrap`; with `wrap="..."` the site's own container
+   classes replace it and these rules do not apply. */
+.fsc-wrap {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: var(--fsc-content-width);
+    margin-inline: auto;
+    padding-inline: var(--fsc-content-pad);
+}
+
+/* The blocks stack in normal flow, not in a grid: a grid item with `margin-inline: auto` (every container class of a site has one) shrinks to its
+   content width. The gap sits between the blocks; in a portal preview the markers are `display: contents`, so the margin goes on their child. */
+.fsc-blocks {
+    display: block;
+}
+
+.fsc-blocks > :not(style) ~ :not(style) {
+    margin-top: calc(var(--fsc-gap) * 2);
+}
+
+.fsc-blocks > [data-fsc-block] ~ [data-fsc-block] > * {
+    margin-top: calc(var(--fsc-gap) * 2);
+}
+
+/* Columns and gallery: the grid and the images. The column count comes from --fsc-columns (set inline by the view). */
+.fsc-column {
+    min-width: 0;
+}
+
+.fsc-column > :first-child {
+    margin-top: 0;
+}
+
+.fsc-column > :last-child {
+    margin-bottom: 0;
+}
+
+.fsc-gallery__item img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 3 / 2;
+    object-fit: cover;
+    border-radius: var(--fsc-radius);
+}
+
+.fsc-block--image img {
+    display: block;
+    border-radius: var(--fsc-radius);
+}
+
+/* Video (the `embed` block, YouTube or Vimeo): full content width, the frame fills the box. */
+.fsc-block--embed {
+    width: 100%;
+    aspect-ratio: var(--fsc-embed-ratio);
+}
+
+.fsc-embed__frame {
+    display: block;
+}
+
+/* Hero fallback: the text keeps a readable measure even when the block runs wide. */
+.fsc-hero__heading,
+.fsc-hero__subheading {
+    margin: 0;
+}
+
+.fsc-hero__content {
+    max-width: 48rem;
+}
+
+/* Muted text, boxed surfaces and buttons through the theme variables (same selectors as the base, so these win by order). */
+.fsc-block figcaption,
+.fsc-articlecard__date,
+.fsc-legal__meta,
+.fsc-eventcard__meta,
+.fsc-event__meta {
+    color: var(--fsc-muted);
+    opacity: 1;
+}
+
+.fsc-block--cta,
+.fsc-block--appointmentBooking,
+.fsc-block--newsletterSignup,
+.fsc-eventcard,
+.fsc-productcard {
+    background: var(--fsc-surface);
+}
+
+.fsc-submit,
+.fsc-button {
+    color: var(--fsc-button-text);
+    background: var(--fsc-button-bg);
+    border-color: var(--fsc-button-bg);
+    border-radius: var(--fsc-button-radius);
+}
+
+.fsc-button--secondary {
+    color: var(--fsc-button-bg);
+    background: transparent;
+}

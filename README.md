@@ -240,7 +240,7 @@ The same building blocks as the React subpath of the JS SDK, as Blade components
 `fsc-*` class names of the optional stylesheet:
 
 ```bash
-php artisan vendor:publish --tag=content-assets   # public/vendor/content/content.css (identical to the JS SDK's styles.css)
+php artisan vendor:publish --tag=content-assets   # public/vendor/content/content.css (optional: the page blocks print their own inline copy, see AGENTS.md A18)
 php artisan vendor:publish --tag=content-views    # optional: copy every view to resources/views/vendor/content to edit them
 ```
 

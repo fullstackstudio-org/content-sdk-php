@@ -46,8 +46,11 @@ return [
     /*
      * Replace the default view of a block type of `<x-content::page-blocks>`, e.g. 'articleList' => 'blocks.articles' (a view of your own that
      * receives `$block`, `$index`, `$baseUrl` and `$resolve`). `unknown` renders block types this version does not know (default: skipped).
+     * `inline_styles` (env FSC_BLOCKS_INLINE_STYLES, default true): `<x-content::page-blocks>` prints the zero-specificity base CSS of the default
+     * views once per page. Set it to false only when the site loads the published `content.css` (`vendor:publish --tag=content-assets`).
      */
     'blocks' => [
+        'inline_styles' => env('FSC_BLOCKS_INLINE_STYLES', true),
         // 'articleList' => 'blocks.articles',
     ],
 

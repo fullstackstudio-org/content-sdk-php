@@ -15,7 +15,7 @@ Contents:
 
 ## Bouwvolgorde voor een nieuwe site
 
-Build in this order; each step points at the item in "Altijd verplicht" (A1 to A17) or a module section. Do not skip an item because a module is
+Build in this order; each step points at the item in "Altijd verplicht" (A1 to A18) or a module section. Do not skip an item because a module is
 off today: every component and route below is safe with its module off (renders nothing, 404s or does nothing, without exceptions), so switching a
 module on in the Hub later needs no code change.
 
@@ -25,7 +25,7 @@ module on in the Hub later needs no code change.
 4. The layout `resources/views/layouts/app.blade.php` with the five components (A5) and the cookie banner partial (A10).
 5. `routes/web.php` in this order: sitemap and robots (A6), your own routes, the legal pages (A11), the catch-all for Hub pages LAST (A6).
    `routes/api.php`: `/health` (A6) and `/consent` (A10).
-6. `PageController` with the error handling of A6, `resources/views/page.blade.php` with `<x-content::page-blocks>`.
+6. `PageController` with the error handling of A6, `resources/views/page.blade.php` with `<x-content::page-blocks wrap="<your container classes>">` (A18).
 7. Error pages `errors/404` and `errors/503` (A12).
 8. Webhook (A8) and forms (A9).
 9. Privacy statement with the required sentences (A11) and a footer link to it plus "Cookie-instellingen".
@@ -33,7 +33,7 @@ module on in the Hub later needs no code change.
     "Als de module X aanstaat" for each.
 11. If the site has a Content-Security-Policy: merge the SDK sources (A13).
     The portal preview (A17) needs nothing, as long as the banner hides itself under `html[data-fsc-preview]` (A10).
-12. Run `php artisan fsc:doctor` until it shows no `FOUT` line, then the checks in "Controleer je site".
+12. Run `php artisan fsc:doctor` until it shows no `FOUT` line (and no `LET OP` about `wrap`), build the test page of A18, then the checks in "Controleer je site".
 
 Every snippet you need is in this file. FullStack Studio staff also have the working reference `examples/laravel` in the (private) Hub repository
 `fullstackstudio-org/fullstack-content`, branch `laravel`: it passes `fsc:doctor` and contains the code of A4 to A12.
@@ -638,6 +638,57 @@ In a preview `<x-content::page-blocks>` marks each block (`data-fsc-block`, `dis
 Kill switch: `FSC_PREVIEW_ENABLED=false` (the portal then offers "Open in nieuw venster" or says the site must be updated). Path:
 `FSC_PREVIEW_PATH` (default `_fsc/p`; the portal assumes the default).
 
+### A18. Page blocks: content width, default styling, test page
+
+`<x-content::page-blocks>` renders every block type of the Hub page builder. The default views of the SDK are styled out of the box: the component
+prints one inline `<style>` (with the CSP nonce) the first time a page renders a block with a default view. No publish step, no CSS file to load.
+Its rules are all in `:where()` (zero specificity), so your own CSS always wins.
+
+- The page template MUST pass `wrap="<the site's content container classes>"`: `<x-content::page-blocks :blocks="$page['blocks'] ?? []" :media="$page['media'] ?? null" wrap="wrap" />`
+  (or `wrap="mx-auto max-w-5xl px-4"`, whatever the site's header and footer use). Every block rendered by a default view is wrapped in
+  `<div class="{wrap}">`; blocks rendered by a site view are not (that view handles its own width). Without `wrap` the default blocks sit in
+  `.fsc-wrap` (`max-width: var(--fsc-content-width)`, 72rem, and `padding-inline: var(--fsc-content-pad)`), which only fits by accident.
+  A default block that renders nothing (an empty module block) adds no wrapper.
+- Site views for block types (`:views`, `config('content.blocks.<type>')`) are optional overrides, not a requirement. Write one only when the
+  markup itself must differ; do not write one to get width or spacing.
+- Already load the published `content.css` (`vendor:publish --tag=content-assets`)? Set `FSC_BLOCKS_INLINE_STYLES=false` to not print the inline copy.
+- `fsc:doctor` warns (`LET OP`) when a page template has `<x-content::page-blocks>` without `wrap` and the site does not have a view for every default block type.
+- After building, create a published test page in the Hub with every block type (richText, image, gallery, columns, cta, hero, embed/video,
+  html, form, articleList, legalDocument and the module blocks that are on: eventList, event, appointmentBooking, faq, productList,
+  newsletterSignup), open it at phone width (375px) and at desktop width and check: nothing runs past the content width, columns and gallery
+  are a grid on desktop and one column on the phone, images keep their ratio, the video is 16:9 at full content width, text is readable.
+  Then delete the test page (and unpublish it first if it was live).
+
+#### Site design (theme variables)
+
+Theme the blocks through variables first. A site sets about ten of them once and every default block follows. Defaults are neutral: text and fonts
+inherit from the site, the accent is blue.
+
+```css
+:root {
+    --fsc-font: inherit;                /* body font of the blocks */
+    --fsc-heading-font: "Fraunces", serif;
+    --fsc-text: #1f2937;
+    --fsc-muted: #6b7280;               /* captions, dates, meta lines */
+    --fsc-accent: #c2410c;              /* links in cards, event dates, focus rings */
+    --fsc-accent-contrast: #fff;
+    --fsc-surface: #fafaf9;             /* background of cards and boxes */
+    --fsc-border: #e7e5e4;
+    --fsc-radius: 0.75rem;
+    --fsc-gap: 1.25rem;
+    --fsc-content-width: 72rem;         /* only for the fallback container, not with wrap */
+    --fsc-content-pad: 1rem;
+    --fsc-button-bg: var(--fsc-accent);
+    --fsc-button-text: var(--fsc-accent-contrast);
+    --fsc-button-radius: 999px;
+    --fsc-embed-ratio: 16 / 9;          /* the video block */
+}
+```
+
+Order of work: (1) variables, (2) your own rules on the `fsc-*` classes (`.fsc-block--cta`, `.fsc-eventcard`, ...; any plain rule beats the zero
+specificity base), (3) your own Blade view for a block type, only when the markup itself must differ. The full list of classes is in
+`resources/assets/content.css` of the package.
+
 ## Als de module X aanstaat
 
 Which modules are on: `php artisan fsc:doctor --online` (line `Modules aan:`) or `$content->getProject()['modules']`. A module that is off answers
@@ -657,9 +708,11 @@ The catch-all (A6) and `resources/views/page.blade.php`:
 ```blade
 @extends('layouts.app')
 @section('content')
-    <x-content::page-blocks :blocks="$page['blocks'] ?? []" :media="$page['media'] ?? null" />
+    <x-content::page-blocks :blocks="$page['blocks'] ?? []" :media="$page['media'] ?? null" wrap="wrap" />
 @endsection
 ```
+
+`wrap` is the class list of the site's content container (A18); the default block views are styled out of the box, no publish step.
 
 Every block type with a view renders: the SDK has no type list, a block renders when `views[type]`, `config('content.blocks.<type>')` or the
 package view `content::blocks.<type>` exists, and is skipped otherwise (so a new Hub block type appears once the site or a newer SDK has a view).
@@ -670,7 +723,7 @@ The portal previews pages through this site (A17). Verify: a published Hub page 
 **Module blocks (0.28).** The page builder offers a block only while its module is on; the site renders it with a default view of the SDK,
 no site code needed. Each view reads through the tag cached client (the webhook clears it), renders NOTHING on a Hub error, with the module
 off, when the referenced item is gone or the list is empty, and logs that once (`[fullstackstudio/content] The X block renders nothing`).
-Markup uses `fsc-*` classes; `content.css` has neutral, mobile first styles that inherit the site's fonts and colours.
+Markup uses `fsc-*` classes; the default views are styled out of the box (inline, mobile first, inherit the site's fonts and colours, themable with `--fsc-*` variables, see A18).
 
 | Block | Shows | Links to |
 |---|---|---|
@@ -993,7 +1046,7 @@ enough and the `repositories` entry can go. The service provider and the `Conten
 
 ```bash
 php artisan vendor:publish --tag=content-config   # optional: config/content.php
-php artisan vendor:publish --tag=content-assets   # optional: public/vendor/content/content.css (the fsc-* classes)
+php artisan vendor:publish --tag=content-assets   # optional: public/vendor/content/content.css (the fsc-* classes; the blocks print their own inline copy, see A18)
 php artisan vendor:publish --tag=content-views    # optional: copy the Blade views to resources/views/vendor/content
 php artisan fsc:agents                            # writes the short pointer block to AGENTS.md (and @AGENTS.md to an existing CLAUDE.md)
 php artisan fsc:doctor                            # checks the "Altijd verplicht" items (see "Controleer je site")

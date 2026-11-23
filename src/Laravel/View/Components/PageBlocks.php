@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\BlockStyle;
 use FullStackStudio\Content\Laravel\Preview\Preview;
 use Illuminate\Contracts\View\View;
 use Illuminate\View\Component;
@@ -22,6 +23,12 @@ use Illuminate\View\Component;
  *
  * `media` is `$page['media']`: with it, a block whose file was deleted is omitted; without it (null) the URL is derived from the id.
  * Only richText and columns print their HTML unescaped (Content sanitizes it on save); everything else is escaped.
+ *
+ * Default views are styled out of the box: the first render of a page prints the inline base CSS ({@see BlockStyle}, zero specificity, theme
+ * variables `--fsc-*`). `wrap="wrap max-w-5xl"` puts every block rendered by a default view in `<div class="wrap max-w-5xl">` (the site's own
+ * content container); without it they sit in `<div class="fsc-wrap">` (`--fsc-content-width`, `--fsc-content-pad`). Blocks rendered by a site
+ * view (`views` prop, `content.blocks.<type>`, `views['unknown']`) are never wrapped: the site view handles its own width. A published override
+ * in `resources/views/vendor/content/blocks` counts as a default view. All default blocks are wrapped, the hero fallback included.
  *
  * In a portal preview the root gets `data-fsc-preview-blocks` and every block is wrapped in `<div data-fsc-block="{id or index}"
  * style="display:contents">`, so the preview can select, highlight and swap blocks. Outside a preview the markup is unchanged.
@@ -42,16 +49,21 @@ final class PageBlocks extends Component
 
     public bool $preview = false;
 
-    /** @var list<array{key: string, block: array<string, mixed>, index: int, view: string, marker: string}> */
+    /** Class of the wrapper of a default-rendered block: the site's `wrap`, else the fallback `fsc-wrap`. */
+    public string $wrapClass = 'fsc-wrap';
+
+    /** @var list<array{key: string, block: array<string, mixed>, index: int, view: string, marker: string, default: bool}> */
     public array $items = [];
 
     /**
      * @param list<array<string, mixed>>|null $blocks
      * @param array<string, array<string, mixed>>|null $media
      * @param array<string, string> $views
+     * @param string|null $wrap class list of the site's content container, e.g. `wrap` or `wrap max-w-5xl`
      */
-    public function __construct(public readonly ?array $blocks = null, public readonly ?array $media = null, ?string $baseUrl = null, public readonly array $views = [])
+    public function __construct(public readonly ?array $blocks = null, public readonly ?array $media = null, ?string $baseUrl = null, public readonly array $views = [], ?string $wrap = null, public readonly ?string $nonce = null)
     {
+        $this->wrapClass = $wrap !== null && trim($wrap) !== '' ? trim($wrap) : 'fsc-wrap';
         $this->baseUrl = $baseUrl ?? app(ContentClient::class)->baseUrl();
         $this->preview = Preview::isActive();
 
@@ -68,7 +80,7 @@ final class PageBlocks extends Component
             }
 
             $marker = is_string($block['id'] ?? null) || is_int($block['id'] ?? null) ? (string) $block['id'] : (string) $index;
-            $this->items[] = ['key' => (string) ($block['id'] ?? "{$type}-{$index}"), 'block' => $block, 'index' => $index, 'view' => $view, 'marker' => $marker];
+            $this->items[] = ['key' => (string) ($block['id'] ?? "{$type}-{$index}"), 'block' => $block, 'index' => $index, 'view' => $view, 'marker' => $marker, 'default' => str_starts_with((string) $view, 'content::blocks.')];
         }
     }
 
@@ -99,6 +111,35 @@ final class PageBlocks extends Component
         }
 
         return ['id' => $id, 'url' => '/api/media/' . rawurlencode($id), 'contentType' => '', 'alt' => '', 'width' => null, 'height' => null];
+    }
+
+    /**
+     * The blocks as markup, in order. A block rendered by a default view that prints nothing (a module block without data) is left out, so it
+     * adds no empty wrapper and no grid gap. `styles` is the base CSS of the default views (empty when none rendered, or already printed).
+     *
+     * @return array{styles: string, blocks: list<array{marker: string, index: int, html: string, default: bool}>}
+     */
+    public function rendered(): array
+    {
+        $blocks = [];
+        $usesDefault = false;
+
+        foreach ($this->items as $item) {
+            $html = trim(view($item['view'], ['block' => $item['block'], 'index' => $item['index'], 'baseUrl' => $this->baseUrl, 'resolve' => $this->mediaFor(...)])->render());
+
+            if ($item['default']) {
+                if ($html === '') {
+                    continue;
+                }
+
+                $usesDefault = true;
+                $html = '<div class="' . e($this->wrapClass) . '">' . $html . '</div>';
+            }
+
+            $blocks[] = ['marker' => $item['marker'], 'index' => $item['index'], 'html' => $html, 'default' => $item['default']];
+        }
+
+        return ['styles' => BlockStyle::for($usesDefault, $this->nonce), 'blocks' => $blocks];
     }
 
     public function shouldRender(): bool

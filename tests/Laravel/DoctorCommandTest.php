@@ -117,6 +117,44 @@ final class DoctorCommandTest extends LaravelTestCase
         return array_values(array_map(fn ($r) => $r['label'], array_filter($results, fn ($r) => $r['status'] === Doctor::FAIL)));
     }
 
+    public function testPageBlocksWithoutWrapWarnsAndWithWrapPasses(): void
+    {
+        $this->completeSite();
+
+        file_put_contents($this->views . '/page.blade.php', '<x-content::page-blocks :blocks="$page[\'blocks\'] ?? []" :media="$page[\'media\'] ?? null" />');
+        $results = $this->results();
+        self::assertSame(Doctor::WARN, $this->statusOf($results, '<x-content::page-blocks> zonder wrap in '));
+        self::assertSame([], $this->failures($results), 'a warning, never a failure');
+        $hint = array_values(array_filter($results, fn ($r) => str_contains($r['label'], 'zonder wrap')))[0]['hint'];
+        self::assertStringContainsString('wrap="wrap"', $hint);
+        self::assertStringContainsString('A18', $hint);
+
+        file_put_contents($this->views . '/page.blade.php', '<x-content::page-blocks :blocks="$page[\'blocks\']" wrap="wrap max-w-5xl" />');
+        $results = $this->results();
+        self::assertSame(Doctor::OK, $this->statusOf($results, '<x-content::page-blocks> krijgt wrap'));
+        self::assertNull($this->statusOf($results, 'zonder wrap'));
+    }
+
+    public function testPageBlocksWithoutWrapIsFineWhenTheSiteViewsCoverEveryDefaultType(): void
+    {
+        $this->completeSite();
+
+        $types = array_map(static fn (string $f): string => basename($f, '.blade.php'), glob(__DIR__ . '/../../resources/views/blocks/*.blade.php'));
+        $views = implode(', ', array_map(static fn (string $t): string => "'{$t}' => 'blocks.{$t}'", $types));
+        file_put_contents($this->views . '/page.blade.php', "<x-content::page-blocks :blocks=\"\$b\" :views=\"[{$views}]\" />");
+
+        $results = $this->results();
+        self::assertSame(Doctor::OK, $this->statusOf($results, 'zonder wrap, maar de site heeft een eigen view'));
+        self::assertNull($this->statusOf($results, 'zonder wrap in'));
+    }
+
+    public function testASiteWithoutPageBlocksGetsNoWrapLine(): void
+    {
+        $this->completeSite();
+
+        self::assertNull($this->statusOf($this->results(), 'page-blocks'));
+    }
+
     public function testACompleteSitePasses(): void
     {
         $this->completeSite();

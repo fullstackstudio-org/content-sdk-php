@@ -54,6 +54,7 @@ final class Doctor
         $this->section(fn () => $this->checkLayouts());
         $this->section(fn () => $this->checkPreview());
         $this->section(fn () => $this->checkPageBuilderBlocks());
+        $this->section(fn () => $this->checkPageBlocksWidth());
         $this->section(fn () => $this->checkPublicFiles());
         $this->section(fn () => $this->checkSecrets());
         $this->section(fn () => $this->checkConfigCacheable());
@@ -525,6 +526,78 @@ final class Doctor
                 $this->add(self::WARN, "CSP-middleware {$class} staat in de globale middleware", 'Die draait ook op /_fsc/h (afgeschermde HTML-codeblokken) en vervangt daar de eigen sandbox-policy. Zet hem in de web-groep: $middleware->web(append: [' . $class . '::class]).');
             }
         }
+    }
+
+    /**
+     * `<x-content::page-blocks>` needs `wrap="<the site's container classes>"`: blocks rendered by a default view of the SDK are wrapped in it. Without
+     * it they sit in the fallback `.fsc-wrap` (72rem, 1rem padding), which only matches a site by accident. Checked statically on the site's views:
+     * a tag without `wrap=` is only fine when the site has its own view for every block type the SDK has a default view for (the `views` prop,
+     * `content.blocks.<type>` or `resources/views/vendor/content/blocks`). A warning, never a failure.
+     */
+    private function checkPageBlocksWidth(): void
+    {
+        $withoutWrap = [];
+        $covered = [];
+        $uses = false;
+
+        foreach ($this->views() as $path => $contents) {
+            if (preg_match_all('/<x-content::page-blocks\b(?:"[^"]*"|\'[^\']*\'|[^>"\'])*>/s', $contents, $tags) < 1) {
+                continue;
+            }
+
+            $uses = true;
+
+            foreach ($tags[0] as $tag) {
+                if (preg_match('/\s:?wrap\s*=/', $tag) !== 1) {
+                    $withoutWrap[] = $this->relative($path);
+                }
+
+                if (preg_match_all('/[\'"]([A-Za-z][A-Za-z0-9]*)[\'"]\s*=>/', $tag, $keys) > 0) {
+                    $covered = [...$covered, ...$keys[1]];
+                }
+            }
+        }
+
+        if (!$uses) {
+            return;
+        }
+
+        $withoutWrap = array_values(array_unique($withoutWrap));
+
+        if ($withoutWrap === []) {
+            $this->add(self::OK, '<x-content::page-blocks> krijgt wrap (de standaardblokken staan in de contentbreedte van de site)');
+
+            return;
+        }
+
+        foreach ((array) $this->config('content.blocks', []) as $type => $view) {
+            $covered[] = (string) $type;
+        }
+
+        $defaults = [];
+        foreach (glob(dirname(__DIR__, 2) . '/resources/views/blocks/*.blade.php') ?: [] as $file) {
+            $defaults[] = basename($file, '.blade.php');
+        }
+
+        foreach ($this->viewPaths() as $path) {
+            foreach (glob($path . '/vendor/content/blocks/*.blade.php') ?: [] as $file) {
+                $covered[] = basename($file, '.blade.php');
+            }
+        }
+
+        $missing = array_values(array_diff($defaults, $covered));
+
+        if ($missing === []) {
+            $this->add(self::OK, '<x-content::page-blocks> zonder wrap, maar de site heeft een eigen view voor elk bloktype');
+
+            return;
+        }
+
+        $this->add(
+            self::WARN,
+            '<x-content::page-blocks> zonder wrap in ' . implode(', ', $withoutWrap),
+            'De blokken met een standaardview van de SDK (' . implode(', ', array_slice($missing, 0, 5)) . (count($missing) > 5 ? ', ...' : '') . ') vallen dan in de terugvalbreedte (.fsc-wrap: 72rem, 1rem marge) in plaats van in de contentbreedte van de site. Geef de container van de site mee: <x-content::page-blocks wrap="wrap" ...> (de klassen van je eigen container, bijvoorbeeld "wrap max-w-5xl"). Zie AGENTS.md, A18.',
+        );
     }
 
     /** @return list<string> the site's own PHP files that could set response headers: app/, bootstrap/app.php, routes/ and config/ */

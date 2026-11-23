@@ -1,0 +1,1 @@
+site-custom:{{ $block["type"] }}

@@ -19,6 +19,8 @@ abstract class LaravelTestCase extends TestCase
         $app['config']->set('content.token', 'fsc_srv_laraveltoken');
         $app['config']->set('content.webhook.secret', 'fsc_whsec_testvector');
         $app['config']->set('content.webhook.enabled', true);
+        // The inline block styles are printed once per request and are tested on their own (BlockStyleTest); off here keeps the other markup tests exact.
+        $app['config']->set('content.blocks.inline_styles', false);
         $app['config']->set('cache.default', 'array');
     }
 }
