@@ -55,13 +55,22 @@ return [
 
     /*
      * Replace the default view of a block type of `<x-content::page-blocks>`, e.g. 'articleList' => 'blocks.articles' (a view of your own that
-     * receives `$block`, `$index`, `$baseUrl` and `$resolve`). `unknown` renders block types this version does not know (default: skipped).
+     * receives `$block`, `$index`, `$baseUrl`, `$resolve`, `$layout`, `$tone` and `$look`). `unknown` renders block types this version does not know (default: skipped).
      * `inline_styles` (env FSC_BLOCKS_INLINE_STYLES, default true): `<x-content::page-blocks>` prints the zero-specificity base CSS of the default
      * views once per page. Set it to false only when the site loads the published `content.css` (`vendor:publish --tag=content-assets`).
      */
     'blocks' => [
         'inline_styles' => env('FSC_BLOCKS_INLINE_STYLES', true),
         // 'articleList' => 'blocks.articles',
+    ],
+
+    /*
+     * The layouts a site's own block view implements (page builder v2), per block type: `'cta' => ['standard', 'split']`. The editor only offers
+     * what is listed here for a block rendered by a site view, and the view gets `$layout` (the resolved key, else the type's default),
+     * `$tone` and `$look` (class string for the block root). Default SDK views support every layout and need nothing here. Default: none.
+     */
+    'block_layouts' => [
+        // 'cta' => ['standard', 'split'],
     ],
 
     /*

@@ -696,6 +696,12 @@ inherit from the site, the accent is blue.
 }
 ```
 
+Layouts and tones (page builder v2): a block can carry `layout` and `tone`; the default views print `fsc-block--layout-<key>` and `fsc-block--tone-<key>`
+on the block root and style them. Four more variables: `--fsc-tone-soft-bg` (tinted panel, default 8% of the accent), `--fsc-tone-pad` (padding of a toned box),
+`--fsc-narrow-width` (42rem, richText `narrow`), `--fsc-small-width` (32rem, image `small`). A site view for a block type gets `$layout`, `$tone` and `$look`
+(class string for the root) but only a layout it declares in `content.block_layouts.<type>`; without the declaration the editor does not offer layouts for it.
+`examples/laravel` has a `/layouts-test` page (local only) with every type in every layout: check it at 390 and 1280 px.
+
 Layering: the inline block CSS is unlayered. It beats rules a Tailwind site writes inside `@layer` (preflight, `@layer components`, utility classes on the
 site's own views) and loses to unlayered ones. So a site rule that must override a block rule goes in plain CSS (not in an `@layer`), or sets the variable.
 The site's `@theme` tokens are usable in the variables (`--fsc-accent: var(--color-plum-600)`). Set `--fsc-text` and `--fsc-muted` to colours that read

@@ -3,7 +3,7 @@
      In a portal preview the form is disabled. Renders nothing while the route is not registered. Replace it: `content.blocks.newsletterSignup`. --}}
 @php($signup = \FullStackStudio\Content\Laravel\ModuleBlockData::newsletterSignup($block, $index))
 @if ($signup !== null)
-<section class="fsc-block fsc-block--newsletterSignup" id="{{ $signup['anchor'] }}">
+<section class="fsc-block fsc-block--newsletterSignup{{ ($look ?? '') === '' ? '' : ' ' . $look }}" id="{{ $signup['anchor'] }}">
     @if (($block['heading'] ?? '') !== '')<h2 class="fsc-newsletter__heading">{{ $block['heading'] }}</h2>@endif
     @if (($block['text'] ?? '') !== '')<p class="fsc-newsletter__text">{{ $block['text'] }}</p>@endif
     @if (($signup['flash']['status'] ?? null) === 'success')

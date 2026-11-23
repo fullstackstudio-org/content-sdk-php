@@ -1,5 +1,5 @@
 @php($media = ! empty($block['mediaId']) ? $resolve((string) $block['mediaId']) : null)
-<section class="fsc-block fsc-block--hero{{ $media ? ' fsc-hero--has-media' : '' }}">
+<section class="fsc-block fsc-block--hero{{ $media ? ' fsc-hero--has-media' : '' }}{{ ($look ?? '') === '' ? '' : ' ' . $look }}">
     @if ($media)<x-content::image :media="$media" :base-url="$baseUrl" class="fsc-hero__media" :eager="$index === 0" />@endif
     <div class="fsc-hero__content">
         <h1 class="fsc-hero__heading">{{ $block['heading'] ?? '' }}</h1>

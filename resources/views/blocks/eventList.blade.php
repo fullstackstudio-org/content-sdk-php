@@ -3,7 +3,7 @@
      the module off; an empty agenda prints `emptyText` when the block has one. Replace it with a view of your own: `content.blocks.eventList`. --}}
 @php($events = \FullStackStudio\Content\Laravel\ModuleBlockData::eventList($block))
 @if ($events !== null && ($events !== [] || trim((string) ($block['emptyText'] ?? '')) !== ''))
-<section class="fsc-block fsc-block--eventList">
+<section class="fsc-block fsc-block--eventList{{ ($look ?? '') === '' ? '' : ' ' . $look }}">
     @if (($block['heading'] ?? '') !== '')<h2 class="fsc-eventlist__heading">{{ $block['heading'] }}</h2>@endif
     @if ($events === [])
     <p class="fsc-eventlist__empty">{{ $block['emptyText'] }}</p>

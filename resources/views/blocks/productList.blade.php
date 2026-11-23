@@ -3,7 +3,7 @@
      error or with the module off. Replace it: `content.blocks.productList`. --}}
 @php($products = \FullStackStudio\Content\Laravel\ModuleBlockData::productList($block))
 @if ($products !== null)
-<section class="fsc-block fsc-block--productList">
+<section class="fsc-block fsc-block--productList{{ ($look ?? '') === '' ? '' : ' ' . $look }}">
     @if (($block['heading'] ?? '') !== '')<h2 class="fsc-productlist__heading">{{ $block['heading'] }}</h2>@endif
     <ul class="fsc-productlist">
     @foreach ($products as $product)

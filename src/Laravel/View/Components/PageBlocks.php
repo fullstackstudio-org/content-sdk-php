@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\BlockLook;
 use FullStackStudio\Content\Laravel\BlockStyle;
 use FullStackStudio\Content\Laravel\Preview\Preview;
 use Illuminate\Contracts\View\View;
@@ -18,7 +19,9 @@ use Illuminate\View\Component;
  * config `content.blocks.<type>`, and finally the package view `content::blocks.<type>` if it exists. There is no type list: a new block type
  * from the Hub renders as soon as the site or a newer SDK has a view for it. Because the package views are namespaced, you can also replace
  * one by creating `resources/views/vendor/content/blocks/<type>.blade.php`. A view gets: `$block`, `$index`, `$resolve` (a closure id =>
- * resolved media|null), `$baseUrl`. A type without a view is skipped, or rendered by the view in `views['unknown']` / `content.blocks.unknown`.
+ * resolved media|null), `$baseUrl`, and the resolved look ({@see BlockLook}): `$layout` (the layout key, never unknown, null for a type without layouts),
+ * `$tone` (`none`, `soft` or `accent`) and `$look` (the class string for the block root, empty for the default layout and tone). A site view
+ * only gets a layout that `content.block_layouts.<type>` lists; otherwise `$layout` is the default. A type without a view is skipped, or rendered by the view in `views['unknown']` / `content.blocks.unknown`.
  * Type names must match {@see self::TYPE_PATTERN}; anything else counts as a type without a view.
  *
  * `media` is `$page['media']`: with it, a block whose file was deleted is omitted; without it (null) the URL is derived from the id.
@@ -125,7 +128,10 @@ final class PageBlocks extends Component
         $usesDefault = false;
 
         foreach ($this->items as $item) {
-            $html = trim(view($item['view'], ['block' => $item['block'], 'index' => $item['index'], 'baseUrl' => $this->baseUrl, 'resolve' => $this->mediaFor(...)])->render());
+            $type = is_string($item['block']['type'] ?? null) ? $item['block']['type'] : '';
+            $declared = $item['default'] ? null : array_values(array_filter((array) config('content.block_layouts.' . $type, []), is_string(...)));
+            $look = BlockLook::for($type, $item['block'], $declared);
+            $html = trim(view($item['view'], ['block' => $item['block'], 'index' => $item['index'], 'baseUrl' => $this->baseUrl, 'resolve' => $this->mediaFor(...), 'layout' => $look['layout'], 'tone' => $look['tone'], 'look' => $look['classes']])->render());
 
             if ($item['default']) {
                 if ($html === '') {
@@ -133,7 +139,11 @@ final class PageBlocks extends Component
                 }
 
                 $usesDefault = true;
-                $html = '<div class="' . e($this->wrapClass) . '">' . $html . '</div>';
+
+                // A bleed layout (`image` wide, `embed` wide) runs edge to edge: no content container around it.
+                if (!$look['bleed']) {
+                    $html = '<div class="' . e($this->wrapClass) . '">' . $html . '</div>';
+                }
             }
 
             $blocks[] = ['marker' => $item['marker'], 'index' => $item['index'], 'html' => $html, 'default' => $item['default']];

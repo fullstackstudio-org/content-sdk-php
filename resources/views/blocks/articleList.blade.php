@@ -3,7 +3,7 @@
      `:views="['articleList' => 'blocks.articles']"`. --}}
 @php($articles = \FullStackStudio\Content\Laravel\BlockData::articleList($block))
 @if ($articles !== null)
-<section class="fsc-block fsc-block--articleList" @if (! empty($block['category'])) data-category="{{ $block['category'] }}" @endif @if (! empty($block['locale'])) data-locale="{{ $block['locale'] }}" @endif data-limit="{{ (int) ($block['limit'] ?? 0) }}">
+<section class="fsc-block fsc-block--articleList{{ ($look ?? '') === '' ? '' : ' ' . $look }}" @if (! empty($block['category'])) data-category="{{ $block['category'] }}" @endif @if (! empty($block['locale'])) data-locale="{{ $block['locale'] }}" @endif data-limit="{{ (int) ($block['limit'] ?? 0) }}">
     @if (($block['heading'] ?? '') !== '')<h2 class="fsc-articlelist__heading">{{ $block['heading'] }}</h2>@endif
     <ul class="fsc-articlelist">
     @foreach ($articles as $article)
