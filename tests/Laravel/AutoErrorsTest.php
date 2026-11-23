@@ -286,13 +286,24 @@ final class AutoErrorsTest extends LaravelTestCase
         $this->get('/abort/404')->assertStatus(418)->assertSee('site-provider');
     }
 
+    public function testHubFailureOnAJsonOrApiRequestIsAJson503(): void
+    {
+        foreach ([$this->getJson('/hub/500'), $this->getJson('/hub/timeout'), $this->get('/api/hub')] as $response) {
+            $response->assertStatus(503);
+            $response->assertExactJson(['error' => 'unavailable']);
+            $response->assertHeader('Retry-After', '300');
+            self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+            $this->assertClean($response);
+        }
+
+        self::assertCount(3, $this->reported);
+        $this->getJson('/hub/404')->assertNotFound()->assertExactJson(['error' => 'not_found']);
+        self::assertCount(3, $this->reported, 'a Hub 404 is not reported');
+    }
+
     public function testJsonRequestsKeepLaravelsRendering(): void
     {
-        $response = $this->getJson('/hub/500');
-
-        $response->assertStatus(500);
-        $response->assertJson(['message' => 'Server Error']);
-        $this->assertClean($response);
+        $this->getJson('/boom')->assertStatus(500)->assertJson(['message' => 'Server Error']);
 
         $this->getJson('/abort/404')->assertNotFound()->assertJsonMissing(['Pagina niet gevonden']);
         self::assertStringNotContainsString('Pagina niet gevonden', (string) $this->getJson('/abort/404')->getContent());
@@ -300,7 +311,7 @@ final class AutoErrorsTest extends LaravelTestCase
 
     public function testApiPathsKeepLaravelsRendering(): void
     {
-        $this->get('/api/hub')->assertStatus(500)->assertDontSee('Even niet bereikbaar');
+        $this->get('/api/hub')->assertStatus(503)->assertDontSee('Even niet bereikbaar');
         $this->get('/api/bestaat-niet')->assertNotFound()->assertDontSee('Pagina niet gevonden');
     }
 

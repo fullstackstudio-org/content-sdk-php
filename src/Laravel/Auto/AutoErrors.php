@@ -9,6 +9,7 @@ use FullStackStudio\Content\ContentException;
 use FullStackStudio\Content\Laravel\Site\PageContext;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\ViewErrorBag;
@@ -26,7 +27,8 @@ use Throwable;
  *   reported. With `APP_DEBUG=true` a Hub failure keeps Laravel's debug page.
  * - Every HTML 404 and 503 renders the site's `errors/{status}` view (or `errors/4xx`, `errors/5xx`) when it exists, else the package's
  *   `content::errors.{status}`. The status is put in the {@see PageContext} first, so the layout's tracker counts a 404.
- * - JSON and `api/*` requests keep Laravel's own rendering, and render callbacks the site registered (`withExceptions`, its own handler or
+ * - JSON and `api/*` requests keep Laravel's own rendering, except an escaped Hub failure: a JSON 503 `{"error":"unavailable"}` (or 404
+ *   `{"error":"not_found"}`). Render callbacks the site registered (`withExceptions`, its own handler or
  *   a provider) run first: this hook is added after every provider booted.
  * - Never recurses and never throws: a failing error view ends in standalone markup without layout or components.
  *
@@ -88,7 +90,7 @@ final class AutoErrors
     }
 
     /** The render callback: a response for an HTML 404/503 or an escaped {@see ContentException}, else null (Laravel renders). */
-    public static function render(object $handler, Throwable $e, mixed $request): ?Response
+    public static function render(object $handler, Throwable $e, mixed $request): Response|JsonResponse|null
     {
         if (self::$rendering) {
             return self::standalone(503);
@@ -97,8 +99,12 @@ final class AutoErrors
         self::$rendering = true;
 
         try {
-            if (! $request instanceof Request || ! Auto::on('errors') || self::wantsJson($handler, $request, $e)) {
+            if (! $request instanceof Request || ! Auto::on('errors')) {
                 return null;
+            }
+
+            if (self::wantsJson($handler, $request, $e)) {
+                return self::json($e);
             }
 
             $http = self::httpException($e);
@@ -119,6 +125,29 @@ final class AutoErrors
     public static function layout(): string
     {
         return Auto::layout() ?? 'layouts.app';
+    }
+
+    /**
+     * JSON and `api/*` requests: only an escaped {@see ContentException} is answered here (404 `not_found`, else 503 `unavailable` with
+     * `Retry-After` and `no-store`), with a fixed body and nothing of the Hub's message. Everything else keeps Laravel's JSON rendering.
+     */
+    private static function json(Throwable $e): ?JsonResponse
+    {
+        $content = self::contentException($e);
+
+        if ($content === null) {
+            return null;
+        }
+
+        if ($content->isNotFound()) {
+            return new JsonResponse(['error' => 'not_found'], 404);
+        }
+
+        if ((bool) config('app.debug')) {
+            return null;
+        }
+
+        return new JsonResponse(['error' => 'unavailable'], 503, ['Retry-After' => (string) self::RETRY_AFTER, 'Cache-Control' => 'no-store']);
     }
 
     /** The HTTP exception to render, or null when this hook leaves the exception to Laravel. */

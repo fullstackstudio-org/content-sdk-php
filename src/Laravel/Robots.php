@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel;
 
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\ContentException;
+use FullStackStudio\Content\Laravel\Auto\Auto;
 use Illuminate\Http\Response;
 use Throwable;
 
@@ -26,6 +27,23 @@ final class Robots
     /** @param array{sitemap?: string|false, extra?: list<string>} $options */
     public static function response(array $options = []): Response
     {
+        return self::build($options, false);
+    }
+
+    /**
+     * robots.txt of the out of the box site (`content.auto.robots`): the same rules, `content.auto.robots.extra` as the extra lines, and
+     * `public, max-age=900` unless Content failed (then `no-store`, as before).
+     */
+    public static function automatic(): Response
+    {
+        $extra = Auto::option('robots', 'extra', []);
+
+        return self::build(['extra' => is_array($extra) ? array_values($extra) : []], true);
+    }
+
+    /** @param array{sitemap?: string|false, extra?: list<string>} $options */
+    private static function build(array $options, bool $cacheable): Response
+    {
         $headers = ['Content-Type' => 'text/plain; charset=UTF-8'];
 
         try {
@@ -39,6 +57,10 @@ final class Robots
         } catch (Throwable) {
             $index = true;
             $headers['Cache-Control'] = 'no-store';
+        }
+
+        if ($cacheable && !isset($headers['Cache-Control'])) {
+            $headers['Cache-Control'] = Sitemap::PUBLIC_CACHE;
         }
 
         return new Response(self::text($index, $options), 200, $headers);
