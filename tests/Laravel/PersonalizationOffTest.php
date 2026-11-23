@@ -28,9 +28,10 @@ final class PersonalizationOffTest extends LaravelTestCase
             self::assertSame('<section class="g-hero"><h1 data-fsi-field="title">Websites die werken</h1></section>', trim($html));
         }
 
-        $this->post('/_fsc/i/decide', ['s' => ['home-hero'], 'p' => '/'])->assertNotFound();
+        // No route of its own: a POST finds only the automatic content route (GET), so 405; a GET reaches that route and is a 404.
+        self::assertSame(405, $this->post('/_fsc/i/decide', ['s' => ['home-hero'], 'p' => '/'])->status());
         $this->get('/_fsc/i/slots.js')->assertNotFound();
-        $this->post('/_fsc/i/me')->assertNotFound();
+        self::assertSame(405, $this->post('/_fsc/i/me')->status());
         self::assertSame([], $content->requests);
     }
 }
