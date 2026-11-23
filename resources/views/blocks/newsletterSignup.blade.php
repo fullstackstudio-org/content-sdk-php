@@ -4,8 +4,8 @@
 @php($signup = \FullStackStudio\Content\Laravel\ModuleBlockData::newsletterSignup($block, $index))
 @if ($signup !== null)
 <section class="fsc-block fsc-block--newsletterSignup{{ ($look ?? '') === '' ? '' : ' ' . $look }}" id="{{ $signup['anchor'] }}">
-    @if (($block['heading'] ?? '') !== '')<h2 class="fsc-newsletter__heading">{{ $block['heading'] }}</h2>@endif
-    @if (($block['text'] ?? '') !== '')<p class="fsc-newsletter__text">{{ $block['text'] }}</p>@endif
+    @if (($block['heading'] ?? '') !== '' || $preview)<h2 class="fsc-newsletter__heading"{!! $edit('heading') !!}>{{ $block['heading'] ?? '' }}</h2>@endif
+    @if (($block['text'] ?? '') !== '' || $preview)<p class="fsc-newsletter__text"{!! $edit('text') !!}>{{ $block['text'] ?? '' }}</p>@endif
     @if (($signup['flash']['status'] ?? null) === 'success')
     <p class="fsc-newsletter__success" role="status">{{ $signup['flash']['message'] ?? '' }}</p>
     @else
@@ -17,7 +17,7 @@
         <div class="fsc-newsletter__row">
             <label class="fsc-sr-only" for="{{ $signup['anchor'] }}-email">E-mailadres</label>
             <input id="{{ $signup['anchor'] }}-email" class="fsc-field__control fsc-newsletter__email" type="email" name="email" autocomplete="email" maxlength="254" placeholder="E-mailadres" required @if (($signup['flash']['status'] ?? null) === 'error') aria-invalid="true" aria-describedby="{{ $signup['anchor'] }}-error" @endif>
-            <button class="fsc-submit fsc-newsletter__submit" type="submit">{{ ($block['buttonLabel'] ?? '') !== '' ? $block['buttonLabel'] : 'Aanmelden' }}</button>
+            <button class="fsc-submit fsc-newsletter__submit" type="submit"{!! $edit('buttonLabel') !!}>{{ ($block['buttonLabel'] ?? '') !== '' || $preview ? ($block['buttonLabel'] ?? '') : 'Aanmelden' }}</button>
         </div>
         {{-- Honeypot: people never see or fill this field. --}}
         <div aria-hidden="true" class="fsc-hp" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label for="{{ $signup['anchor'] }}-hp">Laat dit veld leeg <input id="{{ $signup['anchor'] }}-hp" type="text" name="website" tabindex="-1" autocomplete="off" value=""></label></div>

@@ -79,7 +79,7 @@ final class PreviewRequest
         // well-formed tokens cannot hammer the Hub.
         $tokenKey = 'fsc-preview:' . hash('sha256', $token);
         $missKey = 'fsc-preview-miss:' . (PersonalizationController::visitorIp($request) ?? 'none');
-        $limit = max(1, (int) app('config')->get('content.preview.rate_limit', 60));
+        $limit = max(1, (int) app('config')->get('content.preview.rate_limit', 240));
 
         if (RateLimiter::tooManyAttempts($tokenKey, $limit) || RateLimiter::tooManyAttempts($missKey, self::MISS_LIMIT)) {
             return self::refuse(429);

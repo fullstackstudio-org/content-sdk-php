@@ -20,7 +20,7 @@
         @elseif ($event['summary'] !== '')<p class="fsc-event__summary">{{ $event['summary'] }}</p>@endif
     @endif
     @if ($event['href'] !== null && $event['state'] === 'open')
-    <a class="fsc-button fsc-button--primary" href="{{ $event['href'] }}"@if ($event['external']) rel="noopener"@endif>{{ ($block['ctaLabel'] ?? '') !== '' ? $block['ctaLabel'] : 'Aanmelden' }}</a>
+    <a class="fsc-button fsc-button--primary" href="{{ $event['href'] }}"@if ($event['external']) rel="noopener"@endif{!! $edit('ctaLabel') !!}>{{ ($block['ctaLabel'] ?? '') !== '' || $preview ? ($block['ctaLabel'] ?? '') : 'Aanmelden' }}</a>
     @elseif (\FullStackStudio\Content\Laravel\ModuleBlockData::stateLabel($event['state']) !== null)
     <p class="fsc-event__state">{{ \FullStackStudio\Content\Laravel\ModuleBlockData::stateLabel($event['state']) }}</p>
     @endif

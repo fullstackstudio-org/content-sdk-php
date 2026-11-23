@@ -3,7 +3,7 @@
 @php($faq = \FullStackStudio\Content\Laravel\ModuleBlockData::faq($block))
 @if ($faq !== null)
 <section class="fsc-block fsc-block--faq{{ ($look ?? '') === '' ? '' : ' ' . $look }}">
-    @if (($block['heading'] ?? '') !== '')<h2 class="fsc-faq__heading">{{ $block['heading'] }}</h2>@endif
+    @if (($block['heading'] ?? '') !== '' || $preview)<h2 class="fsc-faq__heading"{!! $edit('heading') !!}>{{ $block['heading'] ?? '' }}</h2>@endif
     @if (($layout ?? 'accordion') === 'open')<dl class="fsc-faq">
     @foreach ($faq['items'] as $item)
         <div class="fsc-faq__item">
