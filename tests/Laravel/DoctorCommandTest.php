@@ -62,6 +62,16 @@ final class DoctorCommandTest extends LaravelTestCase
         }
     }
 
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+
+        // A bare site from before the automatic routes; the doctor checks for those come with their own tests.
+        if (! $this->completeRoutes) {
+            $app['config']->set('content.auto.enabled', false);
+        }
+    }
+
     protected function defineRoutes($router): void
     {
         if (! $this->completeRoutes) {
