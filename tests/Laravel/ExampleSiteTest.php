@@ -75,7 +75,10 @@ final class ExampleSiteTest extends FakeHubTestCase
         parent::defineEnvironment($app);
 
         // What a real site has in its runtime env and in `config/content.php` (the example's own file, loaded as the app would).
-        $app['config']->set('content.auto', array_replace_recursive($app['config']->get('content.auto', []), (require self::EXAMPLE . '/config/content.php')['auto']));
+        $example = require self::EXAMPLE . '/config/content.php';
+        $app['config']->set('content.auto', array_replace_recursive($app['config']->get('content.auto', []), $example['auto']));
+        $app['config']->set('content.blocks', $example['blocks']);
+        $app['config']->set('content.block_layouts', $example['block_layouts']);
         $app['config']->set('content.auto.redirects', true);
         $app['config']->set('app.url', 'https://voorbeeld.test');
         $app['config']->set('session.driver', 'file');
@@ -180,6 +183,23 @@ final class ExampleSiteTest extends FakeHubTestCase
                 self::assertStringNotContainsString($gone, $uri, "the example still routes {$gone} itself");
             }
         }
+    }
+
+    public function testTheExamplesCtaSiteViewOptsInToLayoutsTonesAndInlineTyping(): void
+    {
+        $block = ['id' => 'b1', 'type' => 'cta', 'heading' => 'Bel ons', 'text' => 'Wij helpen.', 'label' => 'Contact', 'href' => '/contact', 'layout' => 'split', 'tone' => 'soft'];
+        $this->page('cta-test', 'nl', ['title' => 'CTA', 'blocks' => [$block]]);
+
+        // Live: the site view prints its container and the look classes, and no builder markers.
+        $live = $this->get('/cta-test')->assertOk()->getContent();
+        self::assertStringContainsString('<div class="wrap">', $live);
+        self::assertStringContainsString('fsc-block--cta fsc-block--layout-split fsc-block--tone-soft', $live);
+        self::assertStringNotContainsString('data-fsc-edit', $live);
+
+        // The same view in a preview marks its fields and tells the builder which layouts it implements (the site's declaration).
+        $markup = view('blocks.cta', ['block' => $block, 'look' => 'fsc-block--layout-split', 'preview' => true, 'edit' => static fn (string $f): string => ' data-fsc-edit="' . $f . '" data-fsc-edit-kind="plain"'])->render();
+        self::assertStringContainsString('data-fsc-edit="heading"', $markup);
+        self::assertSame(['standard', 'split'], config('content.block_layouts.cta'));
     }
 
     public function testFscDoctorFindsNothingToFixInTheExample(): void

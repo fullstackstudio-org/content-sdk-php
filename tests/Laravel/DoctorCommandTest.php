@@ -968,6 +968,107 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'Voorbeeld vanuit het portaal werkt niet'));
     }
 
+    // --- Page builder canvas and layouts (SDK 0.31) ---------------------------------------------------------------------------------
+
+    public function testTheCanvasLinePassesOnACorrectSetup(): void
+    {
+        $this->completeSite();
+
+        $results = $this->results();
+
+        self::assertSame(Doctor::OK, $this->statusOf($results, 'Paginabouwer kan op de pagina bewerken'));
+        self::assertSame([], $this->failures($results));
+    }
+
+    public function testAMissingPreviewScriptRouteIsAFailureThatNamesTheRouteCache(): void
+    {
+        $this->completeSite();
+        // The route exists after boot; a site whose route cache predates the update does not have it. Rebuild the collection without it.
+        $routes = new \Illuminate\Routing\RouteCollection();
+
+        foreach ($this->app['router']->getRoutes() as $route) {
+            if ($route->getName() !== 'content.preview.script') {
+                $routes->add($route);
+            }
+        }
+
+        $routes->refreshNameLookups();
+        $this->app['router']->setRoutes($routes);
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::FAIL, 'Voorbeeldscript wordt niet geserveerd');
+        self::assertNull($this->statusOf($results, 'Paginabouwer kan op de pagina bewerken'));
+        $hint = array_values(array_filter($results, static fn (array $r): bool => str_contains($r['label'], 'Voorbeeldscript')))[0]['hint'];
+        self::assertStringContainsString('route:clear', (string) $hint);
+    }
+
+    public function testAnotherPreviewPathIsAWarning(): void
+    {
+        $this->completeSite();
+        $this->app['config']->set('content.preview.path', 'voorbeeld');
+
+        $this->assertLine($this->results(), Doctor::WARN, 'FSC_PREVIEW_PATH wijkt af');
+    }
+
+    public function testNoCanvasLineWhenThePreviewIsOffOnPurpose(): void
+    {
+        $this->completeSite();
+        $this->app['config']->set('content.preview.enabled', false);
+
+        $results = $this->results();
+        self::assertNull($this->statusOf($results, 'Paginabouwer kan op de pagina bewerken'));
+        self::assertNull($this->statusOf($results, 'Voorbeeldscript'));
+    }
+
+    public function testASiteViewForATypeWithLayoutsWithoutADeclarationIsAWarning(): void
+    {
+        $this->completeSite();
+        mkdir($this->views . '/blocks', 0777, true);
+        file_put_contents($this->views . '/blocks/cta.blade.php', '<section class="fsc-block">{{ $block["heading"] ?? "" }}</section>');
+        $this->app['config']->set('content.blocks.cta', 'blocks.cta');
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::WARN, 'Eigen view voor blok cta, maar content.block_layouts heeft geen regel voor cta');
+        $this->assertLine($results, Doctor::INFO, 'Eigen blokview zonder $edit-markeringen: cta');
+        self::assertSame([], $this->failures($results));
+    }
+
+    public function testADeclaredSiteViewPassesAndAnEmptyDeclarationConfirmsNoLayouts(): void
+    {
+        $this->completeSite();
+        mkdir($this->views . '/blocks', 0777, true);
+        file_put_contents($this->views . '/blocks/cta.blade.php', '<section class="fsc-block {{ $look }}"><h2{!! $edit("heading") !!}>{{ $block["heading"] ?? "" }}</h2></section>');
+        file_put_contents($this->views . '/blocks/hero.blade.php', '<section {!! $edit("heading") !!}></section>');
+        $this->app['config']->set('content.blocks.cta', 'blocks.cta');
+        $this->app['config']->set('content.blocks.hero', 'blocks.hero');
+        $this->app['config']->set('content.block_layouts', ['cta' => ['standard', 'split'], 'hero' => []]);
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::OK, 'Eigen blokviews (cta, hero): layouts zijn gedeclareerd');
+        self::assertSame([], $this->labels(array_values(array_filter($results, static fn (array $r): bool => str_contains($r['label'], 'blok'))), Doctor::WARN));
+        self::assertNull($this->statusOf($results, 'zonder $edit-markeringen'));
+    }
+
+    public function testADeclarationForAnUnknownTypeOrLayoutIsAWarning(): void
+    {
+        $this->completeSite();
+        $this->app['config']->set('content.block_layouts', ['carousel' => ['standard'], 'cta' => ['standard', 'diagonal']]);
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::WARN, 'content.block_layouts.carousel');
+        $this->assertLine($results, Doctor::WARN, 'content.block_layouts.cta: onbekende layout diagonal');
+    }
+
+    public function testASiteViewInThePageBlocksViewsPropCountsToo(): void
+    {
+        $this->completeSite();
+        mkdir($this->views . '/blocks', 0777, true);
+        file_put_contents($this->views . '/blocks/faq.blade.php', '<div>{{ $block["heading"] ?? "" }}</div>');
+        file_put_contents($this->views . '/page.blade.php', "<x-content::page-blocks :blocks=\"\$page['blocks']\" wrap=\"wrap\" :views=\"['faq' => 'blocks.faq']\" />");
+
+        $this->assertLine($this->results(), Doctor::WARN, 'Eigen view voor blok faq');
+    }
+
     public function testStrictFailsOnWarnings(): void
     {
         $this->completeSite();

@@ -66,6 +66,8 @@ final class Doctor
         $this->section(fn () => $this->checkLayouts());
         $this->section(fn () => $this->checkResponseHeaders());
         $this->section(fn () => $this->checkPreview());
+        $this->section(fn () => $this->checkPageBuilderCanvas());
+        $this->section(fn () => $this->checkPageBuilderLayouts());
         $this->section(fn () => $this->checkPageBuilderBlocks());
         $this->section(fn () => $this->checkPageBlocksWidth());
         $this->section(fn () => $this->checkPublicFiles());
@@ -1022,6 +1024,168 @@ final class Doctor
             if (preg_match('/X-Frame-Options|frame-ancestors/i', $contents) === 1) {
                 $this->add(self::WARN, 'X-Frame-Options of frame-ancestors buiten PHP in ' . $this->relative($file), 'De webserver zet die header op elk antwoord, ook op het voorbeeld; dan kan het portaal de site niet tonen. Zet hem in PHP (middleware), de SDK past hem in het voorbeeld aan.');
             }
+        }
+    }
+
+    // --- Page builder canvas and layouts (SDK 0.31) -----------------------------------------------------------------------------
+
+    /**
+     * What the portal's page builder needs from the site to work on the page itself (selection, inline typing, reordering): the preview route
+     * that serves `preview.js`, the global middleware behind `POST /_fsc/p`, the helper script inside the package and the default path (the
+     * portal assumes `_fsc/p`). Without them the builder falls back to the Hub's own renderer, which shows the blocks in a neutral style, so a
+     * missing piece is a failure here: the site would look wrong in the editor and nobody would know why. A stale `route:cache` from before the
+     * update is the usual cause of a missing route. Nothing is said when the preview is off on purpose (the preview check already reports that).
+     */
+    private function checkPageBuilderCanvas(): void
+    {
+        if (! (bool) $this->config('content.preview.enabled', true) || ! PreviewRequest::enabled()) {
+            return;
+        }
+
+        $problems = 0;
+        $script = dirname(__DIR__, 2) . '/resources/assets/preview.js';
+        $contents = is_file($script) ? (string) file_get_contents($script) : '';
+
+        if ($contents === '' || ! str_contains($contents, 'proto: 2')) {
+            $this->add(self::FAIL, 'Canvas van de paginabouwer ontbreekt: preview.js in het pakket is leeg of van voor protocol 2', 'Installeer het pakket opnieuw (composer update fullstackstudio/content) en controleer dat vendor/ niet halfgekopieerd is.');
+            $problems++;
+        }
+
+        if (! $this->app['router']->getRoutes()->hasNamedRoute('content.preview.script')) {
+            $this->add(self::FAIL, 'Voorbeeldscript wordt niet geserveerd: route ' . ltrim(PreviewRequest::base(), '/') . '/preview.js bestaat niet', 'Het voorbeeld laadt dit script in elk antwoord; zonder kan de paginabouwer niet op de pagina bewerken. Meestal staat er een route-cache van voor de update: draai php artisan route:clear (en bij het uitrollen route:cache opnieuw), of roep ContentServiceProvider::registerPreviewRoutes() aan als je routes zelf registreert.');
+            $problems++;
+        }
+
+        $kernel = $this->app->make(HttpKernel::class);
+
+        if (method_exists($kernel, 'hasMiddleware') && ! $kernel->hasMiddleware(PreviewRequest::class)) {
+            $this->add(self::FAIL, 'Voorbeeldmiddleware ontbreekt: POST ' . PreviewRequest::base() . ' wordt niet afgehandeld', 'De portal post daar het voorbeeldtoken heen. Laat de service provider van het pakket de middleware zetten (niet uitgeschakeld met package discovery) of voeg PreviewRequest toe aan de globale middleware.');
+            $problems++;
+        }
+
+        if (trim(PreviewRequest::base(), '/') !== '_fsc/p') {
+            $this->add(self::WARN, 'FSC_PREVIEW_PATH wijkt af van de standaard (' . PreviewRequest::base() . ')', 'De paginabouwer gaat uit van /_fsc/p. Met een ander pad opent het voorbeeld niet op de pagina zelf; laat FSC_PREVIEW_PATH weg.');
+            $problems++;
+        }
+
+        if ($problems === 0) {
+            $this->add(self::OK, 'Paginabouwer kan op de pagina bewerken (voorbeeldscript, protocol 2, middleware en pad kloppen)');
+        }
+    }
+
+    /**
+     * Layouts in the builder (page builder v2). A site view (a view in `content.blocks.<type>` or the `views` prop of `<x-content::page-blocks>`)
+     * only gets a layout the site declares in `content.block_layouts.<type>`, so a site view for a type that has layouts and no entry there
+     * offers none: `LET OP`. An entry that names a type or layout the SDK does not know is a warning too (a typo never shows up in the editor).
+     * A site view without `$edit(...)` markers cannot be typed on in the builder; that is only an `INFO` (the settings pane still works).
+     */
+    private function checkPageBuilderLayouts(): void
+    {
+        $declared = (array) $this->config('content.block_layouts', []);
+        $typos = 0;
+
+        foreach ($declared as $type => $layouts) {
+            $known = BlockLook::LAYOUTS[(string) $type] ?? null;
+
+            if ($known === null) {
+                $this->add(self::WARN, "content.block_layouts.{$type}: bloktype {$type} heeft geen layouts", 'Layouts bestaan voor: ' . implode(', ', array_keys(BlockLook::LAYOUTS)) . '. Zie AGENTS.md, "Eigen blokview in de bouwer".');
+                $typos++;
+
+                continue;
+            }
+
+            $unknown = array_values(array_diff(array_filter((array) $layouts, is_string(...)), $known));
+
+            if ($unknown !== []) {
+                $this->add(self::WARN, "content.block_layouts.{$type}: onbekende layout " . implode(', ', $unknown), "De layouts van {$type} zijn: " . implode(', ', $known) . '.');
+                $typos++;
+            }
+        }
+
+        $views = $this->siteBlockViews();
+
+        if ($views === []) {
+            if ($typos === 0) {
+                $this->add(self::OK, 'Blokken hebben geen eigen views: de standaardviews van het pakket bieden alle layouts en tinten aan');
+            }
+
+            return;
+        }
+
+        $without = [];
+        $untyped = [];
+
+        foreach ($views as $type => $view) {
+            if (isset(BlockLook::LAYOUTS[$type]) && ! array_key_exists($type, $declared)) {
+                $without[] = $type;
+            }
+
+            $file = $this->viewFile($view);
+
+            if ($file !== null && ! str_contains((string) file_get_contents($file), '$edit(')) {
+                $untyped[] = $type;
+            }
+        }
+
+        foreach ($without as $type) {
+            $this->add(
+                self::WARN,
+                "Eigen view voor blok {$type}, maar content.block_layouts heeft geen regel voor {$type}",
+                "De paginabouwer biedt dan geen layouts aan voor dit blok (de view krijgt alleen wat de site declareert). Heeft de view geen layouts, zet dan 'content.block_layouts.{$type}' => [] om dit te bevestigen; ondersteunt ze die wel, lijst ze dan op (" . implode(', ', BlockLook::LAYOUTS[$type]) . ') en druk $look op de wortel van het blok af. Zie AGENTS.md, "Eigen blokview in de bouwer".',
+            );
+        }
+
+        if ($without === [] && $typos === 0) {
+            $this->add(self::OK, 'Eigen blokviews (' . implode(', ', array_keys($views)) . '): layouts zijn gedeclareerd in content.block_layouts');
+        }
+
+        if ($untyped !== []) {
+            $this->add(self::INFO, 'Eigen blokview zonder $edit-markeringen: ' . implode(', ', $untyped), 'Zulke blokken kun je in de paginabouwer kiezen en in het instellingenpaneel wijzigen, maar niet op de pagina zelf typen. Zet ' . "{!! \$edit('veld') !!}" . ' op de elementen die je wilt kunnen typen.');
+        }
+    }
+
+    /**
+     * The block types the site renders with a view of its own: `content.blocks.<type>` and the `views` prop of `<x-content::page-blocks>`
+     * (read statically). A view in the package's namespace (`content::blocks.*`, also a published override) is a default view, like in the component.
+     *
+     * @return array<string, string> type => view name
+     */
+    private function siteBlockViews(): array
+    {
+        $views = [];
+
+        foreach ((array) $this->config('content.blocks', []) as $type => $view) {
+            if (is_string($view) && $view !== '' && (string) $type !== 'unknown' && ! str_starts_with($view, 'content::blocks.')) {
+                $views[(string) $type] = $view;
+            }
+        }
+
+        foreach ($this->views() as $contents) {
+            if (preg_match_all('/<x-content::page-blocks\b(?:"[^"]*"|\'[^\']*\'|[^>"\'])*>/s', $contents, $tags) < 1) {
+                continue;
+            }
+
+            foreach ($tags[0] as $tag) {
+                if (preg_match_all('/[\'"]([A-Za-z][A-Za-z0-9]*)[\'"]\s*=>\s*[\'"]([A-Za-z0-9_.:\-]+)[\'"]/', $tag, $pairs, PREG_SET_ORDER) > 0) {
+                    foreach ($pairs as $pair) {
+                        if ($pair[1] !== 'unknown' && ! str_starts_with($pair[2], 'content::blocks.')) {
+                            $views[$pair[1]] ??= $pair[2];
+                        }
+                    }
+                }
+            }
+        }
+
+        return $views;
+    }
+
+    /** The file behind a view name, or null when it does not resolve (a view that does not exist is not this check's business). */
+    private function viewFile(string $view): ?string
+    {
+        try {
+            return $this->app['view']->getFinder()->find($view);
+        } catch (Throwable) {
+            return null;
         }
     }
 

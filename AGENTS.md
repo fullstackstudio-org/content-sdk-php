@@ -54,7 +54,7 @@ Automatic, nothing to do: the SDK adds `Link: <Hub origin>; rel=preconnect` and 
 ```json
 // composer.json
 "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-"require": { "fullstackstudio/content": "^0.30" }
+"require": { "fullstackstudio/content": "^0.31" }
 ```
 
 ```bash
@@ -187,7 +187,7 @@ Layouts and tones (page builder v2): a block can carry `layout` and `tone`; the 
 on the block root and style them. Four more variables: `--fsc-tone-soft-bg` (tinted panel, default 8% of the accent), `--fsc-tone-pad` (padding of a toned box),
 `--fsc-narrow-width` (42rem, richText `narrow`), `--fsc-small-width` (32rem, image `small`). A site view for a block type gets `$layout`, `$tone` and `$look`
 (class string for the root) but only a layout it declares in `content.block_layouts.<type>`; without the declaration the editor does not offer layouts for it.
-`examples/laravel` has a `/layouts-test` page (local only) with every type in every layout: check it at 390 and 1280 px.
+`examples/laravel` has a `/layouts-test` page (local only) with every type in every layout: check it at 390 and 1280 px. How a site view opts in: A19.
 
 Layering: the inline block CSS is unlayered. It beats rules a Tailwind site writes inside `@layer` (preflight, `@layer components`, utility classes on the
 site's own views) and loses to unlayered ones. So a site rule that must override a block rule goes in plain CSS (not in an `@layer`), or sets the variable.
@@ -577,6 +577,118 @@ No publish step, no CSS file to load. Its rules are all in `:where()` (zero spec
   Then delete the test page (and unpublish it first if it was live).
 
 
+### A19. Page builder in the portal: canvas, layouts, tones and your own block views (0.31)
+
+The portal's page builder shows the real site as its canvas: the preview of A17 with `preview.js` in protocol 2. The owner clicks a block to select it,
+types headings and text on the page, drags blocks, and chooses an "Indeling" (layout) and an "Achtergrond" (tone) per block. Nothing to configure for a site
+that only uses the default block views: install 0.31, keep the preview on (A17) and run `php artisan fsc:doctor`.
+
+**What the builder does with an older site (the canvas ladder).** The Hub decides per page load from the preview answer:
+
+| Site SDK | Canvas | Select, hover, reorder | Typing on the page | Layouts |
+|---|---|---|---|---|
+| 0.31 and up | the real site | yes | yes | yes |
+| 0.27 to 0.30 | the real site, protocol 1 | click and highlight | no (settings pane) | not offered |
+| below 0.27, no preview, or no `ready` within 5 s | the Hub's fallback renderer (same SDK views, neutral style, `--fsc-accent` only) | yes | yes | not offered |
+
+Layouts are offered only for what the **site** can render, so the editor never offers a choice the live page ignores. Placeholders for incomplete blocks
+(a labelled box where a required choice is still missing, view `content::blocks.fscPlaceholder`) exist from 0.31: a site below 0.31 never gets them, also
+after the portal switched to the fallback, so an incomplete block is absent from the preview until it is complete. Upgrade the site to 0.31.
+
+**Layouts and tones.** The keys are stored on the block as `layout` and `tone`; absent means the default. The default views print the classes below on the
+block root (`<section class="fsc-block fsc-block--hero fsc-block--layout-image-right fsc-block--tone-soft">`); the default layout and the tone `none` print nothing,
+so a block without the keys renders as before 0.31. The SDK's copy of the table is `Laravel\BlockLook::LAYOUTS` (first key is the default).
+
+| Type | Layouts (default first) | Tones |
+|---|---|---|
+| `hero` | `overlay`, `image-right`, `image-left` | yes |
+| `richText` | `standard`, `narrow` | yes |
+| `image` | `standard`, `wide` (edge to edge, outside `wrap`), `small` | no |
+| `gallery` | `grid`, `strip` | no |
+| `cta` | `standard`, `split` | yes |
+| `columns` | `plain`, `cards` | yes |
+| `articleList`, `productList` | `grid`, `list` | no |
+| `form` | `standard`, `card` | yes |
+| `embed` | `standard`, `wide` | no |
+| `eventList` | `cards`, `list` | no |
+| `event` | `standard`, `image-side` | no |
+| `appointmentBooking` | `standard`, `split` | yes |
+| `faq` | `accordion`, `open` | yes |
+| `newsletterSignup` | `standard`, `inline` | yes |
+| `legalDocument`, `html` | none | no |
+
+Tones: `none`, `soft` (`fsc-block--tone-soft`: tinted panel, `--fsc-tone-soft-bg`, padded with `--fsc-tone-pad`) and `accent` (`fsc-block--tone-accent`:
+`--fsc-accent` background, `--fsc-accent-contrast` text, round buttons). Every layout is one column below 40rem; side-by-side layouts start at 48rem.
+
+**Theme variables the builder reads.** After `init`, `preview.js` resolves these variables on the blocks root and posts them as the colour swatches of the
+settings pane: `--fsc-accent`, `--fsc-accent-contrast`, `--fsc-tone-soft-bg`, `--fsc-surface`, `--fsc-text`, `--fsc-muted`, `--fsc-border`. The owner never
+types a colour; the choices are "geen, licht, accent" drawn from these. Set them in the site's CSS (see "Ontwerp") and the swatches follow. The other layout
+variables are `--fsc-tone-pad`, `--fsc-narrow-width` (richText `narrow`, 42rem) and `--fsc-small-width` (image `small`, 32rem).
+
+**Your own block view in the builder.** A view you registered in `content.blocks.<type>` (or the `views` prop of `<x-content::page-blocks>`) is a site view.
+It is always selectable and editable in the settings pane; it gets layouts, tones and typing on the page only when it opts in. Three things, all optional:
+
+1. **Declare the layouts the view implements** in `config/content.php` under `block_layouts.<type>`, a subset of the table above. A layout that is not declared is
+   never offered, and a block that carries it renders as the default. Without an entry the builder offers no layouts for that type (`fsc:doctor` says
+   `LET OP`; an explicit `'<type>' => []` confirms that the view has none).
+2. **Print `$look` on the root of the block.** It is the class string for the resolved layout and tone (`fsc-block--layout-split fsc-block--tone-soft`, empty for the
+   defaults), and the SDK's own CSS styles those classes. A view that does its own styling reads `$layout` (resolved key, else the type's default) and `$tone`
+   (`none`, `soft`, `accent`) instead. The tone applies to the types in the table only.
+3. **Mark the fields that can be typed on the page** with `{!! $edit('field') !!}` (`$edit('html', 'rich')` for rich text). It prints
+   ` data-fsc-edit="field" data-fsc-edit-kind="plain"` in a portal preview and nothing on the live site. The field name is the key in the block
+   data (`heading`, `text`, `label`; `columns.0.html` for a column). In a preview an empty optional field must still print its element, or it cannot be clicked:
+   `@if (($block['text'] ?? '') !== '' || $preview)`. `$preview` is true in a portal preview only.
+
+A site view is not wrapped by the package: it brings its own container. Example 1, a `cta` that implements both layouts and the tones
+(`resources/views/blocks/cta.blade.php` in `examples/laravel`, shown here without the button variant):
+
+```php
+// config/content.php
+'blocks' => ['cta' => 'blocks.cta'],
+'block_layouts' => ['cta' => ['standard', 'split']],
+```
+
+```blade
+<div class="wrap">
+    <section class="fsc-block fsc-block--cta{{ ($look ?? '') === '' ? '' : ' ' . $look }}">
+        @if (($block['heading'] ?? '') !== '' || $preview)<h2 class="fsc-cta__heading"{!! $edit('heading') !!}>{{ $block['heading'] ?? '' }}</h2>@endif
+        @if (($block['text'] ?? '') !== '' || $preview)<p class="fsc-cta__text"{!! $edit('text') !!}>{{ $block['text'] ?? '' }}</p>@endif
+        <a class="fsc-button" href="{{ \FullStackStudio\Content\Html::href($block['href'] ?? '') }}"{!! $edit('label') !!}>{{ $block['label'] ?? '' }}</a>
+    </section>
+</div>
+```
+
+Example 2, a `hero` of the site's own design that has no layouts but can be typed on: declare `'hero' => []` (confirms "no layouts", the doctor stays quiet) and
+add only `$edit`. `$look` is not printed, so a tone picked for this block has no effect on this view; add `$look` to the root when it should.
+
+```php
+'blocks' => ['hero' => 'blocks.hero'],
+'block_layouts' => ['hero' => []],
+```
+
+```blade
+<header class="site-hero">
+    <h1{!! $edit('heading') !!}>{{ $block['heading'] ?? '' }}</h1>
+    @if (($block['subheading'] ?? '') !== '' || $preview)<p{!! $edit('subheading') !!}>{{ $block['subheading'] ?? '' }}</p>@endif
+</header>
+```
+
+`examples/laravel` shows the first example and a `/layouts-test` page (local only) with every type in every layout and tone: check it at 390 and 1280 px after
+changing the variables.
+
+**What a preview adds to the markup** (never on a live page). Each block is wrapped in `<div data-fsc-block="<id>" data-fsc-block-type="<type>"
+data-fsc-block-default="1|0" data-fsc-layouts="<layouts>" style="display: contents">`; `data-fsc-layouts` is the SDK table for a default view and
+`content.block_layouts.<type>` for a site view. A default view that printed nothing and every `fscPlaceholder` block print `<div class="fsc-preview-empty">label</div>`
+(the label is the registry name, escaped). The response carries `Server-Timing: fsc-hub, fsc-render`. The limit is `content.preview.rate_limit`, 240 requests per
+minute per token (`FSC_PREVIEW_RATE_LIMIT`); a builder session refreshes after every change. A site below 0.31 that needs the Hub fallback does not have to do anything.
+
+**`fsc:doctor`.** On a correct setup: `OK Paginabouwer kan op de pagina bewerken` and, with site views, `OK Eigen blokviews (...): layouts zijn gedeclareerd`. What fails:
+`FOUT Canvas van de paginabouwer ontbreekt` (`preview.js` empty or from before protocol 2), `FOUT Voorbeeldscript wordt niet geserveerd` (the route
+`content.preview.script` is missing; run `php artisan route:clear`, then `route:cache` again on deploy), `FOUT Voorbeeldmiddleware ontbreekt`; `LET OP`: `FSC_PREVIEW_PATH`
+other than `_fsc/p` (the portal assumes the default), a site view for a type with layouts without a `block_layouts` entry, an entry that names an unknown type or layout;
+`INFO`: a site view without `$edit` markers. Nothing is reported while the preview is switched off on purpose (`FSC_PREVIEW_ENABLED=false`).
+
+
 ## Overschrijven
 
 The site's code always wins, by construction: the package registers its routes after the site's, skips a route whose method and URI the site already has, and
@@ -601,7 +713,7 @@ A site that was hand-built before 0.30 does not have to change anything to run o
 **Stage 1: bump only**, per site, one PR, no code removed:
 
 1. Inventory first: SDK version, root catch-all or fallback present, own sitemap/robots, CSP, trailing slashes, locales, root-level article template, any site route or Hub page path under `a/`, `e/`, `n/`, `t/`, `r/`.
-2. `composer require fullstackstudio/content:^0.30`. Sites below 0.25 also follow the CHANGELOG steps in between.
+2. `composer require fullstackstudio/content:^0.31`. Sites below 0.25 also follow the CHANGELOG steps in between.
 3. A site without a root catch-all gets `FSC_AUTO_PAGES=false` in its runtime env **before** the deploy.
 4. `php artisan fsc:doctor`: the "Automatisch" section must show `eigen route wint` or `uit` for every route feature. Deploy.
 
@@ -1397,7 +1509,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.30" }
+    "require": { "fullstackstudio/content": "^0.31" }
 }
 ```
 

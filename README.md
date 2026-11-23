@@ -15,7 +15,7 @@ token or SSH key is needed, so a Docker build can install it as-is. Until it is 
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.30" }
+    "require": { "fullstackstudio/content": "^0.31" }
 }
 ```
 
@@ -423,6 +423,13 @@ With the Content module `errors` switched on, the SDK reports backend exceptions
 `<x-content::head />` in the `<head>`, browser errors via the first-party tunnel `POST /_fsc/e/envelope` on your own domain. The DSNs come from
 Content; events are rebuilt from an allowlist and messages are scrubbed. Never in `local`/`testing`. Options and what is (not) sent: `AGENTS.md`,
 section "Error monitoring", and `config/content.php` (`errors`).
+
+## Page builder
+
+The portal's page builder shows the site itself as its canvas (the preview below, `preview.js` protocol 2, SDK 0.31). Blocks can carry a `layout` and a `tone`;
+the default block views implement all of them, a view of your own opts in with `content.block_layouts.<type>`, `$look` on the block root and `{!! $edit('field') !!}`
+on the fields that can be typed on the page. `examples/laravel` has an opted-in `cta` view and a `/layouts-test` page; `php artisan fsc:doctor` checks the canvas
+(preview script, middleware, path) and the declarations. Details, the layouts table and the notes for older sites: `AGENTS.md`, A19.
 
 ## Portal preview
 
