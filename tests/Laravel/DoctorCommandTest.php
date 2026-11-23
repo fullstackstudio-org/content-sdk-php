@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace FullStackStudio\Content\Tests\Laravel;
 
+use Closure;
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Http\Request as HubRequest;
+use FullStackStudio\Content\Http\Response as HubResponse;
 use FullStackStudio\Content\Laravel\Doctor;
 use FullStackStudio\Content\Laravel\RedirectMiddleware;
 use FullStackStudio\Content\Laravel\Robots;
 use FullStackStudio\Content\Laravel\Sitemap;
 use FullStackStudio\Content\Tests\Support\FakeTransport;
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\URL;
 
 final class DoctorCommandTest extends LaravelTestCase
@@ -36,6 +40,12 @@ final class DoctorCommandTest extends LaravelTestCase
     private string $public;
     private bool $completeRoutes = true;
     private string $healthBody = '{"ok":true}';
+
+    /** @var (Closure(Router): void)|null routes of a fixture app built with {@see site()}; null = the hand-built default */
+    private ?Closure $siteRoutes = null;
+
+    /** @var array<string, mixed>|null config of a fixture app built with {@see site()} */
+    private ?array $fixtureConfig = null;
 
     protected function setUp(): void
     {
@@ -66,6 +76,14 @@ final class DoctorCommandTest extends LaravelTestCase
     {
         parent::defineEnvironment($app);
 
+        if ($this->fixtureConfig !== null) {
+            foreach ($this->fixtureConfig as $key => $value) {
+                $app['config']->set($key, $value);
+            }
+
+            return;
+        }
+
         // A bare site from before the automatic routes; the doctor checks for those come with their own tests.
         if (! $this->completeRoutes) {
             $app['config']->set('content.auto.enabled', false);
@@ -74,6 +92,14 @@ final class DoctorCommandTest extends LaravelTestCase
 
     protected function defineRoutes($router): void
     {
+        if ($this->fixtureConfig !== null) {
+            if ($this->siteRoutes !== null) {
+                ($this->siteRoutes)($router);
+            }
+
+            return;
+        }
+
         if (! $this->completeRoutes) {
             return;
         }
@@ -125,6 +151,500 @@ final class DoctorCommandTest extends LaravelTestCase
     private function failures(array $results): array
     {
         return array_values(array_map(fn ($r) => $r['label'], array_filter($results, fn ($r) => $r['status'] === Doctor::FAIL)));
+    }
+
+    // --- Out of the box fixtures (plan sdk-out-of-the-box, task 12) -----------------------------------------------------------------
+
+    /**
+     * Builds a fixture app: `$routes` are the routes of the site, `$config` extra config on top of an https, file-session site that has its
+     * redirect middleware switched on (the base test case switches it off).
+     *
+     * @param array<string, mixed> $config
+     */
+    private function site(?Closure $routes = null, array $config = []): void
+    {
+        $this->siteRoutes = $routes;
+        $this->fixtureConfig = [
+            'app.url' => 'https://example.nl',
+            'session.driver' => 'file',
+            'content.auto.redirects' => true,
+            ...$config,
+        ];
+
+        // The trusted proxies are process wide: a site that is built again must look like a fresh process to the SDK.
+        TrustProxies::flushState();
+        $this->refreshApplication();
+        $this->app['config']->set('view.paths', [$this->views]);
+        $this->app['view']->addLocation($this->views);
+        $this->app->usePublicPath($this->public);
+    }
+
+    private function layoutWith(string $head, string $body, string $name = 'app'): void
+    {
+        file_put_contents($this->views . "/layouts/{$name}.blade.php", "<!doctype html>\n<html>\n<head>\n{$head}\n</head>\n<body>\n@yield('content')\n{$body}\n</body>\n</html>\n");
+    }
+
+    /**
+     * @param list<array{status: string, label: string, hint: ?string}> $results
+     * @return list<string> the labels with a status
+     */
+    private function labels(array $results, string $status): array
+    {
+        return array_values(array_map(fn ($r) => $r['label'], array_filter($results, fn ($r) => $r['status'] === $status)));
+    }
+
+    /** @param list<array{status: string, label: string, hint: ?string}> $results */
+    private function assertLine(array $results, string $status, string $labelPart): void
+    {
+        foreach ($results as $result) {
+            if ($result['status'] === $status && str_contains($result['label'], $labelPart)) {
+                self::assertTrue(true);
+
+                return;
+            }
+        }
+
+        self::fail("No {$status} line containing \"{$labelPart}\". Lines: " . implode(' | ', array_map(fn ($r) => $r['status'] . ': ' . $r['label'], $results)));
+    }
+
+    private function assertFailure(string $labelPart): void
+    {
+        foreach ($this->failures($this->results()) as $label) {
+            if (str_contains($label, $labelPart)) {
+                self::assertTrue(true);
+
+                return;
+            }
+        }
+
+        self::fail("No failure containing \"{$labelPart}\". Failures: " . implode(' | ', $this->failures($this->results())));
+    }
+
+    public function testFixtureAFullyAutomaticSiteHasNothingToFixAndNothingToWarnAbout(): void
+    {
+        $this->site();
+
+        $results = $this->results();
+
+        self::assertSame([], $this->failures($results));
+        self::assertSame([], $this->labels($results, Doctor::WARN));
+        $this->assertLine($results, Doctor::OK, 'Sitemap automatisch (SDK): GET /sitemap.xml');
+        $this->assertLine($results, Doctor::OK, 'Robots automatisch (SDK): GET /robots.txt');
+        $this->assertLine($results, Doctor::OK, 'Healthcheck automatisch (SDK): GET /api/health');
+        $this->assertLine($results, Doctor::OK, 'GET /api/health geeft 200');
+        $this->assertLine($results, Doctor::OK, 'Pagina\'s uit de Hub automatisch (SDK)');
+        $this->assertLine($results, Doctor::OK, 'Artikelen en categorieën automatisch (SDK)');
+        $this->assertLine($results, Doctor::OK, 'Juridische teksten automatisch (SDK): /privacyverklaring');
+        $this->assertLine($results, Doctor::OK, 'Platform automatisch (SDK): proxy\'s vertrouwd (SDK)');
+        $this->assertLine($results, Doctor::OK, 'Redirects uit de Hub automatisch (SDK)');
+        $this->assertLine($results, Doctor::OK, 'RedirectMiddleware staat vooraan in de web-groep');
+        $this->assertLine($results, Doctor::OK, 'Foutpagina\'s (404 en 503) automatisch (SDK)');
+        $this->assertLine($results, Doctor::OK, 'Cookiebanner automatisch (SDK, via <x-content::scripts />)');
+        $this->assertLine($results, Doctor::OK, 'Bezoekerspagina\'s: routes actief (proxy 1');
+        $this->assertLine($results, Doctor::OK, 'Geen eigen layout: de pagina\'s van de SDK gebruiken zijn standaardlayout');
+        $this->assertLine($results, Doctor::OK, 'Foutpagina errors/404 van de SDK (automatisch)');
+        $this->assertLine($results, Doctor::OK, 'Foutpagina errors/503 van de SDK (automatisch)');
+        $this->assertLine($results, Doctor::INFO, 'Geen eigen pagina\'s van de site in de sitemap');
+        $this->assertLine($results, Doctor::INFO, 'Slash aan het eind van URL\'s staat uit (FSC_AUTO_TRAILING_SLASH');
+        self::assertNull($this->statusOf($results, 'Twee cookiebanners'));
+        self::assertNull($this->statusOf($results, 'Geen cookiebanner gevonden'));
+
+        $this->artisan('fsc:doctor')->expectsOutputToContain('0 fout.')->expectsOutputToContain('automatisch (SDK)')->assertExitCode(0);
+    }
+
+    public function testFixtureBAHandBuiltSiteKeepsItsChecksAndOnlyGetsExtraInfoLines(): void
+    {
+        $this->completeSite();
+
+        $results = $this->results();
+
+        self::assertSame([], $this->failures($results));
+        self::assertSame([], $this->labels($results, Doctor::WARN));
+        // The site's own routes win, and the doctor names them.
+        $this->assertLine($results, Doctor::INFO, 'Sitemap: eigen route wint: sitemap.xml → Closure');
+        $this->assertLine($results, Doctor::INFO, 'Robots: eigen route wint: robots.txt → Closure');
+        $this->assertLine($results, Doctor::INFO, 'Healthcheck: eigen route wint: api/health → Closure');
+        $this->assertLine($results, Doctor::INFO, 'Pagina\'s: eigen route wint: {path} → Closure');
+        // The checks of before still say what they said.
+        $this->assertLine($results, Doctor::OK, 'GET /sitemap.xml heeft een eigen route');
+        $this->assertLine($results, Doctor::OK, 'GET /robots.txt heeft een eigen route');
+        $this->assertLine($results, Doctor::OK, 'Catch-all voor pagina\'s uit de Hub is aanwezig ({path})');
+        $this->assertLine($results, Doctor::OK, 'app.blade.php heeft meta, head, errors, body-end en analytics');
+        $this->assertLine($results, Doctor::OK, 'Cookiebanner gevonden (stuurt fsc:consent)');
+        $this->assertLine($results, Doctor::OK, 'Eigen foutpagina errors/404.blade.php');
+        self::assertNull($this->statusOf($results, 'Artikelen en categorieën'), 'the SDK does not serve articles where the site owns the catch-all');
+        self::assertNull($this->statusOf($results, 'content.auto.layout'));
+    }
+
+    public function testFixtureCMixedSiteOwnsRobotsAndAPageAndLetsTheSdkDoTheRest(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        file_put_contents($this->views . '/errors/404.blade.php', "@extends('layouts.app', ['fscStatus' => 404])");
+        $this->site(static function (Router $router): void {
+            $router->get('/robots.txt', fn () => response('User-agent: *', 200, ['Content-Type' => 'text/plain']));
+            $router->middleware('web')->group(static function () use ($router): void {
+                $router->get('/over-ons', fn () => 'over ons');
+                $router->get('/contact', fn () => 'contact');
+            });
+        }, ['content.auto.wrap' => 'wrap max-w-5xl']);
+
+        $results = $this->results();
+
+        self::assertSame([], $this->failures($results));
+        self::assertSame([], $this->labels($results, Doctor::WARN));
+        $this->assertLine($results, Doctor::INFO, 'Robots: eigen route wint: robots.txt → Closure');
+        $this->assertLine($results, Doctor::OK, 'GET /robots.txt heeft een eigen route');
+        $this->assertLine($results, Doctor::OK, 'Sitemap automatisch (SDK)');
+        $this->assertLine($results, Doctor::OK, 'Healthcheck automatisch (SDK)');
+        $this->assertLine($results, Doctor::OK, 'Pagina\'s uit de Hub automatisch (SDK)');
+        $this->assertLine($results, Doctor::INFO, 'Eigen pagina\'s van de site in de sitemap: /contact, /over-ons');
+        $this->assertLine($results, Doctor::OK, 'app.blade.php heeft head en scripts');
+        $this->assertLine($results, Doctor::OK, 'heeft @yield(\'content\') voor de standaardpagina\'s');
+        $this->assertLine($results, Doctor::OK, 'Cookiebanner automatisch (SDK');
+        $this->assertLine($results, Doctor::OK, 'Eigen foutpagina errors/404.blade.php');
+        $this->assertLine($results, Doctor::OK, 'Foutpagina errors/503 van de SDK (automatisch)');
+    }
+
+    public function testFixtureDNothingAtAllFailsOnEveryMissingPiece(): void
+    {
+        $this->site(null, ['content.auto.enabled' => false]);
+
+        $results = $this->results();
+        $failures = $this->failures($results);
+
+        self::assertContains('GET /sitemap.xml ontbreekt', $failures);
+        self::assertContains('GET /robots.txt ontbreekt', $failures);
+        self::assertContains('GET /api/health ontbreekt', $failures);
+        self::assertContains('RedirectMiddleware staat niet in de web-groep', $failures);
+        self::assertContains('Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', $failures);
+        self::assertTrue((bool) array_filter($failures, fn ($f) => str_starts_with($f, 'Geen layout met <head> gevonden')));
+        $this->assertLine($results, Doctor::INFO, 'De automatische laag van de SDK staat uit (FSC_AUTO=false)');
+        self::assertNull($this->statusOf($results, 'automatisch (SDK)'));
+
+        $this->artisan('fsc:doctor')->expectsOutputToContain('De automatische laag van de SDK staat uit')->assertExitCode(1);
+    }
+
+    public function testFixtureDWithSwitchesOffEachFeatureSaysUitAndStillFailsWhereNothingTakesOver(): void
+    {
+        $this->site(null, [
+            'content.auto.sitemap' => false,
+            'content.auto.robots' => false,
+            'content.auto.health' => false,
+            'content.auto.pages' => false,
+            'content.auto.errors' => false,
+            'content.auto.redirects' => false,
+            'content.auto.platform' => false,
+            'content.auto.consent' => false,
+            'content.auto.visitor_pages' => false,
+        ]);
+
+        $results = $this->results();
+
+        foreach (['Sitemap staat uit (FSC_AUTO_SITEMAP=false)', 'Robots staat uit (FSC_AUTO_ROBOTS=false)', 'Healthcheck staat uit (FSC_AUTO_HEALTH=false)', 'Pagina\'s uit de Hub staan uit (FSC_AUTO_PAGES=false)', 'Foutpagina\'s van de SDK staan uit (FSC_AUTO_ERRORS=false)', 'Redirects uit de Hub staan uit (FSC_AUTO_REDIRECTS=false)', 'Platform (trustProxies, https) staat uit (FSC_AUTO_PLATFORM=false)', 'De banner van de SDK staat uit (FSC_AUTO_CONSENT=false)', 'Bezoekerspagina\'s van de Hub via het domein van de site staan uit (FSC_AUTO_VISITOR_PAGES=false)'] as $line) {
+            $this->assertLine($results, Doctor::INFO, $line);
+        }
+
+        $failures = $this->failures($results);
+        self::assertContains('GET /sitemap.xml ontbreekt', $failures);
+        self::assertContains('GET /api/health ontbreekt', $failures);
+        self::assertContains('Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', $failures);
+    }
+
+    public function testASiteWithOwnRoutesButPagesSwitchedOffOnlyWarnsAboutTheMissingCatchAll(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site(static function (Router $router): void {
+            $router->middleware('web')->group(static fn () => $router->get('/over-ons', fn () => 'x'));
+        }, ['content.auto.pages' => false]);
+
+        $results = $this->results();
+
+        $this->assertLine($results, Doctor::WARN, 'Geen catch-all route voor pagina\'s uit de Hub');
+        self::assertNull($this->statusOf($results, 'Geen route voor pagina\'s uit de Hub'));
+    }
+
+    public function testFixtureEAWelcomeRouteIsAFailureInEveryShape(): void
+    {
+        $shapes = [
+            'closure' => static function (Router $router): void {
+                $router->get('/', fn () => view('welcome'));
+            },
+            'view route' => static function (Router $router): void {
+                $router->view('/', 'welcome');
+            },
+            'controller' => static function (Router $router): void {
+                $router->get('/', [WelcomeProbeController::class, 'show']);
+            },
+            'invokable' => static function (Router $router): void {
+                $router->get('/', WelcomeProbeInvokable::class);
+            },
+        ];
+
+        foreach ($shapes as $shape => $routes) {
+            $this->site($routes);
+            $results = $this->results();
+
+            self::assertSame(Doctor::FAIL, $this->statusOf($results, 'GET / toont de standaard Laravel-welkomstpagina'), $shape);
+            self::assertSame(['GET / toont de standaard Laravel-welkomstpagina (view welcome)'], $this->failures($results), $shape);
+        }
+
+        $this->artisan('fsc:doctor')->expectsOutputToContain('FOUT')->assertExitCode(1);
+    }
+
+    public function testAHomePageThatIsNotTheWelcomeViewIsFine(): void
+    {
+        $this->site(static function (Router $router): void {
+            $router->get('/', fn () => view('home'));
+            $router->get('/welcomeback', fn () => 'x');
+        });
+
+        self::assertNull($this->statusOf($this->results(), 'welkomstpagina'));
+    }
+
+    public function testFixtureFTwoBannersIsAWarningAndEachBannerAloneIsFine(): void
+    {
+        $this->layoutWith('<x-content::head />', "@include('partials.consent')\n<x-content::scripts />");
+        file_put_contents($this->views . '/partials/consent.blade.php', "<script>window.dispatchEvent(new CustomEvent('fsc:consent', {detail: c}));</script>");
+        $this->site();
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::WARN, 'Twee cookiebanners: een eigen banner (stuurt fsc:consent) en die van de SDK');
+        self::assertSame([], $this->failures($results), 'a warning, never a failure');
+        self::assertNull($this->statusOf($results, 'Cookiebanner automatisch'));
+        self::assertNull($this->statusOf($results, 'Geen cookiebanner gevonden'));
+        $this->artisan('fsc:doctor', ['--strict' => true])->assertExitCode(1);
+
+        // The own banner stays and the SDK's is switched off in the tag ...
+        $this->layoutWith('<x-content::head />', "@include('partials.consent')\n<x-content::scripts :consent=\"false\" />");
+        $results = $this->results();
+        self::assertNull($this->statusOf($results, 'Twee cookiebanners'));
+        $this->assertLine($results, Doctor::OK, 'Cookiebanner gevonden (stuurt fsc:consent)');
+
+        // ... or in the config.
+        $this->layoutWith('<x-content::head />', "@include('partials.consent')\n<x-content::scripts />");
+        $this->site(null, ['content.auto.consent' => false]);
+        $results = $this->results();
+        self::assertNull($this->statusOf($results, 'Twee cookiebanners'));
+        $this->assertLine($results, Doctor::OK, 'Cookiebanner gevonden (stuurt fsc:consent)');
+        $this->assertLine($results, Doctor::INFO, 'De banner van de SDK staat uit (FSC_AUTO_CONSENT=false)');
+    }
+
+    public function testNoBannerAtAllIsStillAWarningAndTheHintNamesTheScriptsComponent(): void
+    {
+        $this->layoutWith('<x-content::head />', '');
+        $this->site(static function (Router $router): void {
+            $router->middleware('web')->group(static fn () => $router->get('/over-ons', fn () => 'x'));
+        });
+
+        $results = $this->results();
+        $line = array_values(array_filter($results, fn ($r) => str_starts_with($r['label'], 'Geen cookiebanner gevonden')));
+
+        self::assertCount(1, $line);
+        self::assertSame(Doctor::WARN, $line[0]['status']);
+        self::assertStringContainsString('<x-content::scripts />', (string) $line[0]['hint']);
+    }
+
+    public function testALayoutWithHeadAndScriptsPassesAndOneWithoutScriptsNamesWhatIsMissing(): void
+    {
+        $this->completeSite();
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        self::assertSame(Doctor::OK, $this->statusOf($this->results(), 'app.blade.php heeft head en scripts'));
+        self::assertSame([], $this->failures($this->results()));
+
+        $this->layoutWith('<x-content::head />', '');
+        $this->assertFailure('app.blade.php mist: <x-content::scripts />');
+
+        $this->layoutWith('', '');
+        $this->assertFailure('app.blade.php mist: <x-content::head />, <x-content::scripts />');
+
+        // <x-content::head /> outside <head> is misplaced in the new shape too.
+        file_put_contents($this->views . '/layouts/app.blade.php', "<html><head></head><body><x-content::head /><x-content::scripts /></body></html>");
+        $this->assertFailure('app.blade.php mist: <x-content::head /> hoort in <head>');
+    }
+
+    public function testTheLayoutOfTheSdkPagesMustExistAndPrintTheConfiguredSection(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site(null, ['content.auto.layout' => 'layouts.missing']);
+        $this->assertFailure('content.auto.layout (layouts.missing) bestaat niet');
+
+        // A layout without the section: every automatic page would render empty.
+        file_put_contents($this->views . '/layouts/app.blade.php', "<html><head><x-content::head /></head><body>{{ \$slot }}<x-content::scripts /></body></html>");
+        $this->site();
+        $this->assertFailure("heeft geen @yield('content'): de standaardpagina's van de SDK blijven leeg");
+
+        // The section is configurable.
+        file_put_contents($this->views . '/layouts/app.blade.php', "<html><head><x-content::head /></head><body>@yield(\"main\")<x-content::scripts /></body></html>");
+        $this->site(null, ['content.auto.section' => 'main']);
+        self::assertSame([], $this->failures($this->results()));
+        $this->assertLine($this->results(), Doctor::OK, "heeft @yield('main') voor de standaardpagina's van de SDK");
+
+        // A site with its own catch-all does not use the SDK's views, so the layout is its own business.
+        file_put_contents($this->views . '/layouts/app.blade.php', "<html><head><x-content::head /></head><body>{{ \$slot }}<x-content::scripts /></body></html>");
+        $this->site(static function (Router $router): void {
+            $router->get('/sitemap.xml', fn () => Sitemap::response());
+            $router->get('/robots.txt', fn () => Robots::response());
+            $router->get('/api/health', fn () => response('{"ok":true}', 200, ['Content-Type' => 'application/json']));
+            $router->get('/{path}', fn () => 'page')->where('path', '.*');
+        });
+        self::assertSame([], $this->failures($this->results()));
+    }
+
+    public function testAnEmptyWrapOnASiteLayoutIsAWarningUnlessTheLayoutOrTheCssKnowsFscWrap(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site();
+        $this->assertLine($this->results(), Doctor::WARN, 'staan in de terugvalbreedte (.fsc-wrap)');
+        self::assertSame([], $this->failures($this->results()));
+
+        $this->site(null, ['content.auto.wrap' => 'wrap max-w-5xl']);
+        self::assertSame([], $this->labels($this->results(), Doctor::WARN));
+
+        $this->layoutWith('<x-content::head /><style>.fsc-wrap{max-width:60rem}</style>', '<x-content::scripts />');
+        $this->site();
+        self::assertSame([], $this->labels($this->results(), Doctor::WARN));
+    }
+
+    public function testThePlatformLineNamesWhatTheAppSetItself(): void
+    {
+        // `config/trustedproxy.php` set by the app before the SDK acts: the line says the app did it.
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site(null, ['trustedproxy.proxies' => '10.0.0.1']);
+
+        $this->assertLine($this->results(), Doctor::INFO, 'Platform: proxy\'s door de app ingesteld');
+    }
+
+    public function testNoNewFailureForAHandBuiltSiteWithoutAutomaticLayer(): void
+    {
+        // The site of before the automatic layer: everything by hand, the layer switched off.
+        $this->site(static function (Router $router): void {
+            $router->get('/sitemap.xml', fn () => Sitemap::response());
+            $router->get('/robots.txt', fn () => Robots::response());
+            $router->get('/api/health', fn () => response('{"ok":true}', 200, ['Content-Type' => 'application/json']));
+            $router->get('/{path}', fn () => 'page')->where('path', '.*');
+        }, ['content.auto.enabled' => false]);
+        $this->completeSite();
+
+        $results = $this->results();
+
+        self::assertSame([], $this->failures($results));
+        $this->assertLine($results, Doctor::INFO, 'De automatische laag van de SDK staat uit');
+        $this->assertLine($results, Doctor::OK, 'GET /sitemap.xml heeft een eigen route');
+        $this->assertLine($results, Doctor::OK, 'Catch-all voor pagina\'s uit de Hub is aanwezig ({path})');
+    }
+
+    // --- Sitemap, online -------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Binds a fake Hub that answers by API path. `$sitemap` and `$seo` are the bodies of `/sitemap` and `/seo`; `$status` overrides the
+     * status of `/sitemap`.
+     *
+     * @param array<string, mixed> $sitemap
+     * @param array<string, mixed> $seo
+     */
+    private function hub(array $sitemap, array $seo, int $status = 200, array $project = ['name' => 'Voorbeeld', 'defaultLocale' => 'nl', 'locales' => ['nl'], 'modules' => ['pages', 'seo']]): FakeTransport
+    {
+        $http = new FakeTransport();
+        $http->queue(...array_fill(0, 50, function (HubRequest $request) use ($sitemap, $seo, $status, $project): HubResponse {
+            $path = substr((string) parse_url($request->url, PHP_URL_PATH), strlen('/api/v1'));
+
+            return match ($path) {
+                '/project' => FakeTransport::json($project),
+                '/seo' => FakeTransport::json(['seo' => $seo]),
+                '/sitemap' => FakeTransport::json($status === 200 ? $sitemap : ['error' => ['code' => 'upstream', 'message' => 'x']], $status),
+                default => FakeTransport::json(['error' => ['code' => 'not_found', 'message' => 'x']], 404),
+            };
+        }));
+        $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' => 'fsc_srv_laraveltoken', 'baseUrl' => 'https://content.test', 'transport' => $http]));
+
+        return $http;
+    }
+
+    /** @return list<array{status: string, label: string, hint: ?string}> */
+    private function onlineResults(): array
+    {
+        return (new Doctor($this->app))->run(true, true);
+    }
+
+    public function testOnlineSitemapCountsTheUrlsOfTheAutomaticSitemap(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site(static function (Router $router): void {
+            $router->middleware('web')->group(static fn () => $router->get('/over-ons', fn () => 'x'));
+        });
+        $this->hub(['robotsIndex' => true, 'canonicalOrigin' => 'https://example.nl', 'entries' => [['path' => '/', 'lastmod' => '2026-11-01'], ['path' => '/diensten']]], ['canonicalOrigin' => 'https://example.nl', 'robotsIndex' => true]);
+
+        $results = $this->onlineResults();
+
+        $this->assertLine($results, Doctor::OK, 'sitemap.xml bevat 3 URL\'s');
+        $this->assertLine($results, Doctor::INFO, 'Talen van het project: nl (standaard), geen prefix in de paden');
+        self::assertSame([], $this->failures($results));
+    }
+
+    public function testOnlineSitemapOfAHandBuiltRouteIsCountedToo(): void
+    {
+        $this->completeSite();
+        $this->hub(['robotsIndex' => true, 'canonicalOrigin' => 'https://example.nl', 'entries' => [['path' => '/'], ['path' => '/a']]], ['canonicalOrigin' => 'https://example.nl', 'robotsIndex' => true]);
+
+        $this->assertLine($this->onlineResults(), Doctor::OK, 'sitemap.xml bevat 2 URL\'s');
+    }
+
+    public function testOnlineEmptySitemapWhileIndexableIsAFailure(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site();
+        $this->hub(['robotsIndex' => true, 'canonicalOrigin' => 'https://example.nl', 'entries' => []], ['canonicalOrigin' => 'https://example.nl', 'robotsIndex' => true]);
+
+        $results = $this->onlineResults();
+
+        self::assertContains('sitemap.xml is leeg terwijl robotsIndex aan staat', $this->failures($results));
+        $this->artisan('fsc:doctor', ['--skip-env' => true])->assertExitCode(0);
+    }
+
+    public function testOnlineEmptySitemapOfATestSiteIsInfoAndOfALiveSiteOnNoindexAWarning(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site();
+        $seo = ['canonicalOrigin' => 'https://test.example.org', 'robotsIndex' => false];
+        $this->hub(['robotsIndex' => false, 'entries' => []], $seo);
+
+        $results = $this->onlineResults();
+        $this->assertLine($results, Doctor::INFO, 'sitemap is leeg omdat robotsIndex uit staat (testsite)');
+        self::assertSame([], $this->failures($results));
+        self::assertNull($this->statusOf($results, 'noindex'));
+
+        // Production, and the canonical origin is this very site: the live site still says noindex.
+        $this->app['env'] = 'production';
+        $this->hub(['robotsIndex' => false, 'entries' => []], ['canonicalOrigin' => 'https://example.nl', 'robotsIndex' => false]);
+        $results = $this->onlineResults();
+        $this->assertLine($results, Doctor::INFO, 'sitemap is leeg omdat robotsIndex uit staat (testsite)');
+        $this->assertLine($results, Doctor::WARN, 'de live site staat nog op noindex');
+
+        // Production, but another host: a test site on its own address, nothing to warn about.
+        $this->hub(['robotsIndex' => false, 'entries' => []], $seo);
+        self::assertNull($this->statusOf($this->onlineResults(), 'noindex'));
+    }
+
+    public function testOnlineSitemapWhenTheHubFailsIsAFailure(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site();
+        $this->hub([], ['canonicalOrigin' => 'https://example.nl'], 500);
+
+        $results = $this->onlineResults();
+
+        self::assertContains('GET /sitemap.xml geeft 503', $this->failures($results));
+    }
+
+    public function testOfflineNeverAsksTheHubForTheSitemap(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site();
+        $http = $this->hub(['robotsIndex' => true, 'entries' => []], []);
+
+        $this->results();
+
+        self::assertSame([], $http->requests);
     }
 
     public function testPageBlocksWithoutWrapWarnsAndWithWrapPasses(): void
@@ -438,6 +958,7 @@ final class DoctorCommandTest extends LaravelTestCase
         $http->queue(
             FakeTransport::json(['project' => ['id' => 'p1', 'name' => 'Voorbeeld'], 'modules' => ['pages', 'forms', 'analytics']]),
             FakeTransport::json(['seo' => ['canonicalOrigin' => 'https://example.nl']]),
+            FakeTransport::json(['robotsIndex' => true, 'canonicalOrigin' => 'https://example.nl', 'entries' => [['path' => '/']]]),
         );
         $this->app->singleton(ContentClient::class, fn () => new ContentClient(['token' => 'fsc_srv_laraveltoken', 'transport' => $http]));
 
@@ -446,5 +967,23 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::OK, $this->statusOf($results, 'De Hub antwoordt met deze token (project Voorbeeld)'));
         self::assertSame(Doctor::INFO, $this->statusOf($results, 'Modules aan: pages, forms, analytics'));
         self::assertSame(Doctor::OK, $this->statusOf($results, 'canonicalOrigin is https://example.nl'));
+        self::assertSame(Doctor::OK, $this->statusOf($results, 'sitemap.xml bevat 1 URL'));
+    }
+}
+
+/** Probes for the welcome route detection: never called, only read. */
+final class WelcomeProbeController
+{
+    public function show(): string
+    {
+        return view('welcome')->render();
+    }
+}
+
+final class WelcomeProbeInvokable
+{
+    public function __invoke(): string
+    {
+        return view('welcome')->render();
     }
 }

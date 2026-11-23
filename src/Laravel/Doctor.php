@@ -7,13 +7,20 @@ namespace FullStackStudio\Content\Laravel;
 use Closure;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\ContentException;
+use FullStackStudio\Content\Laravel\Auto\Auto;
+use FullStackStudio\Content\Laravel\Auto\AutoPlatform;
+use FullStackStudio\Content\Laravel\Auto\AutoRoutes;
 use FullStackStudio\Content\Laravel\Preview\PreviewRequest;
+use FullStackStudio\Content\Laravel\Site\Layout;
+use FullStackStudio\Content\Laravel\Visitor\VisitorRoutes;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
+use ReflectionFunction;
+use ReflectionMethod;
 use ReflectionProperty;
 use Symfony\Component\Finder\Finder;
 use Throwable;
@@ -49,6 +56,7 @@ final class Doctor
 
         $this->section(fn () => $this->checkEnvironment($checkEnv));
         $this->section(fn () => $this->checkRuntimeSettings());
+        $this->section(fn () => $this->checkAutomatic());
         $this->section(fn () => $this->checkRoutes());
         $this->section(fn () => $this->checkMiddleware());
         $this->section(fn () => $this->checkLayouts());
@@ -162,6 +170,8 @@ final class Doctor
             $this->add(self::OK, 'URL::forceScheme(\'https\') staat aan');
         } elseif ($this->production()) {
             $this->add(self::FAIL, 'https wordt niet afgedwongen', 'Zet URL::forceScheme(\'https\') in AppServiceProvider::boot() voor productie: achter Cloudflare komt het verzoek als http binnen en redirects na een formulier worden http://, wat de CSP form-action blokkeert.');
+        } elseif (Auto::on('platform') && AutoPlatform::state()['https'] === AutoPlatform::SKIPPED) {
+            $this->add(self::INFO, 'https wordt in productie automatisch afgedwongen (SDK); in deze omgeving niet');
         } else {
             $this->add(self::WARN, 'https wordt (in deze omgeving) niet afgedwongen', 'Controleer dat AppServiceProvider::boot() in productie URL::forceScheme(\'https\') aanroept.');
         }
@@ -179,6 +189,187 @@ final class Doctor
         }
     }
 
+    // --- Automatic (out of the box) -------------------------------------------------------------------------------------------
+
+    /** Feature switch => [label, path, env name] of the three utility routes. */
+    private const UTILITY_ROUTES = [
+        'sitemap' => ['Sitemap', '/sitemap.xml', 'FSC_AUTO_SITEMAP'],
+        'robots' => ['Robots', '/robots.txt', 'FSC_AUTO_ROBOTS'],
+        'health' => ['Healthcheck', '/api/health', 'FSC_AUTO_HEALTH'],
+    ];
+
+    private ?string $probe = null;
+
+    /** A path no site serves on purpose: only a catch-all (the site's or the SDK's) matches it. Stable within one run. */
+    private function probePath(): string
+    {
+        return $this->probe ??= '/fsc-doctor-' . bin2hex(random_bytes(4)) . '/x';
+    }
+
+    /**
+     * Whether the SDK's own pages (`content::site.*` views) answer Hub paths: the feature is on and no route of the site catches them first.
+     * Only then the layout of those views matters.
+     */
+    private function autoPagesInUse(): bool
+    {
+        return Auto::on('pages') && AutoRoutes::owner('GET', $this->probePath())['by'] === 'sdk';
+    }
+
+    /** `eigen route wint: <uri> → <action>` for the route of the site that answers a path the SDK would otherwise serve. */
+    private function winner(array $owner): string
+    {
+        return 'eigen route wint: ' . ltrim((string) $owner['uri'], '/') . ' → ' . $owner['action'];
+    }
+
+    /**
+     * One line per out of the box feature: `OK … automatisch (SDK)`, `INFO … eigen route wint: <uri> → <action>` or `INFO … uit (FSC_AUTO_…)`.
+     * The checks of the sections below accept what a feature covers, so a site in automatic mode does not fail on a route or middleware it
+     * does not need; a hand-built site keeps its checks and only gets the extra lines.
+     */
+    private function checkAutomatic(): void
+    {
+        if (! Auto::on('enabled')) {
+            $this->add(self::INFO, 'De automatische laag van de SDK staat uit (FSC_AUTO=false): routes, pagina\'s, foutpagina\'s en cookiebanner komen van de site zelf');
+
+            return;
+        }
+
+        // In the console nothing has resolved the HTTP kernel yet, so the platform items are still "pending" until it is built.
+        try {
+            $this->app->make(HttpKernel::class);
+        } catch (Throwable) {
+        }
+
+        foreach (self::UTILITY_ROUTES as $feature => [$label, $path, $env]) {
+            $owner = AutoRoutes::owner('GET', $path);
+
+            if (! Auto::on($feature)) {
+                $this->add(self::INFO, "{$label} staat uit ({$env}=false)" . ($owner['by'] === 'site' ? ', de site heeft een eigen route' : ''));
+            } elseif ($owner['by'] === 'sdk') {
+                $this->add(self::OK, "{$label} automatisch (SDK): GET {$path}");
+
+                if ($feature === 'sitemap') {
+                    $own = Sitemap::ownPaths();
+                    $this->add(self::INFO, $own === []
+                        ? 'Geen eigen pagina\'s van de site in de sitemap (alleen de pagina\'s uit de Hub)'
+                        : 'Eigen pagina\'s van de site in de sitemap: ' . implode(', ', array_slice($own, 0, 15)) . (count($own) > 15 ? ', ...' : '') . ' (uitsluiten: ->noSitemap() of content.auto.sitemap.exclude)');
+                }
+            } elseif ($owner['by'] === 'site') {
+                $this->add(self::INFO, "{$label}: " . $this->winner($owner));
+            }
+        }
+
+        $this->automaticPages();
+        $this->automaticPlatform();
+
+        $state = AutoPlatform::state();
+
+        if (! Auto::on('redirects')) {
+            $this->add(self::INFO, 'Redirects uit de Hub staan uit (FSC_AUTO_REDIRECTS=false)');
+        } elseif ($state['redirects'] === AutoPlatform::APPLIED) {
+            $this->add(self::OK, 'Redirects uit de Hub automatisch (SDK): RedirectMiddleware vooraan in de web-groep');
+        } elseif ($state['redirects'] === AutoPlatform::BY_APP) {
+            $this->add(self::INFO, 'Redirects: de app heeft RedirectMiddleware zelf in de web-groep gezet');
+        }
+
+        $this->add(...Auto::on('errors')
+            ? [self::OK, 'Foutpagina\'s (404 en 503) automatisch (SDK)']
+            : [self::INFO, 'Foutpagina\'s van de SDK staan uit (FSC_AUTO_ERRORS=false)']);
+
+        if (! Auto::on('consent')) {
+            $this->add(self::INFO, 'De banner van de SDK staat uit (FSC_AUTO_CONSENT=false)');
+        } elseif ($this->packageBanner()) {
+            // With an own banner too the layout section warns about two banners instead.
+            if (! $this->ownBanner()) {
+                $this->add(self::OK, 'Cookiebanner automatisch (SDK, via <x-content::scripts />)');
+            }
+        }
+
+        if (! Auto::on('visitor_pages')) {
+            $this->add(self::INFO, 'Bezoekerspagina\'s van de Hub via het domein van de site staan uit (FSC_AUTO_VISITOR_PAGES=false)');
+        } elseif ($this->app['router']->getRoutes()->hasNamedRoute(VisitorRoutes::NAME_PREFIX . 'appointments.1')) {
+            $this->add(self::OK, 'Bezoekerspagina\'s: routes actief (proxy ' . VisitorRoutes::VERSION . ', ' . count(VisitorRoutes::ROUTES) . ' routes)');
+        } else {
+            $this->add(self::WARN, 'Bezoekerspagina\'s: de routes zijn niet geregistreerd', 'Zet FSC_AUTO_VISITOR_PAGES niet op false en draai php artisan route:clear als de routes gecachet zijn met een oudere SDK.');
+        }
+
+        $slash = AutoPlatform::trailingSlash();
+
+        if (! Auto::on('trailing_slash')) {
+            $this->add(self::INFO, 'Slash aan het eind van URL\'s staat uit (FSC_AUTO_TRAILING_SLASH, standaard uit)');
+        } elseif ($slash === AutoPlatform::BY_APP) {
+            $this->add(self::INFO, 'Slash aan het eind van URL\'s: de app heeft de middleware zelf geregistreerd');
+        } else {
+            $this->add(self::OK, 'Slash aan het eind van URL\'s automatisch (SDK, FSC_AUTO_TRAILING_SLASH)');
+        }
+    }
+
+    /** Pages, articles and legal texts: the content route (fallback) of the SDK, unless the site has a catch-all of its own. */
+    private function automaticPages(): void
+    {
+        $owner = AutoRoutes::owner('GET', $this->probePath());
+
+        if (! Auto::on('pages')) {
+            $this->add(self::INFO, 'Pagina\'s uit de Hub staan uit (FSC_AUTO_PAGES=false)');
+        } elseif ($owner['by'] === 'site') {
+            $this->add(self::INFO, 'Pagina\'s: ' . $this->winner($owner));
+        } elseif ($owner['by'] === 'sdk') {
+            $this->add(self::OK, 'Pagina\'s uit de Hub automatisch (SDK): elk pad zonder eigen route');
+        }
+
+        // Articles and legal texts are served by the same content route, so they only count where it is the SDK's.
+        if ($owner['by'] !== 'sdk') {
+            return;
+        }
+
+        $this->add(...Auto::on('articles')
+            ? [self::OK, 'Artikelen en categorieën automatisch (SDK)']
+            : [self::INFO, 'Artikelen en categorieën staan uit (FSC_AUTO_ARTICLES=false)']);
+
+        $this->add(...Auto::on('legal')
+            ? [self::OK, 'Juridische teksten automatisch (SDK): /' . implode(', /', array_keys(Auto::legalPaths()))]
+            : [self::INFO, 'Juridische teksten staan uit (FSC_AUTO_LEGAL=false)']);
+    }
+
+    /** trustProxies and https: what the SDK applied and what the app had set itself. */
+    private function automaticPlatform(): void
+    {
+        if (! Auto::on('platform')) {
+            $this->add(self::INFO, 'Platform (trustProxies, https) staat uit (FSC_AUTO_PLATFORM=false)');
+
+            return;
+        }
+
+        $state = AutoPlatform::state();
+        $parts = [];
+        $byApp = false;
+
+        $proxies = [
+            AutoPlatform::APPLIED => 'proxy\'s vertrouwd (SDK)',
+            AutoPlatform::BY_APP => 'proxy\'s door de app ingesteld',
+        ][$state['proxies']] ?? null;
+        $https = [
+            AutoPlatform::APPLIED => 'https afgedwongen (SDK)',
+            AutoPlatform::BY_APP => 'https door de app afgedwongen',
+            AutoPlatform::SKIPPED => 'https wordt in productie afgedwongen (SDK)',
+        ][$state['https']] ?? null;
+
+        foreach ([[$state['proxies'], $proxies], [$state['https'], $https]] as [$value, $text]) {
+            if ($text !== null) {
+                $parts[] = $text;
+                $byApp = $byApp || $value === AutoPlatform::BY_APP;
+            }
+        }
+
+        if ($parts === []) {
+            $this->add(self::INFO, 'Platform (trustProxies, https): nog niet toegepast');
+
+            return;
+        }
+
+        $this->add($byApp ? self::INFO : self::OK, ($byApp ? 'Platform: ' : 'Platform automatisch (SDK): ') . implode(', ', $parts));
+    }
+
     // --- Routes --------------------------------------------------------------------------------------------------------------
 
     private function checkRoutes(): void
@@ -188,12 +379,17 @@ final class Doctor
         $routes = $router->getRoutes();
         $routes->refreshNameLookups();
 
-        foreach (['sitemap.xml' => 'Sitemap::response()', 'robots.txt' => 'Robots::response()'] as $uri => $helper) {
+        foreach (['sitemap.xml' => ['Sitemap::response()', 'sitemap'], 'robots.txt' => ['Robots::response()', 'robots']] as $uri => [$helper, $feature]) {
+            // The SDK's own route is reported in the "automatisch" lines above.
+            if (Auto::on($feature) && AutoRoutes::owner('GET', '/' . $uri)['by'] === 'sdk') {
+                continue;
+            }
+
             $route = $this->match('GET', '/' . $uri);
             if ($route !== null && $route->uri() === $uri) {
                 $this->add(self::OK, "GET /{$uri} heeft een eigen route");
             } else {
-                $this->add(self::FAIL, "GET /{$uri} ontbreekt", "Route::get('/{$uri}', fn () => {$helper}); vóór de catch-all.");
+                $this->add(self::FAIL, "GET /{$uri} ontbreekt", "Route::get('/{$uri}', fn () => {$helper}); vóór de catch-all, of laat de SDK hem maken (FSC_AUTO=true, FSC_AUTO_" . strtoupper($feature) . '=true).');
             }
         }
 
@@ -214,11 +410,69 @@ final class Doctor
             $this->add(self::WARN, 'Formulierroute staat uit', 'Haal FSC_FORMS_ENABLED=false weg zodra de site een formulier krijgt (<x-content::form> of een form-blok).');
         }
 
-        $catchAll = $this->match('GET', '/fsc-doctor-' . bin2hex(random_bytes(4)) . '/x');
-        if ($catchAll !== null && str_contains($catchAll->uri(), '{')) {
-            $this->add(self::OK, 'Catch-all voor pagina\'s uit de Hub is aanwezig (' . $catchAll->uri() . ')');
+        $owner = AutoRoutes::owner('GET', $this->probePath());
+        if ($owner['by'] === 'sdk' && Auto::on('pages')) {
+            // The SDK's content route answers Hub paths: reported in the "automatisch" lines above.
+        } elseif ($owner['by'] === 'site' && str_contains((string) $owner['uri'], '{')) {
+            $this->add(self::OK, 'Catch-all voor pagina\'s uit de Hub is aanwezig (' . $owner['uri'] . ')');
+        } elseif (array_diff(Sitemap::ownPaths(), ['/']) !== []) {
+            // A hand-built site with only explicit routes: as before, a warning.
+            $this->add(self::WARN, 'Geen catch-all route voor pagina\'s uit de Hub', 'Route::get(\'/{path}\', [PageController::class, \'show\'])->where(\'path\', \'.*\'); als allerlaatste route, of laat de SDK de pagina\'s tonen (FSC_AUTO_PAGES=true).');
         } else {
-            $this->add(self::WARN, 'Geen catch-all route voor pagina\'s uit de Hub', 'Route::get(\'/{path}\', [PageController::class, \'show\'])->where(\'path\', \'.*\'); als allerlaatste route.');
+            $this->add(self::FAIL, 'Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', 'Laat de SDK ze tonen (FSC_AUTO=true, FSC_AUTO_PAGES=true) of bouw een catch-all: Route::get(\'/{path}\', [PageController::class, \'show\'])->where(\'path\', \'.*\'); als allerlaatste route.');
+        }
+
+        $this->checkWelcome();
+    }
+
+    /**
+     * The route of `/` must not be the Laravel welcome page: a route of the site always beats the SDK's, so it would hide the home page of the
+     * Hub. Read statically (`Route::view('/', 'welcome')`, a closure or a controller method that names the `welcome` view): no request.
+     */
+    private function checkWelcome(): void
+    {
+        if (AutoRoutes::owner('GET', '/')['by'] !== 'site') {
+            return;
+        }
+
+        $route = $this->match('GET', '/');
+
+        if ($route !== null && $this->rendersWelcome($route)) {
+            $this->add(self::FAIL, 'GET / toont de standaard Laravel-welkomstpagina (view welcome)', 'Haal Route::get(\'/\', ...) met de welcome-view uit routes/web.php weg (en resources/views/welcome.blade.php): de SDK toont dan de startpagina uit de Hub. Een eigen route voor / wint altijd van de SDK.');
+        }
+    }
+
+    private function rendersWelcome(Route $route): bool
+    {
+        if (($route->defaults['view'] ?? null) === 'welcome') {
+            return true;
+        }
+
+        try {
+            $uses = $route->getAction('uses');
+
+            if ($uses instanceof Closure) {
+                $reflection = new ReflectionFunction($uses);
+            } elseif (is_string($uses)) {
+                $reflection = str_contains($uses, '@') ? new ReflectionMethod(...explode('@', $uses, 2)) : new ReflectionMethod($uses, '__invoke');
+            } elseif (is_array($uses) && count($uses) === 2) {
+                $reflection = new ReflectionMethod($uses[0], $uses[1]);
+            } else {
+                return false;
+            }
+
+            $file = $reflection->getFileName();
+            $lines = is_string($file) && is_file($file) ? file($file, FILE_IGNORE_NEW_LINES) : false;
+
+            if ($lines === false) {
+                return false;
+            }
+
+            $source = implode("\n", array_slice($lines, $reflection->getStartLine() - 1, $reflection->getEndLine() - $reflection->getStartLine() + 1));
+
+            return preg_match('/[\'"]welcome[\'"]/', $source) === 1;
+        } catch (Throwable) {
+            return false;
         }
     }
 
@@ -235,7 +489,7 @@ final class Doctor
     {
         $route = $this->match('GET', '/api/health');
         if ($route === null || $route->uri() !== 'api/health') {
-            $this->add(self::FAIL, 'GET /api/health ontbreekt', 'Route::get(\'/health\', fn () => response()->json([\'ok\' => true])); in routes/api.php, zonder sessie en zonder call naar de Hub (HEALTHCHECK van het image).');
+            $this->add(self::FAIL, 'GET /api/health ontbreekt', 'Route::get(\'/health\', fn () => response()->json([\'ok\' => true])); in routes/api.php, zonder sessie en zonder call naar de Hub (HEALTHCHECK van het image), of laat de SDK hem maken (FSC_AUTO=true, FSC_AUTO_HEALTH=true).');
 
             return;
         }
@@ -357,23 +611,39 @@ final class Doctor
         return str_starts_with($path, $base) ? substr($path, strlen($base)) : $path;
     }
 
-    private function checkLayouts(): void
+    /**
+     * The site's own layouts: views with a `</head>`. Error pages (a 503 must not call the Hub) and mail templates are standalone documents.
+     *
+     * @return array<string, string> path => contents
+     */
+    private function layouts(): array
     {
-        $views = $this->views();
-        // Error pages (a 503 must not call the Hub) and mail templates are standalone documents, not site layouts.
-        $layouts = array_filter(
-            $views,
+        return array_filter(
+            $this->views(),
             static fn (string $contents, string $path): bool => stripos($contents, '</head>') !== false
                 && preg_match('~/(errors|mail|emails|vendor)/~', str_replace('\\', '/', $path)) !== 1,
             ARRAY_FILTER_USE_BOTH,
         );
+    }
+
+    private function checkLayouts(): void
+    {
+        $views = $this->views();
+        $layouts = $this->layouts();
+        $autoPages = $this->autoPagesInUse();
 
         if ($layouts === []) {
-            $this->add(self::FAIL, 'Geen layout met <head> gevonden in ' . implode(', ', array_map($this->relative(...), $this->viewPaths())), 'Maak resources/views/layouts/app.blade.php met de componenten uit AGENTS.md.');
+            // The SDK's own pages come with a small layout (head, content section, scripts): a fresh app needs none of its own.
+            if (! ($autoPages && Layout::name() === Layout::PACKAGE)) {
+                $this->add(self::FAIL, 'Geen layout met <head> gevonden in ' . implode(', ', array_map($this->relative(...), $this->viewPaths())), 'Maak resources/views/layouts/app.blade.php met <x-content::head /> in <head> en <x-content::scripts /> voor </body> (zie AGENTS.md, stap "Layout"), of laat de SDK de pagina\'s tonen met zijn eigen layout (FSC_AUTO_PAGES=true).');
 
-            return;
+                return;
+            }
+
+            $this->add(self::OK, 'Geen eigen layout: de pagina\'s van de SDK gebruiken zijn standaardlayout (' . Layout::PACKAGE . ')');
         }
 
+        // Two accepted shapes: the pair `head` + `scripts`, or the old five that each did one part.
         $required = [
             '<x-content::meta' => 'head',
             '<x-content::head' => 'head',
@@ -384,6 +654,15 @@ final class Doctor
 
         foreach ($layouts as $path => $contents) {
             $headEnd = (int) stripos($contents, '</head>');
+            $head = strpos($contents, '<x-content::head');
+            $name = $this->relative($path);
+
+            if ($head !== false && $head < $headEnd && str_contains($contents, '<x-content::scripts')) {
+                $this->add(self::OK, "Layout {$name} heeft head en scripts");
+
+                continue;
+            }
+
             $missing = [];
             $misplaced = [];
             foreach ($required as $tag => $where) {
@@ -395,19 +674,28 @@ final class Doctor
                 }
             }
 
-            $name = $this->relative($path);
             if ($missing === [] && $misplaced === []) {
                 $this->add(self::OK, "Layout {$name} heeft meta, head, errors, body-end en analytics");
-            } else {
-                $this->add(self::FAIL, "Layout {$name} mist: " . implode(', ', [...$missing, ...$misplaced]), 'Zie AGENTS.md, stap "Layout".');
+
+                continue;
             }
+
+            // A layout that uses none of the old-only components is on its way to the new pair: name what that pair still misses.
+            $oldOnly = ['<x-content::meta', '<x-content::errors', '<x-content::body-end', '<x-content::analytics'];
+            if (array_filter($oldOnly, static fn (string $tag): bool => str_contains($contents, $tag)) === []) {
+                $missing = $head === false ? ['<x-content::head />'] : [];
+                $misplaced = $head !== false && $head > $headEnd ? ['<x-content::head /> hoort in <head>'] : [];
+
+                if (! str_contains($contents, '<x-content::scripts')) {
+                    $missing[] = '<x-content::scripts />';
+                }
+            }
+
+            $this->add(self::FAIL, "Layout {$name} mist: " . implode(', ', [...$missing, ...$misplaced]), 'Zie AGENTS.md, stap "Layout": <x-content::head /> in <head> en <x-content::scripts /> voor </body>.');
         }
 
-        if ($this->viewsContain('fsc:consent')) {
-            $this->add(self::OK, 'Cookiebanner gevonden (stuurt fsc:consent)');
-        } else {
-            $this->add(self::WARN, 'Geen cookiebanner gevonden (geen view stuurt fsc:consent)', 'Zonder banner draait geen code met toestemming (eigen code, heatmaps). Zie AGENTS.md, "Cookiebanner".');
-        }
+        $this->checkAutoLayout($autoPages);
+        $this->checkBanner();
 
         foreach (['404', '503'] as $code) {
             if ($this->app['view']->exists("errors.{$code}")) {
@@ -416,6 +704,9 @@ final class Doctor
                 if ($code === '404') {
                     $this->checkNotFoundHook();
                 }
+            } elseif ($autoPages && Auto::on('errors')) {
+                // The SDK serves the pages too, so its error pages (same layout) fit; a site with pages of its own keeps the warning.
+                $this->add(self::OK, "Foutpagina errors/{$code} van de SDK (automatisch)");
             } else {
                 $this->add(self::WARN, "Geen eigen foutpagina errors/{$code}.blade.php", $code === '404'
                     ? 'Laravel toont dan zijn kale standaardpagina; maak er een in de huisstijl: @extends(\'layouts.app\', [\'fscStatus\' => 404]) of data-fsa-404 op <html>.'
@@ -427,6 +718,124 @@ final class Doctor
             if (preg_match('/fullUrl\(\)|url\(\)->full\(\)|->fullUrlWithQuery\(/', $contents) === 1) {
                 $this->add(self::WARN, 'View ' . $this->relative($path) . ' gebruikt de volledige URL met query', 'Bouw canonical, og:url en deellinks uit het pad: de query kan ?fscn= en utm-waarden bevatten.');
             }
+        }
+    }
+
+    /**
+     * The layout the SDK's own views extend (`content.auto.layout`, else `layouts.app`, else the package layout) has to exist and to print the
+     * configured section; without it every automatic page renders empty. Only where the SDK's pages are in use. A layout without the SDK's
+     * container class and without `content.auto.wrap` puts the content in the fallback width `.fsc-wrap`.
+     */
+    private function checkAutoLayout(bool $autoPages): void
+    {
+        if (! $autoPages) {
+            return;
+        }
+
+        $name = Layout::name();
+
+        if ($name === Layout::PACKAGE) {
+            return;
+        }
+
+        $configured = Auto::layout();
+
+        try {
+            $file = $this->app['view']->getFinder()->find($name);
+        } catch (Throwable) {
+            $file = null;
+        }
+
+        if (! is_string($file) || ! is_file($file)) {
+            $this->add(self::FAIL, "content.auto.layout ({$name}) bestaat niet", $configured !== null
+                ? 'De standaardpagina\'s van de SDK extenden deze view. Maak hem, of haal FSC_AUTO_LAYOUT weg (dan gebruikt de SDK layouts.app, of zijn eigen layout).'
+                : 'De standaardpagina\'s van de SDK extenden deze view.');
+
+            return;
+        }
+
+        $contents = (string) file_get_contents($file);
+        $section = Auto::section();
+
+        if (preg_match('/@yield\(\s*[\'"]' . preg_quote($section, '/') . '[\'"]/', $contents) !== 1) {
+            $this->add(self::FAIL, "Layout {$name} heeft geen @yield('{$section}'): de standaardpagina's van de SDK blijven leeg", "Zet @yield('{$section}') op de plek van de inhoud, of zet content.auto.section in config/content.php op de naam die de layout wel heeft, of publiceer de views (php artisan vendor:publish --tag=content-views) en pas ze aan.");
+
+            return;
+        }
+
+        $this->add(self::OK, "Layout {$name} heeft @yield('{$section}') voor de standaardpagina's van de SDK");
+
+        if (Auto::wrap() === null && ! str_contains($contents, 'fsc-wrap') && ! $this->siteAssetsContain('fsc-wrap')) {
+            $this->add(self::WARN, 'De standaardpagina\'s van de SDK staan in de terugvalbreedte (.fsc-wrap) in plaats van in de contentbreedte van de site', 'Zet FSC_AUTO_WRAP op de klassen van de container van de site (bijvoorbeeld "wrap max-w-5xl"), of stijl .fsc-wrap zelf.');
+        }
+    }
+
+    /** Whether the site's own CSS or JS (resources/css, resources/js) mentions a string. */
+    private function siteAssetsContain(string $needle): bool
+    {
+        $dirs = array_values(array_filter([$this->app->resourcePath('css'), $this->app->resourcePath('js')], 'is_dir'));
+
+        if ($dirs === []) {
+            return false;
+        }
+
+        foreach (Finder::create()->files()->in($dirs)->size('< 2M')->notPath(['build', 'vendor']) as $file) {
+            if (str_contains((string) file_get_contents($file->getRealPath()), $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The site's own banner: a view of the site that sends `fsc:consent`. The published copy of the SDK banner lives under `vendor/` and is
+     * not listed by {@see views()}, so a customised SDK banner counts as the SDK's.
+     */
+    private function ownBanner(): bool
+    {
+        return $this->viewsContain('fsc:consent');
+    }
+
+    /**
+     * The SDK's banner is printed by `<x-content::scripts />`: some layout of the site has it (without `consent="false"`), or the SDK's own
+     * pages are in use with the package layout. Needs the `consent` feature on.
+     */
+    private function packageBanner(): bool
+    {
+        if (! Auto::on('consent')) {
+            return false;
+        }
+
+        if ($this->autoPagesInUse() && Layout::name() === Layout::PACKAGE) {
+            return true;
+        }
+
+        foreach ($this->layouts() as $contents) {
+            if (preg_match_all('/<x-content::scripts\b(?:"[^"]*"|\'[^\']*\'|[^>"\'])*>/s', $contents, $tags) < 1) {
+                continue;
+            }
+
+            foreach ($tags[0] as $tag) {
+                if (preg_match('/\s:?consent\s*=\s*["\']?\s*(?:false|0)\b/i', $tag) !== 1) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function checkBanner(): void
+    {
+        $own = $this->ownBanner();
+
+        if ($own && $this->packageBanner()) {
+            $this->add(self::WARN, 'Twee cookiebanners: een eigen banner (stuurt fsc:consent) en die van de SDK (<x-content::scripts />)', 'Houd er één over. Blijft de eigen banner, zet dan FSC_AUTO_CONSENT=false (of <x-content::scripts :consent="false" />); blijft die van de SDK, haal dan de eigen weg.');
+        } elseif ($own) {
+            $this->add(self::OK, 'Cookiebanner gevonden (stuurt fsc:consent)');
+        } elseif (! $this->packageBanner()) {
+            $this->add(self::WARN, 'Geen cookiebanner gevonden (geen view stuurt fsc:consent)', 'Zonder banner draait geen code met toestemming (eigen code, heatmaps). Zet <x-content::scripts /> voor </body> (de SDK toont dan zijn banner), of bouw een eigen volgens AGENTS.md, "Cookiebanner".');
         }
     }
 
@@ -467,7 +876,7 @@ final class Doctor
 
         $this->add(self::OK, 'Voorbeeld vanuit het portaal staat aan (POST ' . PreviewRequest::base() . ')');
 
-        if ($this->viewsContain('fsc:consent') && ! $this->bannerKnowsPreview()) {
+        if ($this->ownBanner() && ! $this->bannerKnowsPreview()) {
             $this->add(self::WARN, 'Cookiebanner verbergt zich niet in het voorbeeld', 'Verberg de banner als <html> het attribuut data-fsc-preview heeft, bv. html[data-fsc-preview] #fsc-consent { display: none !important; }. Zie AGENTS.md, "Voorbeeld vanuit het portaal".');
         }
 
@@ -780,11 +1189,20 @@ final class Doctor
             if ($modules !== []) {
                 $this->add(self::INFO, 'Bouw voor elke module hierboven de sectie "Als de module ... aanstaat" uit AGENTS.md');
             }
+
+            $default = is_string($project['defaultLocale'] ?? null) && $project['defaultLocale'] !== '' ? $project['defaultLocale'] : null;
+            $locales = array_values(array_filter((array) ($project['locales'] ?? []), static fn ($locale): bool => is_string($locale) && $locale !== ''));
+            if ($default !== null || $locales !== []) {
+                $others = array_values(array_diff($locales, [(string) $default]));
+                $this->add(self::INFO, 'Talen van het project: ' . ($default ?? 'geen standaardtaal') . ' (standaard)' . ($others === [] ? ', geen prefix in de paden' : ', met pad-prefix: ' . implode(', ', $others)));
+            }
         } catch (ContentException $e) {
             $this->add(self::FAIL, 'De Hub weigert of is onbereikbaar (' . $e->errorCode() . ', HTTP ' . $e->status() . ')', 'Controleer FSC_SERVER_TOKEN en FSC_API_URL.');
 
             return;
         }
+
+        $seo = null;
 
         try {
             $seo = $client->getSeo(['cache' => false]);
@@ -795,7 +1213,60 @@ final class Doctor
                 $this->add(self::OK, "canonicalOrigin is {$origin}");
             }
         } catch (ContentException $e) {
+            $seo = null;
             $this->add(self::WARN, 'SEO-instellingen niet leesbaar (' . $e->errorCode() . ')', 'Staat de module seo aan voor dit project?');
+        }
+
+        $this->checkSitemap($seo);
+    }
+
+    /**
+     * The sitemap as the app serves it (through its own HTTP kernel, so a hand-built route counts too): counts the `<url>` entries and tells
+     * the cases of an empty sitemap apart with the project's SEO settings. Online only: the sitemap asks the Hub.
+     *
+     * @param array<string, mixed>|null $seo the SEO settings, null when they could not be read
+     */
+    private function checkSitemap(?array $seo): void
+    {
+        if ($this->match('GET', '/sitemap.xml') === null) {
+            return;
+        }
+
+        try {
+            $response = $this->app->make(HttpKernel::class)->handle(Request::create('/sitemap.xml', 'GET'));
+        } catch (Throwable $e) {
+            $this->add(self::FAIL, 'GET /sitemap.xml geeft een fout (' . $e::class . ')');
+
+            return;
+        }
+
+        if ($response->getStatusCode() !== 200) {
+            $this->add(self::FAIL, 'GET /sitemap.xml geeft ' . $response->getStatusCode(), $response->getStatusCode() === 503
+                ? 'De sitemap vraagt de Hub en die antwoordde niet: controleer FSC_SERVER_TOKEN, FSC_API_URL en de module seo.'
+                : 'De sitemap hoort 200 met XML te geven.');
+
+            return;
+        }
+
+        $count = preg_match_all('/<url[\s>]/', (string) $response->getContent());
+        $indexable = $seo === null ? null : ($seo['robotsIndex'] ?? true) !== false;
+
+        if ($count > 0) {
+            $this->add(self::OK, "sitemap.xml bevat {$count} " . ($count === 1 ? 'URL' : 'URL\'s'));
+        } elseif ($indexable === false) {
+            $this->add(self::INFO, 'sitemap is leeg omdat robotsIndex uit staat (testsite)');
+        } elseif ($indexable === true) {
+            $this->add(self::FAIL, 'sitemap.xml is leeg terwijl robotsIndex aan staat', 'Een site zonder URL\'s in de sitemap wordt niet gevonden: controleer de pagina\'s in de Hub (gepubliceerd?), de module seo en of de eigen routes in de web-groep staan.');
+        } else {
+            $this->add(self::WARN, 'sitemap.xml is leeg en robotsIndex kon niet gelezen worden', 'Controleer de SEO-instellingen van de Hub (module seo).');
+        }
+
+        // A live site that still says noindex: the canonical origin is this very site, and the project is not indexable.
+        $origin = is_array($seo) ? (string) ($seo['canonicalOrigin'] ?? '') : '';
+        $appHost = (string) parse_url((string) $this->config('app.url'), PHP_URL_HOST);
+
+        if ($indexable === false && $this->production() && $origin !== '' && $appHost !== '' && strcasecmp((string) parse_url($origin, PHP_URL_HOST), $appHost) === 0) {
+            $this->add(self::WARN, 'robotsIndex staat uit terwijl canonicalOrigin het adres van deze site is (' . $origin . '): de live site staat nog op noindex', 'Zet robotsIndex aan in de SEO-instellingen van de Hub zodra de site live is.');
         }
     }
 }
