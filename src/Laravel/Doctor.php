@@ -138,7 +138,7 @@ final class Doctor
         if (str_starts_with($baseUrl, 'https://') || in_array($host, ['localhost', '127.0.0.1'], true)) {
             $this->add(self::OK, "FSC_API_URL is {$baseUrl}");
         } else {
-            $this->add(self::FAIL, "FSC_API_URL is geen https-adres ({$baseUrl})", 'Laat hem op https://content.fullstackstudio.nl staan; de SDK bouwt er ook de media-URL\'s mee.');
+            $this->add(self::FAIL, "FSC_API_URL is geen https-adres ({$baseUrl})", 'Laat hem op https://hub.fullstackstudio.nl staan; de SDK bouwt er ook de media-URL\'s mee.');
         }
 
         $driver = (string) $this->config('session.driver');

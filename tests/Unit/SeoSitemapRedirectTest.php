@@ -39,14 +39,14 @@ final class SeoSitemapRedirectTest extends TestCase
         self::assertSame('https://www.acme.nl/blog/hello', $meta['canonical']);
         self::assertArrayNotHasKey('robots', $meta);
         self::assertSame('article', $meta['openGraph']['type']);
-        self::assertSame('https://content.fullstackstudio.nl/api/media/m1', $meta['openGraph']['image']['url']);
+        self::assertSame('https://hub.fullstackstudio.nl/api/media/m1', $meta['openGraph']['image']['url']);
         self::assertSame('Jan', $meta['openGraph']['author']);
         self::assertSame('summary_large_image', $meta['twitter']['card']);
 
         $html = Seo::html($meta);
         self::assertStringContainsString('<title>Hello | Acme</title>', $html);
         self::assertStringContainsString('<link rel="canonical" href="https://www.acme.nl/blog/hello">', $html);
-        self::assertStringContainsString('property="og:image" content="https://content.fullstackstudio.nl/api/media/m1"', $html);
+        self::assertStringContainsString('property="og:image" content="https://hub.fullstackstudio.nl/api/media/m1"', $html);
     }
 
     public function testSeoMetaDefaultsAndEscaping(): void

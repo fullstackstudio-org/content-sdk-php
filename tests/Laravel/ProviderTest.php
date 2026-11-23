@@ -70,7 +70,7 @@ final class ProviderTest extends LaravelTestCase
         $this->app->register(\FullStackStudio\Content\Laravel\ContentServiceProvider::class, true);
 
         $client = app(ContentClient::class);
-        self::assertSame('https://content.fullstackstudio.nl', $client->baseUrl());
+        self::assertSame('https://hub.fullstackstudio.nl', $client->baseUrl());
         self::assertSame($client, app('content'));
     }
 
