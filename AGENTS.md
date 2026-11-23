@@ -250,7 +250,7 @@ Verify: `fsc:doctor` lines `Webhookroute` and `FSC_WEBHOOK_SECRET`; the signatur
 
 ### A9. Forms through the Hub
 
-`FSC_FORMS_ENABLED=true`, then `<x-content::form form-key="contact" />` where the form goes. The package route validates, submits server-side with
+The form route is on by default (`FSC_FORMS_ENABLED=false` switches it off); put `<x-content::form form-key="contact" />` where the form goes. The package route validates, submits server-side with
 the visitor IP, keeps the honeypot and Turnstile, sends the attribution (utm, click ids) and the consented browser id along, and redirects back with
 errors or the success message. **The site sends no mail and has no SMTP**: the Hub mails the owner and confirms to the visitor. Custom form UI:
 "Forms" in the recipes below.
@@ -1077,7 +1077,7 @@ php artisan fsc:doctor                            # checks the "Altijd verplicht
 | `FSC_WEBHOOK_SECRET` | none | Secret `fsc_whsec_...` of the webhook created in Content (shown once). |
 | `FSC_WEBHOOK_ENABLED` | `false` | Registers `POST content/webhook` (route name `content.webhook`). |
 | `FSC_WEBHOOK_PATH` / `FSC_WEBHOOK_TOLERANCE` | `content/webhook` / `300` | Path / allowed clock skew in seconds. |
-| `FSC_FORMS_ENABLED` | `false` | Registers `POST content/forms/{key}` (route name `content.form`), needed by `<x-content::form>`. |
+| `FSC_FORMS_ENABLED` | `true` | Registers `POST content/forms/{key}` (route name `content.form`), needed by `<x-content::form>`. |
 | `FSC_FORMS_PATH` / `FSC_FORMS_LOCALE` | `content/forms` / app locale | Form route path / `nl` or `en` labels. |
 | `FSC_IP_HEADER` | `cf-connecting-ip` | Header holding the visitor's IP behind your proxy (`content.forms.ip_header`). Only a header your proxy overwrites. |
 | `FSC_PRECONNECT` | `true` | Adds `Link: <Hub origin>; rel=preconnect` to successful HTML pages (images and files load directly from the Hub). |
@@ -1191,7 +1191,7 @@ and pauses `failure_cooldown_seconds` (15) after a failure, 60 s while the modul
 ### Forms (server-side, works without JavaScript)
 
 ```env
-FSC_FORMS_ENABLED=true
+FSC_FORMS_ENABLED=true # default, only needed to document it
 ```
 
 ```blade

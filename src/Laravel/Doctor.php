@@ -205,13 +205,13 @@ final class Doctor
             $this->add(self::FAIL, 'Webhookroute ontbreekt', 'Zet FSC_WEBHOOK_ENABLED=true (of roep Content::routes() aan), anders zie je wijzigingen pas na de cache-TTL.');
         }
 
-        $usesForms = $this->viewsContain('<x-content::form');
+        $usesForms = $this->viewsContain('<x-content::form') || $this->viewsContain('<x-content::page-blocks');
         if ($routes->getByName('content.form') !== null) {
             $this->add(self::OK, 'Formulierroute POST /' . trim((string) $this->config('content.forms.path', 'content/forms'), '/') . '/{key} is geregistreerd');
         } elseif ($usesForms) {
-            $this->add(self::FAIL, 'Een view gebruikt <x-content::form> maar de formulierroute ontbreekt', 'Zet FSC_FORMS_ENABLED=true.');
+            $this->add(self::FAIL, 'Een formulier wordt getoond (<x-content::form> of een form-blok) maar de formulierroute staat uit: het formulier geeft bij versturen een 404', 'Haal FSC_FORMS_ENABLED=false weg (de route staat standaard aan) of roep Content::formRoutes() aan.');
         } else {
-            $this->add(self::WARN, 'Formulierroute staat uit', 'Zet FSC_FORMS_ENABLED=true zodra de site een formulier krijgt (<x-content::form>).');
+            $this->add(self::WARN, 'Formulierroute staat uit', 'Haal FSC_FORMS_ENABLED=false weg zodra de site een formulier krijgt (<x-content::form> of een form-blok).');
         }
 
         $catchAll = $this->match('GET', '/fsc-doctor-' . bin2hex(random_bytes(4)) . '/x');
