@@ -322,6 +322,7 @@ a piece. The labels A3 to A18 of the old checklist are kept, so references in ol
 | Cookie banner | the banner inside `<x-content::scripts />` and its record route `POST /_fsc/c` | `FSC_AUTO_CONSENT` | a published banner view; your own banner on the contract |
 | Webhook | `POST /content/webhook` as soon as `FSC_WEBHOOK_SECRET` is set | `FSC_WEBHOOK_ENABLED=false`, `FSC_WEBHOOK_PATH` | `Content::routes()` in a routes file |
 | Form route | `POST /content/forms/{key}` for `<x-content::form>` | `FSC_FORMS_ENABLED=false` | `Content::formRoutes()` |
+| Visitor pages | the Hub's booking, event, newsletter, ticket and download pages on the site's own domain (`/a/...`, `/e/...`, `/n/...`, `/t/...`, `/r/...`) | `FSC_AUTO_VISITOR_PAGES` | nothing: reserved paths (see A14) |
 | Trailing slash (off by default) | 301 to the slashed path, and every generated URL ends in `/` | `FSC_AUTO_TRAILING_SLASH` | `content.auto.trailing_slash_skip` |
 | Everything above | | `FSC_AUTO=false` | |
 
@@ -455,6 +456,51 @@ The provider registers these itself; do not copy, wrap or block them:
 | Intelligence routes | `/_fsc/i/*` | only while `FSC_INTELLIGENCE_ENABLED=true` |
 | Portal preview | global middleware `PreviewRequest`, `POST /_fsc/p`, `/_fsc/p/preview.js` | no session, no CSRF, never cache or block `/_fsc/p` (A17) |
 
+
+#### Visitor pages on the site's own domain (0.30, `content.auto.visitor_pages`)
+
+The Hub has pages for visitors that open from a link in a mail or SMS: booking and cancel links, the calendar feed, event signup and tickets,
+newsletter confirm, unsubscribe and manage links, support tickets and returns, and the download links for invoices, privacy exports and
+orders. With this SDK those links are on **the site's own domain** (`https://<site>/a/l/<token>`), not on the Hub's. The SDK answers them
+itself and forwards each request to the Hub with the server token; **no site code is needed**, and none should be written.
+
+| Group | Paths on the site (same as on the Hub) |
+|---|---|
+| Appointments | `/a/b/{slug}`, `/a/b/{slug}/{serviceId}`, `/a/l/{token}`, `/a/c/{token}` (also `/afspraak`, `/afspraak.ics`, `/verzetten`), `/a/f/{token}`, `/a/ontvangen` |
+| Events | `/e/i/{projectSlug}`, `/e/i/{projectSlug}/{eventSlug}`, `/e/t/{token?}` |
+| Newsletter and members | `/n/c/{token}`, `/n/u/{token}`, `/n/l/{token}`, `/n/m/{token}` |
+| Tickets and returns | `/t/{token?}`, `/t/{token}/reply`, `/t/{token}/attachments/{id}`, `/r/{token?}` |
+| File links | `/api/invoices/download/{signed}`, `/api/privacy/exports/{token}`, `/api/v1/downloads/{token}` |
+
+- **Reserved paths.** `a/`, `e/`, `n/`, `t/`, `r/` (the paths above) and `/_fsc/x/verify` belong to the SDK. The routes are registered in
+  `boot()`, before the site's own routes, so a catch-all of the site does not shadow them; but a site route or a Hub page on one of these
+  paths is never reached (or, with an identical URI, replaces the proxy route and breaks the link). `fsc:doctor` reports both as `FOUT`,
+  and sends one sample path per group through the app to see that no middleware of the site redirects or blocks it (the Hub connection is
+  replaced by a stand-in for that check; nothing leaves the process).
+- **Not styled by the site.** The visitor sees the Hub's page (its own inline styling), without the site's layout, header, cookie banner or
+  analytics: the URL holds a capability token and the page loads nothing from third parties except the Turnstile script. The address bar, the
+  links and the mail are the site's. Do not try to wrap these pages in the site's layout.
+- **No session, cookie or CSRF of the site** on these routes (no middleware group), and a `Set-Cookie` of the Hub never reaches the browser.
+  The visitor's IP (`FSC_IP_HEADER`, default `cf-connecting-ip`), the `Origin` and the browser string travel along, so keep the IP header
+  right behind Cloudflare. A body over 1 MB (not a file upload) is refused with 413, an answer over 2 MB with 502; files (invoice PDF, ticket
+  attachment, download) are not streamed through the pod: the Hub answers with a short-lived redirect to its own file URL. Each proxied
+  request holds one of the pod's PHP workers for at most 20 s (`content.auto.visitor_pages.timeout`) and a visitor IP is limited to 120 per
+  minute (`per_minute`).
+- **CSP.** The page comes with its own `Content-Security-Policy` (and `Referrer-Policy`, `X-Robots-Tag`), which the SDK applies after the
+  whole middleware stack, so a global header middleware cannot replace it and a site `Content-Security-Policy-Report-Only` is removed. Keep
+  the site's CSP middleware in the `web` group (A13) and never set a CSP in nginx or Apache for these paths: a second header would be applied
+  on top of the Hub's and block the page.
+- **When the Hub links to the site.** Only after it verified the site. The Hub calls `GET https://<canonicalOrigin>/_fsc/x/verify?n=<nonce>`
+  and the SDK answers by calling the Hub with its server token and that nonce (always 204, whatever the Hub said; 10 per minute per IP). That
+  proves the public address reaches a proxying SDK of this project, Cloudflare and route shadowing included. The Hub checks after a change
+  of `canonicalOrigin`, every day, and on "Controleer site" in the portal; three failed daily checks in a row put the links back on the Hub.
+  Until then (a test address, a canonical origin that is not live yet, an old SDK) mails and feeds keep Hub links, so nothing breaks.
+  `fsc:doctor --online` prints `geverifieerd sinds ...` or `INFO nog niet geverifieerd door de Hub` with the reason, and a `LET OP` when
+  `FSC_UPLOAD_MAX_MB` is below the 10 MB per file that a ticket reply allows (module `tickets`).
+- **Switching off.** `FSC_AUTO_VISITOR_PAGES=false` removes the visitor routes; `/_fsc/x/verify` then answers 404, which makes the Hub
+  unverify the site at the next "Controleer site" (else after three daily checks). Links that were already mailed with the site's domain
+  need these routes: keep them on while such mails are in circulation, and when the domain changes, redirect the old domain to the new one
+  with the path kept.
 
 ### A15. Staff and office traffic
 
