@@ -84,18 +84,25 @@ final class VisitorRoutes
     /** @var array<string, string>|null URI => anchored regex (built once per process) */
     private static ?array $patterns = null;
 
-    /** Called from the service provider's `boot()`. Nothing with cached routes (the cache holds them) or with the feature off. */
+    /**
+     * Called from the service provider's `boot()`. Nothing with cached routes (the cache holds them). With the feature off only the
+     * verification route, which answers 404.
+     */
     public static function register(Application $app): void
     {
-        if ((method_exists($app, 'routesAreCached') && $app->routesAreCached()) || ! Auto::on('visitor_pages')) {
+        if (method_exists($app, 'routesAreCached') && $app->routesAreCached()) {
             return;
         }
 
         /** @var Router $router */
         $router = $app->make('router');
+
+        // The Hub's verification probe: registered with the feature off too, where it answers a clean 404 itself (the Hub unverifies the site
+        // on that answer), instead of leaving the path to the site's catch-all.
+        $router->get(VerifyController::URI, VerifyController::class)->name(VerifyController::NAME);
         $numbers = [];
 
-        foreach (self::ROUTES as [$uri, $methods, $group]) {
+        foreach (Auto::on('visitor_pages') ? self::ROUTES : [] as [$uri, $methods, $group]) {
             $numbers[$group] = ($numbers[$group] ?? 0) + 1;
 
             $router->match($methods, $uri, VisitorProxyController::class)
@@ -116,6 +123,28 @@ final class VisitorRoutes
     public static function matches(string $path): bool
     {
         return self::find($path) !== null;
+    }
+
+    /**
+     * Whether the table has a route for this method and path: the case in which a route of the site on that path is never reached (ours is
+     * registered first), as `fsc:doctor` checks. `HEAD` counts as `GET`.
+     */
+    public static function allows(string $method, string $path): bool
+    {
+        if (strlen($path) > 4096) {
+            return false;
+        }
+
+        $method = strtoupper($method) === 'HEAD' ? 'GET' : strtoupper($method);
+        $path = trim(rawurldecode($path), '/');
+
+        foreach (self::ROUTES as [$uri, $methods]) {
+            if (in_array($method, $methods, true) && preg_match(self::pattern($uri), $path) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** The group of a path (`appointments`, `events`, `newsletter`, `tickets`, `files`), or null outside the table. */

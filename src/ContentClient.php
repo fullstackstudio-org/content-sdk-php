@@ -547,6 +547,35 @@ final class ContentClient
         ])->data['payment'] ?? [];
     }
 
+    // --- Site verification (visitor pages on the site's own domain) -----------------------------------------------------------
+
+    /**
+     * The callback of the site verification (plan sdk-out-of-the-box, section 8, V6): the Hub probed `GET /_fsc/x/verify?n={nonce}` on this
+     * site, and the site proves it runs a proxying SDK of THIS project by calling back with its server token and that nonce. The Hub marks the
+     * site verified when the nonce matches an unexpired probe of the token's project. Server token only. Never cached; 5 s timeout unless
+     * `timeoutMs` says otherwise.
+     *
+     * Returns true when the Hub confirmed. Throws a {@see ContentException} for everything else: 404 for any unknown, expired, used or foreign
+     * nonce (the Hub gives no other answer), 401/403 for a token that is not a server token, `timeout` and `network_error` when the Hub is not
+     * reachable. Used by `Laravel\Visitor\VerifyController`; nothing else calls it.
+     *
+     * @param int $proxyVersion the visitor proxy table version of this SDK (`VisitorRoutes::VERSION`)
+     * @param string $sdkVersion this SDK's version (`ContentClient::VERSION`)
+     * @param array<string, mixed> $options
+     * @throws ContentException
+     */
+    public function confirmSiteProxy(string $nonce, int $proxyVersion, string $sdkVersion, array $options = []): bool
+    {
+        $reply = $this->context->execute([
+            'method' => 'POST',
+            'path' => '/site-proxy/confirm',
+            'body' => ['nonce' => $nonce, 'proxy' => $proxyVersion, 'sdk' => $sdkVersion],
+            'options' => ['timeoutMs' => 5000, ...$options],
+        ]);
+
+        return ($reply->data['confirmed'] ?? false) === true;
+    }
+
     // --- Media -----------------------------------------------------------------------------------------------------------
 
     /**

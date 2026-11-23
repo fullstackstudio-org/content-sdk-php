@@ -12,6 +12,9 @@ use FullStackStudio\Content\Laravel\Auto\AutoPlatform;
 use FullStackStudio\Content\Laravel\Auto\AutoRoutes;
 use FullStackStudio\Content\Laravel\Preview\PreviewRequest;
 use FullStackStudio\Content\Laravel\Site\Layout;
+use FullStackStudio\Content\Laravel\Visitor\DoctorUpstream;
+use FullStackStudio\Content\Laravel\Visitor\Upstream;
+use FullStackStudio\Content\Laravel\Visitor\VerifyController;
 use FullStackStudio\Content\Laravel\Visitor\VisitorRoutes;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
@@ -28,7 +31,8 @@ use Throwable;
 /**
  * The checks behind `php artisan fsc:doctor`: the items every site on this package must have (AGENTS.md, "Altijd verplicht"), checked
  * against the running app (config, routes, middleware) and its files (layouts, public/, .gitignore). Read-only: it never writes a file, never
- * calls Content unless `online` is on, and the only request it dispatches is `GET /api/health` through the app's own HTTP kernel.
+ * calls Content unless `online` is on, and the only requests it dispatches through the app's own HTTP kernel are `GET /api/health` and one sample path per
+ * group of the visitor routes (with a stand-in for the Hub connection, see {@see DoctorUpstream}).
  *
  * Each result is `['status' => 'ok'|'warn'|'fail'|'skip'|'info', 'label' => Dutch text, 'hint' => Dutch text or null]`.
  */
@@ -198,6 +202,22 @@ final class Doctor
         'health' => ['Healthcheck', '/api/health', 'FSC_AUTO_HEALTH'],
     ];
 
+    /** One path per group of the visitor routes that the shadow check sends through the app (the keys are the groups of {@see VisitorRoutes}). */
+    private const VISITOR_SAMPLES = [
+        'appointments' => '/a/l/fsc-doctor',
+        'events' => '/e/t/fsc-doctor',
+        'newsletter' => '/n/u/fsc-doctor',
+        'tickets' => '/t/fsc-doctor',
+        'files' => '/api/v1/downloads/fsc-doctor',
+        'verify' => '/_fsc/x/verify',
+    ];
+
+    /**
+     * The largest file the Hub accepts in a ticket reply, in MB (`TicketRules::LIMITS['attachmentMaxBytes']` of the Hub). A pod that accepts
+     * less (`FSC_UPLOAD_MAX_MB`) refuses a file the Hub would take, in nginx, before the proxy sees it.
+     */
+    private const HUB_TICKET_FILE_MB = 10;
+
     private ?string $probe = null;
 
     /** A path no site serves on purpose: only a catch-all (the site's or the SDK's) matches it. Stable within one run. */
@@ -289,6 +309,7 @@ final class Doctor
             $this->add(self::INFO, 'Bezoekerspagina\'s van de Hub via het domein van de site staan uit (FSC_AUTO_VISITOR_PAGES=false)');
         } elseif ($this->app['router']->getRoutes()->hasNamedRoute(VisitorRoutes::NAME_PREFIX . 'appointments.1')) {
             $this->add(self::OK, 'Bezoekerspagina\'s: routes actief (proxy ' . VisitorRoutes::VERSION . ', ' . count(VisitorRoutes::ROUTES) . ' routes)');
+            $this->visitorShadowing();
         } else {
             $this->add(self::WARN, 'Bezoekerspagina\'s: de routes zijn niet geregistreerd', 'Zet FSC_AUTO_VISITOR_PAGES niet op false en draai php artisan route:clear als de routes gecachet zijn met een oudere SDK.');
         }
@@ -302,6 +323,115 @@ final class Doctor
         } else {
             $this->add(self::OK, 'Slash aan het eind van URL\'s automatisch (SDK, FSC_AUTO_TRAILING_SLASH)');
         }
+    }
+
+    /**
+     * One sample path per group of the visitor routes (plus the verification route of the Hub) through the router and the app's own HTTP
+     * kernel, the way a visitor's request travels: a route of the site on such a path, or a global middleware that redirects or blocks it,
+     * means the Hub's links on this domain would not reach the proxy. The kernel gets a stand-in for the Hub connection
+     * ({@see DoctorUpstream}), so nothing leaves the process. The paths `a/`, `e/`, `n/`, `t/`, `r/` and the file links are reserved.
+     */
+    private function visitorShadowing(): void
+    {
+        $problems = $this->visitorRouteCollisions();
+        $reported = array_keys($problems);
+        $original = $this->app->make(Upstream::class);
+        $this->app->instance(Upstream::class, new DoctorUpstream());
+
+        try {
+            foreach (self::VISITOR_SAMPLES as $group => $path) {
+                $problem = $this->visitorProblem($path, $group === 'verify' ? VerifyController::NAME : null, $reported);
+
+                if ($problem !== null) {
+                    $problems[] = $problem;
+                }
+            }
+        } finally {
+            $this->app->instance(Upstream::class, $original);
+        }
+
+        if ($problems === []) {
+            $this->add(self::OK, 'Bezoekerspagina\'s: geen route of middleware van de site op de gereserveerde paden');
+
+            return;
+        }
+
+        foreach ($problems as $problem) {
+            $this->add(self::FAIL, 'Bezoekerspagina\'s: ' . $problem, 'De paden a/, e/, n/, t/, r/, api/invoices/download, api/privacy/exports, api/v1/downloads en _fsc/x/verify zijn voor de bezoekerspagina\'s van de Hub (boek-, annuleer-, uitschrijf-, ticket- en downloadlinks op het domein van de site). Verplaats de eigen route of pagina, laat de middleware die paden met rust, of zet FSC_AUTO_VISITOR_PAGES=false (dan blijven de links in mails op de Hub).');
+        }
+    }
+
+    /**
+     * The routes of the site that fall under the visitor table: the SDK's routes are registered first, so a site route on such a path either
+     * replaces ours (identical URI) or is never reached. A parameter becomes `fsc-doctor` (an optional one is dropped) and the path is looked
+     * up in the table for the route's GET method.
+     *
+     * @return array<string, string> route URI => problem
+     */
+    private function visitorRouteCollisions(): array
+    {
+        $problems = [];
+
+        foreach ($this->app['router']->getRoutes()->getRoutes() as $route) {
+            $name = (string) $route->getName();
+
+            if (str_starts_with($name, 'content.') || str_starts_with(ltrim($route->getActionName(), '\\'), 'FullStackStudio\\Content\\Laravel\\') || ! in_array('GET', $route->methods(), true)) {
+                continue;
+            }
+
+            $uri = (string) preg_replace('#/?\{[^}/]+\?\}#', '', $route->uri());
+            $uri = (string) preg_replace('#\{[^}/]+\}#', 'fsc-doctor', $uri);
+
+            if (VisitorRoutes::allows('GET', '/' . ltrim($uri, '/'))) {
+                $problems[$route->uri()] = 'een eigen route van de site valt onder de bezoekerspaden (' . ltrim($route->uri(), '/') . ' → ' . $route->getActionName() . ')';
+            }
+        }
+
+        return $problems;
+    }
+
+    /**
+     * What stands in the way of a sample path, as a Dutch sentence, or null when the SDK's route answers it.
+     *
+     * @param string|null $routeName the name the answering route must have; null = any route of the visitor table
+     * @param list<string> $reported route URIs of the site that are reported already
+     */
+    private function visitorProblem(string $path, ?string $routeName, array $reported): ?string
+    {
+        $route = $this->match('GET', $path);
+        $ours = $route !== null && ($routeName !== null ? $route->getName() === $routeName : str_starts_with((string) $route->getName(), VisitorRoutes::NAME_PREFIX));
+
+        if (! $ours) {
+            if ($route !== null && in_array($route->uri(), $reported, true)) {
+                return null;
+            }
+
+            return $route === null
+                ? "geen route beantwoordt {$path}"
+                : "een eigen route van de site beantwoordt {$path} (eigen route wint: " . ltrim($route->uri(), '/') . ' → ' . $route->getActionName() . ')';
+        }
+
+        $base = rtrim((string) $this->config('app.url'), '/');
+        $request = Request::create(($base !== '' ? $base : 'http://localhost') . $path, 'GET', [], [], [], ['REMOTE_ADDR' => '192.0.2.1']);
+
+        try {
+            $response = $this->app->make(HttpKernel::class)->handle($request);
+        } catch (Throwable $e) {
+            return "{$path} geeft een fout in de app (" . $e::class . ')';
+        }
+
+        $expected = $routeName !== null ? 204 : 200;
+        $status = $response->getStatusCode();
+
+        if ($status === $expected && ($routeName !== null || str_contains((string) $response->getContent(), DoctorUpstream::MARKER))) {
+            return null;
+        }
+
+        if ($status >= 300 && $status < 400) {
+            return "een middleware van de site stuurt {$path} om naar " . ($response->headers->get('Location') ?? 'een ander adres');
+        }
+
+        return "{$path} geeft {$status} in plaats van de bezoekerspagina (een middleware van de site blokkeert of vervangt het antwoord)";
     }
 
     /** Pages, articles and legal texts: the content route (fallback) of the SDK, unless the site has a catch-all of its own. */
@@ -1217,7 +1347,91 @@ final class Doctor
             $this->add(self::WARN, 'SEO-instellingen niet leesbaar (' . $e->errorCode() . ')', 'Staat de module seo aan voor dit project?');
         }
 
+        $this->checkVisitorVerification($project);
+        $this->checkUploadLimit($project);
         $this->checkSitemap($seo);
+    }
+
+    /**
+     * What the Hub knows about the visitor pages of this site (`siteProxy` in the project read): verified since when, or not yet. Online only.
+     *
+     * @param array<string, mixed> $project
+     */
+    private function checkVisitorVerification(array $project): void
+    {
+        $status = is_array($project['siteProxy'] ?? null) ? $project['siteProxy'] : null;
+        $verified = $status !== null && ($status['verified'] ?? false) === true;
+
+        if (! Auto::on('visitor_pages')) {
+            if ($verified) {
+                $this->add(self::WARN, 'Bezoekerspagina\'s staan uit, maar de Hub houdt deze site nog voor geverifieerd', 'De Hub merkt het bij de eerstvolgende controle (de verificatieroute geeft nu 404); kies "Controleer site" in het portaal om het meteen te laten gaan.');
+            }
+
+            return;
+        }
+
+        if ($status === null) {
+            $this->add(self::INFO, 'Bezoekerspagina\'s: de Hub geeft geen verificatiestatus (een oudere Hub), de links in mails blijven op de Hub');
+
+            return;
+        }
+
+        if ($verified) {
+            $origin = is_string($status['origin'] ?? null) ? $status['origin'] : '';
+            $this->add(self::OK, 'Bezoekerspagina\'s: geverifieerd door de Hub sinds ' . self::dutchTime($status['verifiedAt'] ?? null) . ($origin !== '' ? " ({$origin}" . (is_int($status['proxyVersion'] ?? null) ? ', proxy ' . $status['proxyVersion'] : '') . ')' : ''));
+
+            return;
+        }
+
+        $failed = is_int($status['failedProbes'] ?? null) ? $status['failedProbes'] : 0;
+        $origin = is_string($status['origin'] ?? null) ? $status['origin'] : '';
+
+        $this->add(self::INFO, 'Bezoekerspagina\'s: nog niet geverifieerd door de Hub, de links in mails blijven op de Hub', match (true) {
+            $origin === '' => 'Zet de canonicalOrigin (het live https-adres) in de SEO-instellingen van de Hub: de Hub controleert dat adres en alleen als het deze site bereikt gaan de links naar het domein van de site.',
+            $failed > 0 => "De Hub vroeg {$origin}/_fsc/x/verify en kreeg {$failed}x geen bevestiging terug. Controleer dat dit adres deze site bereikt (www of kaal domein, Cloudflare-regels, een route van de site op dat pad) en kies daarna \"Controleer site\" in het portaal.",
+            default => "De Hub controleert {$origin} na een wijziging van de canonicalOrigin en daarna elke dag; kies \"Controleer site\" in het portaal om het nu te doen. Zolang het adres nog niet naar deze site wijst (een testadres) hoort dit zo.",
+        });
+    }
+
+    /**
+     * `FSC_UPLOAD_MAX_MB` against the Hub's per-file limit of a ticket reply. Online only: the module list says whether tickets are on.
+     *
+     * @param array<string, mixed> $project
+     */
+    private function checkUploadLimit(array $project): void
+    {
+        if (! in_array('tickets', (array) ($project['modules'] ?? []), true) || ! Auto::on('visitor_pages')) {
+            return;
+        }
+
+        $raw = getenv('FSC_UPLOAD_MAX_MB');
+        $raw = is_string($raw) && $raw !== '' ? $raw : env('FSC_UPLOAD_MAX_MB');
+
+        if ($raw !== null && $raw !== '' && (! is_numeric($raw) || (int) $raw < 1)) {
+            return;
+        }
+
+        $limit = $raw === null || $raw === '' ? 20 : (int) $raw;
+
+        if ($limit < self::HUB_TICKET_FILE_MB) {
+            $this->add(self::WARN, 'FSC_UPLOAD_MAX_MB is ' . $limit . ' MB, onder de ' . self::HUB_TICKET_FILE_MB . ' MB per bijlage die een ticket toestaat', 'Zet FSC_UPLOAD_MAX_MB op minstens ' . self::HUB_TICKET_FILE_MB . ' (standaard 20): een grotere bijlage wordt door de pod geweigerd voordat de Hub haar ziet. Boven de 20 MB ook de geheugenlimiet van de pod verhogen.');
+        } else {
+            $this->add(self::OK, 'FSC_UPLOAD_MAX_MB is ' . $limit . ' MB: genoeg voor de bijlagen van tickets (' . self::HUB_TICKET_FILE_MB . ' MB per bestand)');
+        }
+    }
+
+    /** An ISO time from the Hub as `d-m-Y H:i` in Dutch time; the raw text when it cannot be read. */
+    private static function dutchTime(mixed $iso): string
+    {
+        if (! is_string($iso) || $iso === '') {
+            return 'een onbekend moment';
+        }
+
+        try {
+            return (new \DateTimeImmutable($iso))->setTimezone(new \DateTimeZone('Europe/Amsterdam'))->format('d-m-Y H:i');
+        } catch (Throwable) {
+            return $iso;
+        }
     }
 
     /**
