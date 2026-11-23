@@ -674,8 +674,8 @@ Markup uses `fsc-*` classes; `content.css` has neutral, mobile first styles that
 
 | Block | Shows | Links to |
 |---|---|---|
-| `eventList` (Agenda) | upcoming published events: date, title, time, location, price or "Gratis"; `emptyText` when nothing is planned | `content.links.event`, else the Hub registration page (`registrationUrl`) |
-| `event` (Evenement) | one event (`eventRef`), optional description, button `ctaLabel` while registering is open | same as `eventList` |
+| `eventList` (Agenda) | upcoming published events: cover (when the event has one), date, title, time, location, price or "Gratis"; `emptyText` when nothing is planned | `content.links.event`, else the Hub registration page (`registrationUrl`) |
+| `event` (Evenement) | one event (`eventRef`): cover (when it has one), optional description, button `ctaLabel` while registering is open | same as `eventList` |
 | `appointmentBooking` (Afspraak maken) | heading, text, button `ctaLabel` (all services, or `serviceId`) | `content.links.booking`, else the Hub booking page (`bookingPageUrl`, when it is on), else nothing |
 | `faq` (Veelgestelde vragen) | published questions as `<details>` (optional `categoryId` = slug, `limit`), FAQPage JSON-LD with the nonce when `structuredData` | |
 | `productList` (Producten) | active products as cards: photo, name, summary, price (optional `category` = slug) | `content.links.product`, else the product path from the Hub sitemap (products `pathTemplate`), else `/producten/{slug}` |
@@ -817,6 +817,8 @@ free times load; a booking in a test project shows the confirmation.
 
 ### `events`
 
+An event has an optional cover image (`cover`: `{id, url, contentType, alt, width, height}` with an absolute `url`, or `null`; set with `coverMediaId`
+on `create()`/`update()`): show it with `<x-content::image :media="$event['cover']" />`.
 Event list and detail with registration (`$content->events`; print `descriptionHtml` through `<x-content::article-body>`, the block view
 also runs it through the strict `StrictHtml::sanitize()`), or only the page builder blocks `eventList` and `event`, which then link to the
 Hub's registration page (`registrationUrl`). With an own event page, set `content.links.event` (for example `/evenementen/{slug}`).

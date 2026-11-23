@@ -248,6 +248,53 @@ final class ModuleBlocksTest extends LaravelTestCase
         self::assertStringContainsString('Aanmelden is gesloten', $closed);
     }
 
+    /** @return array<string, mixed> */
+    private static function cover(array $override = []): array
+    {
+        return ['id' => '9d0b2f2e-6f4b-4c53-9d3a-0c1f6b6a4c11', 'url' => 'https://content.test/api/media/9d0b2f2e-6f4b-4c53-9d3a-0c1f6b6a4c11', 'contentType' => 'image/jpeg', 'alt' => 'Voorkant "clubhuis"', 'width' => 1200, 'height' => 800, ...$override];
+    }
+
+    public function testTheEventBlockShowsTheCoverWithAltSizeAndLazyLoading(): void
+    {
+        $this->hub(['/events/' . self::EVENT_ID => ['event' => self::event(['cover' => self::cover(), 'coverMediaId' => self::cover()['id']])]]);
+
+        $html = $this->render([['id' => 'x', 'type' => 'event', 'eventRef' => self::EVENT_ID, 'showDescription' => true, 'ctaLabel' => 'Ik kom']]);
+
+        self::assertStringContainsString('<div class="fsc-event__media">', $html);
+        self::assertMatchesRegularExpression('#<img src="https://content\.test/api/media/9d0b2f2e-6f4b-4c53-9d3a-0c1f6b6a4c11" srcset="[^"]*\?w=960&amp;format=webp 960w, [^"]*\?w=1280&amp;format=webp 1200w" sizes="[^"]+" alt="Voorkant &quot;clubhuis&quot;" width="1200" height="800" loading="lazy" decoding="async">#', $html);
+        self::assertLessThan(strpos($html, 'fsc-event__title'), strpos($html, 'fsc-event__media'), 'the cover comes before the title');
+    }
+
+    public function testTheEventBlockWithoutACoverRendersAsBefore(): void
+    {
+        foreach ([[], ['cover' => null], ['cover' => ['id' => 'x', 'url' => '']], ['cover' => 'kapot']] as $extra) {
+            $this->http->requests = [];
+            $this->hub(['/events/' . self::EVENT_ID => ['event' => self::event($extra)]]);
+
+            $html = $this->render([['id' => 'x', 'type' => 'event', 'eventRef' => self::EVENT_ID]]);
+
+            self::assertStringContainsString('fsc-block--event', $html);
+            self::assertStringNotContainsString('fsc-event__media', $html);
+            self::assertStringNotContainsString('<img', $html);
+        }
+    }
+
+    public function testTheEventListShowsTheCoverOfEachEventThatHasOne(): void
+    {
+        $this->hub(['/events' => ['events' => [
+            self::event(['cover' => self::cover(['contentType' => 'image/svg+xml', 'width' => null, 'height' => null, 'alt' => ''])]),
+            self::event(['id' => 'b2', 'slug' => 'workshop', 'title' => 'Workshop']),
+        ], 'page' => 1, 'limit' => 6, 'total' => 2]]);
+
+        $html = $this->render([['id' => 'e1', 'type' => 'eventList', 'heading' => '', 'limit' => 6, 'emptyText' => '']]);
+
+        self::assertSame(2, substr_count($html, '<article class="fsc-eventcard">'));
+        self::assertSame(1, substr_count($html, 'fsc-eventcard__media'), 'only the event with a cover gets an image');
+        self::assertSame(1, substr_count($html, '<img'));
+        // No variants for SVG and no size known: the plain original, still lazy, the alt of the media (empty here).
+        self::assertStringContainsString('<img src="https://content.test/api/media/9d0b2f2e-6f4b-4c53-9d3a-0c1f6b6a4c11" alt="" loading="lazy" decoding="async">', $html);
+    }
+
     public function testTheEventBlockRendersNothingWhenTheEventIsGoneOrTheRefIsMalformed(): void
     {
         $this->hub(['/events/' . self::EVENT_ID => 404]);

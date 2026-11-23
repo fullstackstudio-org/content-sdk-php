@@ -78,7 +78,7 @@ final class ModuleBlockData
 
     /**
      * One published event for an `event` block (`eventRef` = its uuid): `{title, date, time, location, price, href, state, summary,
-     * descriptionHtml}`. Null when the reference is malformed, the event is gone, not published, or on any failure.
+     * cover, descriptionHtml}`. Null when the reference is malformed, the event is gone, not published, or on any failure.
      *
      * @param array<string, mixed> $block
      * @return array<string, mixed>|null
@@ -346,6 +346,8 @@ final class ModuleBlockData
             'external' => $template === null && $hub !== null,
             'state' => $state,
             'summary' => is_string($event['summary'] ?? null) ? $event['summary'] : '',
+            // The Hub's event cover (`{id, url, contentType, alt, width, height}`, absolute url) or null: events without one render as before.
+            'cover' => is_array($event['cover'] ?? null) && is_string($event['cover']['url'] ?? null) && $event['cover']['url'] !== '' ? $event['cover'] : null,
             // Defence in depth: the strict allowlist again, even though the Hub sanitizes (it once served this field raw).
             'descriptionHtml' => is_string($event['descriptionHtml'] ?? null) ? StrictHtml::sanitize($event['descriptionHtml']) : '',
         ];

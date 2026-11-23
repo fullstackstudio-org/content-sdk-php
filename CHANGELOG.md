@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Event cover image: every event the Hub returns now has `coverMediaId` and `cover` (`{id, url, contentType, alt, width, height}` with an absolute `url`, or `null`), and `events->create()`/`update()` take `coverMediaId` (a media id of an image in the project, or `null` to clear). The default `eventList` and `event` block views show the cover when there is one: `<x-content::image>` with the media's `alt`, `width` and `height` (no layout shift), a `srcset` of the Hub's variants and `loading="lazy"`, in `.fsc-eventcard__media` and `.fsc-event__media`. Events without a cover render as before.
 - Webhook event types `appointment.no_show` and `appointment.no_show_undone` in `Webhooks\Events::ALL` (staff recorded, or took back, that a customer did not show up; ids, status and times only).
 
 ## 0.28.0
