@@ -302,6 +302,25 @@ final class ModuleBlockData
         return is_string($id) && preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $id) === 1 ? $id : 'b' . $index;
     }
 
+    /**
+     * The view data of an event the caller already has (the out of the box event page): the same array as {@see event()} gives, without a
+     * second Hub read. Null when the event is a draft or has no usable slug and title; a cancelled event (the event page still answers) gets
+     * the state `cancelled`. Its `href` is the site's own event link, so a
+     * page that is that link should use the resource's `registrationUrl` for the register button instead.
+     *
+     * @param array<string, mixed> $event
+     * @return array<string, mixed>|null
+     */
+    public static function eventData(array $event): ?array
+    {
+        if (($event['status'] ?? null) === 'cancelled') {
+            $event['status'] = 'published';
+            $event['salesState'] = 'cancelled';
+        }
+
+        return self::eventView($event);
+    }
+
     /** The visitor-facing state of an event: `open`, `sold_out`, `not_started`, `ended`, `past` or `cancelled`. */
     public static function stateLabel(string $state): ?string
     {

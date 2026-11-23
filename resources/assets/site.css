@@ -1,0 +1,22 @@
+:where(.fsc-site){display: block;}
+:where(.fsc-site-view){padding-block: 2rem 4rem;}
+:where(.fsc-site-view img){max-width: 100%; height: auto;}
+:where(.fsc-site-head){display: grid; gap: 0.5rem; margin: 0 0 calc(var(--fsc-gap) * 1.5);}
+:where(.fsc-site-title){margin: 0; font-family: var(--fsc-heading-font); font-size: calc(var(--fsc-h2-size) * 1.4); line-height: 1.15; text-wrap: balance;}
+:where(.fsc-site-lead){margin: 0; color: var(--fsc-muted); font-size: 1.15em;}
+:where(.fsc-site-meta){display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin: 0; color: var(--fsc-muted); font-size: 0.9em;}
+:where(.fsc-site-cover){margin: 0 0 calc(var(--fsc-gap) * 1.5);}
+:where(.fsc-site-cover img){display: block; width: 100%; height: auto; border-radius: var(--fsc-radius);}
+:where(.fsc-site-prose){max-width: 46rem; margin-inline: auto;}
+:where(.fsc-site-back){display: inline-block; margin: 0 0 var(--fsc-gap); color: var(--fsc-muted); font-size: 0.9em;}
+:where(.fsc-site-facts){display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1.25rem; margin: 0 0 calc(var(--fsc-gap) * 1.5); padding: var(--fsc-gap); border: 1px solid var(--fsc-border); border-radius: var(--fsc-radius); background: var(--fsc-surface);}
+:where(.fsc-site-facts dt){color: var(--fsc-muted);}
+:where(.fsc-site-facts dd){margin: 0; font-weight: 600;}
+:where(.fsc-site-action){margin: calc(var(--fsc-gap) * 1.5) 0 0;}
+:where(.fsc-site-empty){margin: 0; color: var(--fsc-muted);}
+:where(.fsc-pager){display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--fsc-gap); margin-top: calc(var(--fsc-gap) * 2);}
+:where(.fsc-pager__status){color: var(--fsc-muted); font-size: 0.9em;}
+:where(.fsc-pager a){color: var(--fsc-accent); font-weight: 600;}
+@media (max-width: 40rem){:where(.fsc-site-view){padding-block: 1.25rem 3rem;}:where(.fsc-site-facts){grid-template-columns: 1fr; gap: 0;}:where(.fsc-site-facts dd){margin-bottom: 0.6rem;}}
+:where(.fsc-articlecard__title a){color: inherit; text-decoration: none;}
+:where(.fsc-articlecard__title a:hover){text-decoration: underline;}

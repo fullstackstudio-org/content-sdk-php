@@ -39,7 +39,7 @@ final class BlockData
             $client = app(ContentClient::class);
             // A server token also sees drafts: ask for published articles only.
             $list = $client->listArticles(['status' => 'published', 'category' => $category, 'locale' => $locale, 'limit' => $limit]);
-            $urls = new Urls($client);
+            $urls = app(Urls::class);
             $urls->articleTemplate();
         } catch (Throwable) {
             return null;

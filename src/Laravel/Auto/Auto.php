@@ -18,11 +18,13 @@ final class Auto
     /**
      * Called by the service provider after `mergeConfigFrom`. `mergeConfigFrom` is shallow, so an app `auto` array would replace the package
      * block: deep-merge it so a sparse app config keeps every new default. `legal_paths` is a whole list: the app's replaces ours.
-     * Also binds the request scoped {@see PageContext}.
+     * Also binds the request scoped {@see PageContext} and `Urls`.
      */
     public static function register(Application $app): void
     {
         $app->scoped(PageContext::class, static fn (): PageContext => new PageContext());
+        // One per request: the project and SEO settings Urls reads are remembered, so a page builds many links with one lookup (Octane safe).
+        $app->scoped(\FullStackStudio\Content\Laravel\Site\Urls::class);
 
         $config = $app['config'];
         $package = (require self::PACKAGE_CONFIG)['auto'];

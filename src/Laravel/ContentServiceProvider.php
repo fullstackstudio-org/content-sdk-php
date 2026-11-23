@@ -120,6 +120,7 @@ final class ContentServiceProvider extends ServiceProvider
 
         self::registerHtmlBlockRoute();
         \FullStackStudio\Content\Laravel\Auto\AutoRoutes::register($this->app);
+        foreach (\FullStackStudio\Content\Laravel\Site\SiteViews::publishable() as $tag => $paths) { $this->publishes($paths, $tag); }
 
         if ($this->app['config']->get('content.analytics.enabled', true)) {
             self::registerAnalyticsRoutes();
