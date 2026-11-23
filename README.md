@@ -15,18 +15,23 @@ token or SSH key is needed, so a Docker build can install it as-is. Until it is 
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.12" }
+    "require": { "fullstackstudio/content": "^0.30" }
 }
 ```
 
 Once it is on Packagist, `composer require fullstackstudio/content` is enough and the `repositories` entry can go.
 
-**After installing, run `php artisan fsc:agents`** (Laravel). It adds a short marked block to your project's `AGENTS.md` (created if missing; and `@AGENTS.md` to an
+**Laravel: run `php artisan content:install`** on a fresh app. It writes the layout (`<x-content::head />`, `@yield('content')`, `<x-content::scripts />`), the
+marked `--fsc-*` theme block in `resources/css/app.css`, the env keys in `.env.example`, a sparse `config/content.php`, the `AGENTS.md` pointer (below) and, with `--docker`, the image
+files; then it runs `fsc:doctor --skip-env`. Idempotent, never overwrites without `--force`. From there the package serves the site by itself: Hub pages, articles, legal texts, `sitemap.xml`,
+`robots.txt`, `api/health`, redirects, https, error pages, the cookie banner and the webhook (see "Out of the box" below).
+
+**After installing, run `php artisan fsc:agents`** (Laravel; `content:install` does it for you). It adds a short marked block to your project's `AGENTS.md` (created if missing; and `@AGENTS.md` to an
 existing `CLAUDE.md`) that points AI coding agents at [`AGENTS.md`](AGENTS.md) of this package, the integration guide with recipes and rules. It is idempotent and only
 touches the text between `<!-- fullstack-content:start -->` and `<!-- fullstack-content:end -->`.
 
 **Then run `php artisan fsc:doctor`** until it shows no `FOUT` line. It checks the items every site needs (AGENTS.md, "Altijd verplicht"): env keys, https
-forcing, sessions not in a cookie, the layout components, the sitemap/robots/health/webhook/form routes, the redirect middleware, a cookie banner, error pages,
+forcing, sessions not in a cookie, the layout components, which features are automatic and which the site overrides, the webhook/form routes, a cookie banner, error pages,
 no secrets in views. `--skip-env` skips the secret checks, `--online` also asks the Hub which modules are on, `--strict` fails on warnings too.
 
 ## Quick start (any PHP)
@@ -202,7 +207,8 @@ The service provider and the `Content` facade are auto-discovered.
 
 ```bash
 composer require fullstackstudio/content
-php artisan vendor:publish --tag=content-config   # optional
+php artisan content:install                        # fresh app: layout, theme variables, env keys, config/content.php (--docker: the image files)
+php artisan vendor:publish --tag=content-config    # optional: the full config
 ```
 
 ```dotenv
@@ -210,6 +216,25 @@ FSC_SERVER_TOKEN=fsc_srv_...
 FSC_WEBHOOK_SECRET=fsc_whsec_...
 # optional: FSC_API_URL, FSC_CACHE_STORE, FSC_CACHE_TTL, FSC_CACHE_ENABLED, FSC_WEBHOOK_ENABLED, FSC_WEBHOOK_PATH
 ```
+
+### Out of the box
+
+With the package installed the site needs no routes, controllers or views for Hub content. A route or view of the site itself always wins, one switch turns a feature off
+(`FSC_AUTO=false` for all, `FSC_AUTO_<FEATURE>=false` for one), and `php artisan fsc:doctor` shows per feature whether it is automatic, overridden or off:
+
+| Feature | Switch | What it does |
+|---|---|---|
+| Pages, articles, categories, legal texts, events | `FSC_AUTO_PAGES`, `_ARTICLES`, `_LEGAL` (events: `content.links.event`) | one fallback route resolves any path (home page, SEO article path, `/privacyverklaring`, ...) and renders the default views in your layout |
+| `sitemap.xml`, `robots.txt`, `api/health` | `FSC_AUTO_SITEMAP`, `_ROBOTS`, `_HEALTH` | Hub entries plus the site's own parameterless GET pages (`->noSitemap()` to leave one out); robots from the SEO settings; liveness without a Hub call |
+| Redirects, https, proxies | `FSC_AUTO_REDIRECTS`, `FSC_AUTO_PLATFORM` | `RedirectMiddleware` first in the `web` group, trusted proxies, `URL::forceScheme('https')` in production |
+| Error pages | `FSC_AUTO_ERRORS` | a `ContentException` becomes 404 or 503; default `errors/404` (in your layout) and standalone `errors/503` |
+| Cookie banner | `FSC_AUTO_CONSENT` | inside `<x-content::scripts />`, texts from the Hub, record route `POST /_fsc/c` |
+| Webhook | `FSC_WEBHOOK_SECRET` set (`FSC_WEBHOOK_ENABLED=false` switches off) | `POST content/webhook` |
+| Trailing slash | `FSC_AUTO_TRAILING_SLASH` (off by default) | slashed page URLs everywhere and a 301 from the form without |
+
+Layout: `<x-content::head />` in `<head>` (meta, hreflang, JSON-LD, site standards, error reporter) and `<x-content::scripts />` before `</body>` (banner, owner code, analytics).
+A designed page of the site is a route and a view, with its own meta through `Content::seo([...])` or `:meta` on the head. Override levels and the migration of an existing
+site: `AGENTS.md`, "Overschrijven" and "Bestaande site omzetten".
 
 ```php
 use FullStackStudio\Content\Laravel\Facades\Content;
@@ -219,20 +244,20 @@ $articles = Content::listArticles(['limit' => 5]);
 
 The client is a singleton (`app(ContentClient::class)`) that caches reads in your Laravel cache and forwards the request's IP.
 
-**Webhook route** (opt-in): set `FSC_WEBHOOK_ENABLED=true`, or call `Content::routes()` in a routes file. It registers
-`POST content/webhook` (name `content.webhook`) which verifies the signature, invalidates the tags, dispatches
+**Webhook route** (automatic once `FSC_WEBHOOK_SECRET` is set; `FSC_WEBHOOK_ENABLED=false` switches it off, `FSC_WEBHOOK_ENABLED=true` registers it without a secret, or call
+`Content::routes()` in a routes file). It registers `POST content/webhook` (name `content.webhook`) which verifies the signature, invalidates the tags, dispatches
 `FullStackStudio\Content\Laravel\Events\ContentWebhookReceived` and answers 200 (401 for a bad signature). The route uses the `api`
 middleware group, which has no CSRF protection. If you register it in the `web` group, exempt it:
 `$middleware->validateCsrfTokens(except: ['content/webhook']);`.
 
-**Redirects**: add `FullStackStudio\Content\Laravel\RedirectMiddleware` early in the `web` group. It looks up GET/HEAD paths (skipping
+**Redirects**: `FullStackStudio\Content\Laravel\RedirectMiddleware` is put first in the `web` group by the package (`FSC_AUTO_REDIRECTS`); a site that builds its own group adds it early. It looks up GET/HEAD paths (skipping
 `/api`, `/build`, `/storage` and files with an extension), caches the answers under the `content:redirects` tag and pauses for 15
 seconds if Content is down.
 
-**SEO**: `<x-content::meta :page="$article" path="/blog/{{ $article['slug'] }}" type="article" />` in `<head>` (title, description,
-canonical, robots, Open Graph, Twitter). Without Blade: `Seo::meta($seo, $page, [...])` and `Seo::html($meta)`.
+**SEO**: `<x-content::head />` in `<head>` prints title, description, canonical, robots, Open Graph, Twitter, hreflang and JSON-LD for the page being rendered (the older
+`<x-content::meta :page="$article" path="/blog/{{ $article['slug'] }}" type="article" />` keeps working). Without Blade: `Seo::meta($seo, $page, [...])` and `Seo::html($meta)`.
 
-**Sitemap**: `Route::get('sitemap.xml', fn () => FullStackStudio\Content\Laravel\Sitemap::response(['localePrefix' => fn ($l) => $l === 'nl' ? '' : "/$l"]));`
+**Sitemap**: automatic (`/sitemap.xml`). A site with its own route: `Route::get('sitemap.xml', fn () => FullStackStudio\Content\Laravel\Sitemap::response(['localePrefix' => fn ($l) => $l === 'nl' ? '' : "/$l"]));`
 
 ## Blade components
 
@@ -395,7 +420,7 @@ heatmap clicks only after consent. Full rules, the banner wiring and a checklist
 ## Error monitoring
 
 With the Content module `errors` switched on, the SDK reports backend exceptions (through Laravel's exception handler) and, with
-`<x-content::errors />` in the `<head>`, browser errors via the first-party tunnel `POST /_fsc/e/envelope` on your own domain. The DSNs come from
+`<x-content::head />` in the `<head>`, browser errors via the first-party tunnel `POST /_fsc/e/envelope` on your own domain. The DSNs come from
 Content; events are rebuilt from an allowlist and messages are scrubbed. Never in `local`/`testing`. Options and what is (not) sent: `AGENTS.md`,
 section "Error monitoring", and `config/content.php` (`errors`).
 
@@ -409,11 +434,12 @@ outside PHP; `php artisan fsc:doctor` checks both. Details: `AGENTS.md`, A17.
 
 ## Example site
 
-`examples/laravel` is a small but real Laravel 13 site on this package (composer path repository): home, `/blog` and `/blog/{slug}` (published only, 404 for
-the rest), every other path as a page of blocks, a contact form (`<x-content::form>`), `sitemap.xml`, `robots.txt`, the webhook route, the redirect
-middleware, the layout components (`meta`, `head`, `errors`, `body-end`, `analytics`), a cookie banner on the consent contract (`partials/consent-banner`
-plus `POST /api/consent`), the privacy statement from the legal module (`/privacyverklaring`), `errors/404` and a standalone `errors/503`, and `GET /api/health`
-(`{"ok":true}`). When Content is down the site answers 503 instead of a stack trace, and `/api/health` stays up. It passes `php artisan fsc:doctor`.
+`examples/laravel` is a small but real Laravel 13 site on this package (composer path repository), and it is what the zero-wiring claim looks like: a layout with two components
+(`<x-content::head />`, `<x-content::scripts />`), the `--fsc-*` theme block in its CSS, a sparse `config/content.php`, one designed page with its own meta (`/contact`, with a
+`<x-content::form>`) and the member login example. Nothing else: no page, blog, legal or consent controller, no sitemap, robots, health or error routes, no middleware lines, no
+`forceScheme`. Hub pages (the home page is the Hub page with path `/`), `/blog`, `/blog/{slug}`, the privacy statement from the legal module, `sitemap.xml`, `robots.txt`,
+`GET /api/health`, redirects, the 404 and standalone 503 pages, the cookie banner and the webhook all come from the package. When Content is down the site answers 503 instead of a
+stack trace, and `/api/health` stays up. It passes `php artisan fsc:doctor` with 0 `FOUT` and 0 `LET OP` (`tests/Laravel/ExampleSiteTest.php` boots it against a fake Hub).
 
 ```bash
 cd examples/laravel
@@ -424,7 +450,7 @@ php artisan serve
 
 ## Deploying on the FSS platform
 
-`examples/laravel/Dockerfile` is the template for customer sites: multi-stage (composer `--no-dev`, vite build), then `registry.int0.net/base/php:8.5.12-fpm-alpine` (PHP >= 8.5.12, which fixes CVE-2026-109618/109619) with nginx in
+`examples/laravel/Dockerfile` is the template for customer sites (`php artisan content:install --docker` writes a copy plus `docker/*` and the build01 workflow): multi-stage (composer `--no-dev`, vite build), then `registry.int0.net/base/php:8.5.12-fpm-alpine` (PHP >= 8.5.12, which fixes CVE-2026-109618/109619) with nginx in
 one container, listening on port 3000, running as `www-data`, `HEALTHCHECK` on `/api/health`. Tuned for a small idle footprint: OPcache without timestamp
 validation, PHP-FPM `pm = ondemand` (`pm.max_children = 4`, `pm.process_idle_timeout = 30s`), one nginx worker, `memory_limit = 64M` (raised for uploads, see `FSC_UPLOAD_MAX_MB`), and a tiny shell
 entrypoint instead of supervisord. Measured with `docker stats`: about 32-35 MiB for the whole container at idle.
@@ -440,7 +466,7 @@ then) and refuses to start without `APP_KEY`. Environment variables:
 | --- | --- |
 | `APP_KEY` | required (`php artisan key:generate --show`) |
 | `FSC_SERVER_TOKEN` | server token (`fsc_srv_...`) |
-| `FSC_WEBHOOK_SECRET` | secret of the webhook you created in the admin; the webhook URL is `https://<site>/content/webhook` |
+| `FSC_WEBHOOK_SECRET` | secret of the webhook you created in the admin; the webhook URL is `https://<site>/content/webhook`. Setting it registers the route |
 | `FSC_API_URL` | defaults to `https://hub.fullstackstudio.nl` |
 | `FSC_UPLOAD_MAX_MB` | largest request body in MB for form uploads, default `20` (1-55). Sets nginx `client_max_body_size`, PHP `upload_max_filesize` and `post_max_size`, and `memory_limit` to 64 + 3× this value (the SDK holds the files in memory). Content allows 25 MB per file and 50 MB per submission; above 20, also raise the pod's memory limit. |
 
