@@ -26,7 +26,7 @@ final class ContentResponseHeadersTest extends LaravelTestCase
     {
         $response = $this->get('/page')->assertOk();
 
-        self::assertSame('<https://content.fullstackstudio.nl>; rel=preconnect', $response->headers->get('Link'));
+        self::assertSame('<https://hub.fullstackstudio.nl>; rel=preconnect', $response->headers->get('Link'));
         self::assertSame(ContentClient::VERSION, $response->headers->get('X-FSC-SDK'));
     }
 
@@ -51,7 +51,7 @@ final class ContentResponseHeadersTest extends LaravelTestCase
     {
         $link = (string) $this->get('/page-link')->assertOk()->headers->get('Link');
 
-        self::assertSame('</app.css>; rel=preload; as=style, <https://content.fullstackstudio.nl>; rel=preconnect', $link);
+        self::assertSame('</app.css>; rel=preload; as=style, <https://hub.fullstackstudio.nl>; rel=preconnect', $link);
     }
 
     public function testThePreconnectSwitchTurnsOnlyThatHeaderOff(): void
@@ -69,7 +69,7 @@ final class ContentResponseHeadersTest extends LaravelTestCase
         $response = $this->get('/page');
 
         self::assertNull($response->headers->get('X-FSC-SDK'));
-        self::assertSame('<https://content.fullstackstudio.nl>; rel=preconnect', $response->headers->get('Link'));
+        self::assertSame('<https://hub.fullstackstudio.nl>; rel=preconnect', $response->headers->get('Link'));
     }
 
     public function testTheOriginDropsPathQueryAndCredentialsButKeepsThePort(): void
