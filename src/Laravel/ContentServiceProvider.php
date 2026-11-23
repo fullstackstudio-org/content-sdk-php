@@ -123,6 +123,7 @@ final class ContentServiceProvider extends ServiceProvider
         foreach (\FullStackStudio\Content\Laravel\Site\SiteViews::publishable() as $tag => $paths) { $this->publishes($paths, $tag); }
         \FullStackStudio\Content\Laravel\Auto\AutoErrors::register($this->app, fn (array $paths, string $tag) => $this->publishes($paths, $tag));
         \FullStackStudio\Content\Laravel\Sitemap::registerRouteMacro();
+        \FullStackStudio\Content\Laravel\Auto\AutoPlatform::register($this->app);
 
         if ($this->app['config']->get('content.analytics.enabled', true)) {
             self::registerAnalyticsRoutes();
