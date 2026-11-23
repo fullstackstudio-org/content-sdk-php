@@ -71,6 +71,15 @@ final class FormBlockTest extends LaravelTestCase
         $this->app->instance(PageContext::class, $context);
         self::assertSame('fr', FormLocale::resolve(), 'the page locale beats the app locale');
 
+        $english = new PageContext();
+        $english->resolve(new Resolved('page', [], '/about', 'en'));
+        $this->app->instance(PageContext::class, $english);
+        self::assertSame('en', FormLocale::resolve(), 'the English version of a multilingual site gets English form texts');
+
+        $this->app->instance(PageContext::class, new PageContext());
+        app()->setLocale('en');
+        self::assertSame('nl', FormLocale::resolve(), 'Laravel\'s default app locale en alone still counts as never set');
+
         config(['content.forms.locale' => 'en']);
         self::assertSame('en', FormLocale::resolve(), 'an explicit config value wins, so English sites stay English');
     }

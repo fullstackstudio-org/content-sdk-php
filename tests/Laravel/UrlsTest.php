@@ -34,6 +34,38 @@ final class UrlsTest extends FakeHubTestCase
         self::assertSame('/en/over-ons/', $urls->path('/over-ons', 'en'));
     }
 
+    public function testOnlyEnabledNonDefaultLocalesGetAPrefix(): void
+    {
+        $urls = $this->urls();
+
+        self::assertTrue($urls->multilingual());
+        self::assertSame('/en/over-ons', $urls->path('/over-ons', 'en'));
+        self::assertSame('/over-ons', $urls->path('/over-ons', 'de'), 'a language the project has not enabled gets no prefix');
+        self::assertSame('/blog/hallo', $urls->article(['slug' => 'hallo', 'locale' => 'fr']));
+    }
+
+    public function testASingleLanguageSiteHasNoPrefixesAtAll(): void
+    {
+        $this->project = ['locales' => ['nl'], 'defaultLocale' => 'nl'];
+        $urls = $this->urls();
+
+        self::assertFalse($urls->multilingual());
+        self::assertSame(['nl'], $urls->locales());
+        self::assertSame('/over-ons', $urls->path('/over-ons', 'en'));
+        self::assertSame('/', $urls->path('/', 'en'));
+        self::assertSame('/blog/hello', $urls->article(['slug' => 'hello', 'locale' => 'en']));
+    }
+
+    public function testAnEnglishDefaultSiteHasNoPrefixForEnglish(): void
+    {
+        $this->project = ['locales' => ['en', 'nl'], 'defaultLocale' => 'en'];
+        $urls = $this->urls();
+
+        self::assertSame(['en', 'nl'], $urls->locales());
+        self::assertSame('/about', $urls->path('/about', 'en'));
+        self::assertSame('/nl/about', $urls->path('/about', 'nl'));
+    }
+
     public function testDefaultLocaleFallsBackWhenTheProjectHasNone(): void
     {
         $this->project = ['locales' => []];

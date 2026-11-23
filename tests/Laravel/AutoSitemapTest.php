@@ -244,6 +244,21 @@ final class AutoSitemapTest extends LaravelTestCase
         ], $this->locs($this->get('/sitemap.xml')->getContent()));
     }
 
+    public function testEntriesInALanguageThatIsNotEnabledAreLeftOut(): void
+    {
+        $this->sitemap['entries'] = [
+            ['path' => '/over-ons', 'locale' => 'nl'],
+            ['path' => '/about', 'locale' => 'en'],
+            ['path' => '/a-propos', 'locale' => 'fr'],
+        ];
+        $this->site(static fn (Router $router) => null);
+
+        self::assertSame([
+            'https://klant.test/over-ons',
+            'https://klant.test/en/about',
+        ], $this->locs($this->get('/sitemap.xml')->getContent()));
+    }
+
     public function testWhileRobotsIndexIsOffTheUrlsetIsEmptyAndSaysSo(): void
     {
         $this->sitemap = ['robotsIndex' => false, 'canonicalOrigin' => 'https://klant.test', 'entries' => [['path' => '/a', 'locale' => 'nl']]];
