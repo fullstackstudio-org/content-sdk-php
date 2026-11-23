@@ -616,3 +616,113 @@
     color: var(--fsc-button-bg);
     background: transparent;
 }
+
+/* Typography and rich text. A CSS reset (Tailwind's preflight, for one) strips heading sizes, list markers and paragraph margins, so the blocks
+   restore a readable rhythm. Sizes through variables; the rules sit in :where() in the inline copy, so a site's own class rules still win. */
+:root {
+    --fsc-h2-size: 1.75rem;
+    --fsc-h3-size: 1.3rem;
+    --fsc-line-height: 1.6;
+    --fsc-form-width: 40rem;
+}
+
+.fsc-articlelist__heading,
+.fsc-booking__heading,
+.fsc-cta__heading,
+.fsc-event__title,
+.fsc-eventlist__heading,
+.fsc-faq__heading,
+.fsc-legal__title,
+.fsc-newsletter__heading,
+.fsc-productlist__heading {
+    font-size: var(--fsc-h2-size);
+    line-height: 1.2;
+}
+
+/* The list headings sit above a grid of cards; the other headings are spaced by the grid gap of their block. */
+.fsc-articlelist__heading,
+.fsc-eventlist__heading,
+.fsc-faq__heading,
+.fsc-productlist__heading {
+    margin: 0 0 var(--fsc-gap);
+}
+
+.fsc-articlecard__title,
+.fsc-eventcard__title,
+.fsc-productcard__title {
+    font-size: 1.2em;
+    line-height: 1.3;
+}
+
+.fsc-article-body,
+.fsc-column {
+    line-height: var(--fsc-line-height);
+}
+
+.fsc-article-body > * + *,
+.fsc-column > * + * {
+    margin-top: 1em;
+}
+
+.fsc-article-body :is(h2, h3, h4),
+.fsc-column :is(h2, h3, h4) {
+    margin-bottom: 0;
+    line-height: 1.25;
+}
+
+.fsc-article-body :is(h2, h3, h4):not(:first-child) {
+    margin-top: 1.6em;
+}
+
+.fsc-article-body h2,
+.fsc-column h2 {
+    font-size: var(--fsc-h2-size);
+}
+
+.fsc-article-body :is(h3, h4),
+.fsc-column :is(h3, h4) {
+    font-size: var(--fsc-h3-size);
+}
+
+.fsc-article-body :is(ul, ol),
+.fsc-column :is(ul, ol) {
+    padding-left: 1.4rem;
+}
+
+.fsc-article-body ul,
+.fsc-column ul {
+    list-style: disc;
+}
+
+.fsc-article-body ol,
+.fsc-column ol {
+    list-style: decimal;
+}
+
+.fsc-article-body li + li,
+.fsc-column li + li {
+    margin-top: 0.35em;
+}
+
+.fsc-article-body a,
+.fsc-column a {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.fsc-article-body blockquote,
+.fsc-column blockquote {
+    padding-left: 1rem;
+    border-left: 3px solid var(--fsc-accent);
+}
+
+/* A form at the full content width is a long way to read across: keep a comfortable measure. */
+.fsc-block--form {
+    max-width: var(--fsc-form-width);
+}
+
+/* Cards in a grid row stretch to the tallest one; the content stays at the top instead of spreading out. */
+.fsc-eventcard,
+.fsc-productcard {
+    align-content: start;
+}

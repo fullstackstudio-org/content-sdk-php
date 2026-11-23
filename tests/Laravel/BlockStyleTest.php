@@ -199,6 +199,15 @@ final class BlockStyleTest extends LaravelTestCase
         self::assertStringContainsString('color: var(--fsc-muted)', $css);
     }
 
+    public function testCommasInsideFunctionalPseudoClassesDoNotSplitTheSelector(): void
+    {
+        require_once __DIR__ . '/../../scripts/build-block-css.php';
+
+        $css = \build_block_css(".fsc-a :is(h2, h3, h4):not(:first-child), .fsc-b { margin-top: 1em; }");
+
+        self::assertStringContainsString(':where(.fsc-a :is(h2, h3, h4):not(:first-child)),:where(.fsc-b){margin-top: 1em;}', $css);
+    }
+
     public function testTheCommittedFileMatchesTheGenerator(): void
     {
         require_once __DIR__ . '/../../scripts/build-block-css.php';

@@ -28,6 +28,39 @@ const LITERALS = [
 ];
 
 /**
+ * Splits a selector list on its top level commas only: `:is(h2, h3)` and `:not(a, b)` keep theirs.
+ *
+ * @return list<string>
+ */
+function split_selectors(string $prelude): array
+{
+    $parts = [];
+    $depth = 0;
+    $current = '';
+
+    foreach (str_split($prelude) as $char) {
+        if ($char === '(') {
+            $depth++;
+        } elseif ($char === ')') {
+            $depth--;
+        }
+
+        if ($char === ',' && $depth === 0) {
+            $parts[] = $current;
+            $current = '';
+
+            continue;
+        }
+
+        $current .= $char;
+    }
+
+    $parts[] = $current;
+
+    return $parts;
+}
+
+/**
  * @param list<string> $root receives the declarations of every `:root` rule
  *
  * @return list<string>
@@ -75,7 +108,7 @@ function rules(string $css, array &$root): array
             continue;
         }
 
-        $selectors = array_values(array_filter(array_map('trim', explode(',', $prelude)), static fn (string $s): bool => $s !== '' && !str_starts_with($s, '.fsc-consent')));
+        $selectors = array_values(array_filter(array_map('trim', split_selectors($prelude)), static fn (string $s): bool => $s !== '' && !str_starts_with($s, '.fsc-consent')));
 
         if ($selectors === []) {
             continue;

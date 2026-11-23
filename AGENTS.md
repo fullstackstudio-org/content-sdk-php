@@ -657,6 +657,11 @@ Its rules are all in `:where()` (zero specificity), so your own CSS always wins.
   html, form, articleList, legalDocument and the module blocks that are on: eventList, event, appointmentBooking, faq, productList,
   newsletterSignup), open it at phone width (375px) and at desktop width and check: nothing runs past the content width, columns and gallery
   are a grid on desktop and one column on the phone, images keep their ratio, the video is 16:9 at full content width, text is readable.
+  Also check: headings have a size (a reset strips them), rich text has paragraph spacing and list markers, a form is not stretched across the full
+  width, and the module blocks of modules that are off render nothing (`newsletterSignup` is the exception: it only checks that its route exists).
+  A module block that stays empty on a project whose module is on usually lacks site config: `appointmentBooking` needs `content.links.booking`
+  (or the Hub booking page switched on), `event`/`eventList` link to `content.links.event`; set them in a `config/content.php` that holds only `links`.
+  The Hub accepts a block of a module that is off when you save the page, so do not trust the editor list when you build the test page through the API.
   Then delete the test page (and unpublish it first if it was live).
 
 #### Site design (theme variables)
@@ -682,8 +687,16 @@ inherit from the site, the accent is blue.
     --fsc-button-text: var(--fsc-accent-contrast);
     --fsc-button-radius: 999px;
     --fsc-embed-ratio: 16 / 9;          /* the video block */
+    --fsc-h2-size: 1.75rem;             /* block headings; --fsc-h3-size (1.3rem) for headings inside rich text */
+    --fsc-line-height: 1.6;             /* rich text inside columns, events and legal documents */
+    --fsc-form-width: 40rem;            /* the form block does not run across the whole content width */
 }
 ```
+
+Layering: the inline block CSS is unlayered. It beats rules a Tailwind site writes inside `@layer` (preflight, `@layer components`, utility classes on the
+site's own views) and loses to unlayered ones. So a site rule that must override a block rule goes in plain CSS (not in an `@layer`), or sets the variable.
+The site's `@theme` tokens are usable in the variables (`--fsc-accent: var(--color-plum-600)`). Set `--fsc-text` and `--fsc-muted` to colours that read
+on the background the blocks sit on (a light panel on a dark page is the usual trap: the inherited text colour can be light).
 
 Order of work: (1) variables, (2) your own rules on the `fsc-*` classes (`.fsc-block--cta`, `.fsc-eventcard`, ...; any plain rule beats the zero
 specificity base), (3) your own Blade view for a block type, only when the markup itself must differ. The full list of classes is in

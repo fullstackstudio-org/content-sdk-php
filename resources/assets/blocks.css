@@ -1,4 +1,4 @@
-:where(:root){--fsc-gap: 1rem; --fsc-radius: 0.5rem; --fsc-border: color-mix(in srgb, currentColor 25%, transparent); --fsc-accent: #1d4ed8; --fsc-accent-contrast: #fff; --fsc-danger: #b91c1c; --fsc-columns: 3; --fsc-font: inherit; --fsc-heading-font: inherit; --fsc-text: inherit; --fsc-muted: color-mix(in srgb, currentColor 75%, transparent); --fsc-surface: transparent; --fsc-content-width: 72rem; --fsc-content-pad: 1rem; --fsc-button-bg: var(--fsc-accent); --fsc-button-text: var(--fsc-accent-contrast); --fsc-button-radius: var(--fsc-radius); --fsc-embed-ratio: 16 / 9; --fsc-hero-text: #fff; --fsc-hero-shadow-color: rgb(0 0 0 / 0.6);}
+:where(:root){--fsc-gap: 1rem; --fsc-radius: 0.5rem; --fsc-border: color-mix(in srgb, currentColor 25%, transparent); --fsc-accent: #1d4ed8; --fsc-accent-contrast: #fff; --fsc-danger: #b91c1c; --fsc-columns: 3; --fsc-font: inherit; --fsc-heading-font: inherit; --fsc-text: inherit; --fsc-muted: color-mix(in srgb, currentColor 75%, transparent); --fsc-surface: transparent; --fsc-content-width: 72rem; --fsc-content-pad: 1rem; --fsc-button-bg: var(--fsc-accent); --fsc-button-text: var(--fsc-accent-contrast); --fsc-button-radius: var(--fsc-radius); --fsc-embed-ratio: 16 / 9; --fsc-hero-text: #fff; --fsc-hero-shadow-color: rgb(0 0 0 / 0.6); --fsc-h2-size: 1.75rem; --fsc-h3-size: 1.3rem; --fsc-line-height: 1.6; --fsc-form-width: 40rem;}
 :where(.fsc-form){display: grid; gap: var(--fsc-gap); position: relative;}
 :where(.fsc-field){display: grid; gap: 0.35rem;}
 :where(.fsc-field__label){font-weight: 600;}
@@ -77,3 +77,20 @@
 :where(.fsc-block--cta),:where(.fsc-block--appointmentBooking),:where(.fsc-block--newsletterSignup),:where(.fsc-eventcard),:where(.fsc-productcard){background: var(--fsc-surface);}
 :where(.fsc-submit),:where(.fsc-button){color: var(--fsc-button-text); background: var(--fsc-button-bg); border-color: var(--fsc-button-bg); border-radius: var(--fsc-button-radius);}
 :where(.fsc-button--secondary){color: var(--fsc-button-bg); background: transparent;}
+:where(.fsc-articlelist__heading),:where(.fsc-booking__heading),:where(.fsc-cta__heading),:where(.fsc-event__title),:where(.fsc-eventlist__heading),:where(.fsc-faq__heading),:where(.fsc-legal__title),:where(.fsc-newsletter__heading),:where(.fsc-productlist__heading){font-size: var(--fsc-h2-size); line-height: 1.2;}
+:where(.fsc-articlelist__heading),:where(.fsc-eventlist__heading),:where(.fsc-faq__heading),:where(.fsc-productlist__heading){margin: 0 0 var(--fsc-gap);}
+:where(.fsc-articlecard__title),:where(.fsc-eventcard__title),:where(.fsc-productcard__title){font-size: 1.2em; line-height: 1.3;}
+:where(.fsc-article-body),:where(.fsc-column){line-height: var(--fsc-line-height);}
+:where(.fsc-article-body > * + *),:where(.fsc-column > * + *){margin-top: 1em;}
+:where(.fsc-article-body :is(h2, h3, h4)),:where(.fsc-column :is(h2, h3, h4)){margin-bottom: 0; line-height: 1.25;}
+:where(.fsc-article-body :is(h2, h3, h4):not(:first-child)){margin-top: 1.6em;}
+:where(.fsc-article-body h2),:where(.fsc-column h2){font-size: var(--fsc-h2-size);}
+:where(.fsc-article-body :is(h3, h4)),:where(.fsc-column :is(h3, h4)){font-size: var(--fsc-h3-size);}
+:where(.fsc-article-body :is(ul, ol)),:where(.fsc-column :is(ul, ol)){padding-left: 1.4rem;}
+:where(.fsc-article-body ul),:where(.fsc-column ul){list-style: disc;}
+:where(.fsc-article-body ol),:where(.fsc-column ol){list-style: decimal;}
+:where(.fsc-article-body li + li),:where(.fsc-column li + li){margin-top: 0.35em;}
+:where(.fsc-article-body a),:where(.fsc-column a){text-decoration: underline; text-underline-offset: 0.2em;}
+:where(.fsc-article-body blockquote),:where(.fsc-column blockquote){padding-left: 1rem; border-left: 3px solid var(--fsc-accent);}
+:where(.fsc-block--form){max-width: var(--fsc-form-width);}
+:where(.fsc-eventcard),:where(.fsc-productcard){align-content: start;}
