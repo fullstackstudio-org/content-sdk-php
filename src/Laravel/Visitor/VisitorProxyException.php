@@ -24,8 +24,14 @@ final class VisitorProxyException extends RuntimeException
     /** The visitor's body was larger than the proxy forwards (url-encoded bodies, 1 MB). */
     public const REQUEST_TOO_LARGE = 'request_too_large';
 
-    /** The Hub refused the site (401: server token; 409: site not verified for this group). */
+    /** The Hub refused the site's server token (401). */
     public const REFUSED = 'refused';
+
+    /** The Hub does not (or no longer) trust this site's origin for visitor pages (409 `site_not_verified`): a neutral 404, not reported. */
+    public const NOT_VERIFIED = 'not_verified';
+
+    /** The visitor's body cannot be forwarded as it is (a multipart field name the Hub would read differently): 400, not reported. */
+    public const BAD_REQUEST = 'bad_request';
 
     /** No server token or no usable `content.base_url`. */
     public const NOT_CONFIGURED = 'not_configured';

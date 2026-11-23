@@ -17,9 +17,11 @@ use FullStackStudio\Content\Laravel\Visitor\VisitorProxyException;
 use FullStackStudio\Content\Laravel\Visitor\VisitorRoutes;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\URL;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Cookie;
@@ -288,6 +290,132 @@ final class VisitorProxyTest extends LaravelTestCase
         self::assertSame('max-age=60, public', $this->get('/a/b/kapper')->headers->get('Cache-Control'));
     }
 
+    public function testEveryProxiedAnswerWithoutCacheControlIsPrivateNoStoreAndNeverCachedByACdn(): void
+    {
+        $this->app->make(Kernel::class)->pushMiddleware(VisitorProxyTestSiteCdnHeaders::class);
+        $this->hub->queue(
+            new UpstreamResponse(302, ['location' => ['https://content.test/api/files/direct/v1.a.b']], ''),
+            new UpstreamResponse(200, ['content-type' => ['application/json']], '{"files":[]}'),
+            new VisitorProxyException(VisitorProxyException::TIMEOUT),
+        );
+
+        foreach (['/api/invoices/download/eyJpZCI6MX0.c2lnbmF0dXJl', '/api/v1/downloads/AbCdEf123456', '/a/l/AbCdEf123456'] as $path) {
+            $response = $this->get($path);
+            $cache = (string) $response->headers->get('Cache-Control');
+
+            self::assertStringContainsString('no-store', $cache, $path);
+            self::assertStringContainsString('private', $cache, $path);
+            self::assertStringNotContainsString('public', $cache, $path);
+            self::assertSame('no-store', $response->headers->get('CDN-Cache-Control'), $path);
+            self::assertNull($response->headers->get('Cloudflare-CDN-Cache-Control'), $path);
+            self::assertNull($response->headers->get('Surrogate-Control'), $path);
+        }
+
+        // A site page keeps the site's CDN rules.
+        self::assertSame('max-age=86400', $this->get('/over-ons')->headers->get('CDN-Cache-Control'));
+    }
+
+    public function testTheSiteOriginFollowsTheForcedSchemeBehindAnHttpIngress(): void
+    {
+        TrustProxies::at('*');
+
+        try {
+            URL::forceScheme('https');
+            $this->hub->queue($this->html(), $this->html());
+
+            // As Traefik on the FSS cluster delivers it: http on port 80, from the ingress pod, with the visitor in cf-connecting-ip.
+            $this->call('GET', 'http://www.klant.test/a/l/AbCdEf123456', [], [], [], [
+                'HTTP_HOST' => 'www.klant.test',
+                'REMOTE_ADDR' => '10.42.0.7',
+                'HTTP_X_FORWARDED_PROTO' => 'http',
+                'HTTP_X_FORWARDED_PORT' => '80',
+                'HTTP_X_FORWARDED_HOST' => 'www.klant.test',
+                'HTTP_CF_CONNECTING_IP' => '203.0.113.7',
+            ]);
+            // A default port that does not match the scheme is still not part of the origin.
+            $this->call('GET', 'http://klant.test/a/l/AbCdEf123456', [], [], [], ['HTTP_HOST' => 'klant.test:443', 'REMOTE_ADDR' => '10.42.0.7']);
+        } finally {
+            TrustProxies::flushState();
+        }
+
+        self::assertSame('https://www.klant.test', $this->hub->requests[0]->headers['X-FSC-Site-Origin']);
+        self::assertSame('https://klant.test', $this->hub->requests[1]->headers['X-FSC-Site-Origin']);
+    }
+
+    public function testAProxiedNewsletterClickCarriesGlobalPrivacyControl(): void
+    {
+        $this->hub->queue(new UpstreamResponse(302, ['location' => ['https://www.voorbeeld.test/actie']], ''));
+
+        $response = $this->call('GET', '/n/l/AbCdEf123456', [], [], [], $this->server(['HTTP_SEC_GPC' => '1']));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame('1', $this->hub->requests[0]->headers['Sec-GPC']);
+    }
+
+    public function testAnOriginTheHubNoLongerTrustsIsTheNeutral404WithoutAReport(): void
+    {
+        $this->hub->queue(new UpstreamResponse(409, ['content-type' => ['application/json']], '{"error":{"code":"site_not_verified"}}'));
+
+        $response = $this->get('/a/c/AbCdEf123456/afspraak');
+
+        self::assertSame(404, $response->getStatusCode());
+        self::assertStringContainsString('Niet gevonden', (string) $response->getContent());
+        self::assertStringNotContainsString('site_not_verified', (string) $response->getContent());
+        self::assertSame([], $this->reported);
+    }
+
+    public function testRefusalsAndOutagesAreReportedOncePerReasonWhileTheyLast(): void
+    {
+        $refused = new UpstreamResponse(401, ['content-type' => ['application/json']], '{"error":{"code":"invalid_token"}}');
+        $this->hub->queue($refused, $refused, $refused, new VisitorProxyException(VisitorProxyException::TIMEOUT), new VisitorProxyException(VisitorProxyException::TIMEOUT));
+
+        foreach (range(1, 5) as $attempt) {
+            self::assertSame(503, $this->get('/a/l/AbCdEf123456')->getStatusCode());
+        }
+
+        self::assertSame(['Visitor page proxy: refused on GET /a/l/…', 'Visitor page proxy: timeout on GET /a/l/…'], $this->reported);
+    }
+
+    /** @return array<string, array{0: array<string, mixed>}> */
+    public static function ambiguousFieldNames(): array
+    {
+        return [
+            'bracket in a nested key' => [['meta' => ['a]b' => 'x']]],
+            'opening bracket in a nested key' => [['meta' => ['a[b' => 'x']]],
+            'quote' => [['meta' => ['a"b' => 'x']]],
+            'line break' => [['meta' => ["a\r\nContent-Type: text/html" => 'x']]],
+        ];
+    }
+
+    /** @param array<string, mixed> $fields */
+    #[DataProvider('ambiguousFieldNames')]
+    public function testAMultipartFieldNameThatCannotBeRebuiltIsA400WithoutAHubCall(array $fields): void
+    {
+        $response = $this->call('POST', '/t/AbCdEf123456/reply', $fields, [], ['bijlage' => UploadedFile::fake()->create('a.pdf', 1, 'application/pdf')], $this->server(['CONTENT_TYPE' => 'multipart/form-data; boundary=----browser']));
+
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame([], $this->hub->requests);
+        self::assertSame([], $this->reported);
+    }
+
+    public function testOneVisitorIpIsLimitedPerMinuteWithoutAHubCall(): void
+    {
+        $this->app['config']->set('content.auto.visitor_pages.per_minute', 3);
+        $this->hub->queue($this->html(), $this->html(), $this->html(), $this->html());
+
+        foreach (range(1, 3) as $attempt) {
+            self::assertSame(200, $this->get('/a/l/AbCdEf123456', ['CF-Connecting-IP' => '203.0.113.7'])->getStatusCode());
+        }
+
+        $limited = $this->get('/a/l/AbCdEf123456', ['CF-Connecting-IP' => '203.0.113.7']);
+        self::assertSame(429, $limited->getStatusCode());
+        self::assertSame('60', $limited->headers->get('Retry-After'));
+        self::assertCount(3, $this->hub->requests);
+
+        // Another visitor is not affected.
+        self::assertSame(200, $this->get('/a/l/AbCdEf123456', ['CF-Connecting-IP' => '203.0.113.8'])->getStatusCode());
+    }
+
     public function testCalendarDataPassesWithItsEtagAndANotModifiedAnswer(): void
     {
         $ics = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
@@ -453,7 +581,6 @@ final class VisitorProxyTest extends LaravelTestCase
             'timeout' => [new VisitorProxyException(VisitorProxyException::TIMEOUT), 'timeout'],
             'unreachable' => [new VisitorProxyException(VisitorProxyException::UNREACHABLE), 'unreachable'],
             'token refused' => [new UpstreamResponse(401, ['content-type' => ['application/json']], '{"error":{"code":"invalid_token"}}'), 'refused'],
-            'site not verified' => [new UpstreamResponse(409, ['content-type' => ['application/json']], '{"error":{"code":"site_not_verified"}}'), 'refused'],
         ];
     }
 
@@ -732,6 +859,21 @@ final class VisitorProxyTestSite
     public function __invoke(Request $request): string
     {
         return 'site:' . ltrim($request->path(), '/');
+    }
+}
+
+/** A site's global middleware with CDN cache rules on every response. */
+final class VisitorProxyTestSiteCdnHeaders
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $response = $next($request);
+        $response->headers->set('Cache-Control', 'public, max-age=3600');
+        $response->headers->set('CDN-Cache-Control', 'max-age=86400');
+        $response->headers->set('Cloudflare-CDN-Cache-Control', 'max-age=86400');
+        $response->headers->set('Surrogate-Control', 'max-age=86400');
+
+        return $response;
     }
 }
 
