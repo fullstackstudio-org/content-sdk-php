@@ -211,7 +211,7 @@ final class TrailingSlashTest extends LaravelTestCase
 
         $response->assertOk();
         $this->assertSame(1, $this->hits);
-        $this->assertSame(['/_fsc/p', '/over-ons'], self::$seen, 'the forwarded request is rendered at once, not redirected to the slashed path first');
+        $this->assertSame(['/over-ons'], self::$seen, 'the forwarded request is rendered at once, not redirected to the slashed path first');
         $this->assertStringContainsString('page:over-ons', (string) $response->getContent());
     }
 }
