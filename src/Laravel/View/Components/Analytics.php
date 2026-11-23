@@ -7,6 +7,7 @@ namespace FullStackStudio\Content\Laravel\View\Components;
 use FullStackStudio\Content\Analytics as AnalyticsTags;
 use FullStackStudio\Content\Laravel\AnalyticsSettings;
 use FullStackStudio\Content\Laravel\Preview\Preview;
+use FullStackStudio\Content\Laravel\Site\Parts;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\View\Component;
@@ -27,8 +28,14 @@ final class Analytics extends Component
 
     public function render(): View
     {
+        return view('content::components.analytics', ['html' => Parts::seen('analytics') ? '' : self::markup($this->nonce, $this->status)]);
+    }
+
+    /** The tracker tags, or '' (module off, preview, outage). Never throws. */
+    public static function markup(?string $nonce, int|string|null $status): string
+    {
         if (Preview::isActive()) {
-            return view('content::components.analytics', ['html' => '']);
+            return '';
         }
 
         $settings = AnalyticsSettings::make();
@@ -43,12 +50,12 @@ final class Analytics extends Component
                     'mode' => $settings->mode(),
                     'base' => $base,
                     'host' => $settings->host(),
-                    'nonce' => $this->nonce ?? self::viteNonce(),
+                    'nonce' => $nonce ?? self::viteNonce(),
                     'consentKey' => (string) config('content.analytics.consent_key', 'fsc-consent'),
                     'consentEvent' => (string) config('content.analytics.consent_event', 'fsc:consent'),
                     'helperSrc' => $base . '/fsc.js',
                     'native' => $settings->nativeSitekey() !== null && $settings->collectorUrl() !== null,
-                    'status' => is_numeric($this->status) ? (int) $this->status : null,
+                    'status' => is_numeric($status) ? (int) $status : null,
                     'pidCookieDomain' => config('content.analytics.pid_cookie_domain'),
                 ]);
             }
@@ -57,7 +64,7 @@ final class Analytics extends Component
             $html = '';
         }
 
-        return view('content::components.analytics', ['html' => $html]);
+        return $html;
     }
 
     private static function viteNonce(): ?string

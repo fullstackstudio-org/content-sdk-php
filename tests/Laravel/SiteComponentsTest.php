@@ -217,6 +217,7 @@ final class SiteComponentsTest extends LaravelTestCase
         self::assertStringContainsString('<meta property="og:image:width" content="1200">', $html);
         self::assertStringContainsString('<meta name="twitter:card" content="summary_large_image">', $html);
 
+        $this->newRequest();
         $own = Blade::render('<x-content::meta :page="$page" />', ['page' => ['title' => 'Blog', 'cover' => ['url' => 'https://content.test/api/media/cover']]]);
         self::assertStringContainsString('<meta property="og:image" content="https://content.test/api/media/cover">', $own, 'the page image wins');
     }

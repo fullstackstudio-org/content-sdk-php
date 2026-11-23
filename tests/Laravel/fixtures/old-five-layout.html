@@ -1,0 +1,210 @@
+<head><title>Over ons | Jansen</title>
+<meta name="description" content="Wie wij zijn">
+<link rel="canonical" href="https://www.jansen.nl/over">
+<meta property="og:title" content="Over ons | Jansen">
+<meta property="og:description" content="Wie wij zijn">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://www.jansen.nl/over">
+<meta property="og:site_name" content="Jansen">
+<meta property="og:image" content="https://content.test/api/media/og">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Jansen">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Over ons | Jansen">
+<meta name="twitter:description" content="Wie wij zijn">
+<meta name="twitter:image" content="https://content.test/api/media/og">
+<style>@layer fsc-rich;</style><meta name="google-site-verification" content="g00gle-Token_1">
+<meta name="msvalidate.01" content="B1NG">
+<meta name="p:domain_verify" content="pin123">
+<link rel="icon" href="https://content.test/api/media/fav" type="image/png">
+<link rel="apple-touch-icon" href="https://content.test/api/media/touch">
+<meta name="theme-color" content="#0a7f3c">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Plumber","name":"Loodgieter Jansen","url":"https://jansen.nl","telephone":"+31 70 123 4567","email":"info@jansen.nl","address":{"@type":"PostalAddress","streetAddress":"Straat 1","postalCode":"2511 AB","addressLocality":"Den Haag","addressCountry":"NL"},"geo":{"@type":"GeoCoordinates","latitude":52.07,"longitude":4.3},"openingHoursSpecification":[{"@type":"OpeningHoursSpecification","dayOfWeek":["Monday","Tuesday","Wednesday","Thursday","Friday"],"opens":"08:00","closes":"17:00"}],"areaServed":[{"@type":"Place","name":"Den Haag"},{"@type":"Place","name":"Rijswijk"}],"priceRange":"€€","logo":"https://content.test/api/media/logo","sameAs":["https://www.facebook.com/jansen"]}</script>
+<script src="https://cdn.banner.test/b.js"></script><style>.x{}</style>
+<template data-fsc-code data-consent="analytics" data-name="Google Analytics"><script async src="https://www.googletagmanager.com/gtag/js?id=G-1"></script><script>window.dataLayer=[];</script></template>
+<script>(function (w, d) {
+    if (w.fscCode) { w.fscCode.scan(); return; }
+    var c = {"key":"fsc-consent","event":"fsc:consent","all":["analytics","marketing","preferences"]}, cs = d.currentScript, n = cs ? (cs.nonce || cs.getAttribute('nonce') || '') : '', ok = {};
+    function cats(v) {
+        if (v === true) return c.all;
+        if (v === false) return [];
+        if (v == null || v === '') return null;
+        if (typeof v === 'object') {
+            if (Array.isArray(v)) return v.filter(function (x) { return typeof x === 'string'; });
+            if (v.choice === 'all') return c.all;
+            if (v.choice === 'none') return [];
+            if (Array.isArray(v.categories)) return cats(v.categories);
+            if ('accepted' in v && typeof v.accepted !== 'object') return cats(v.accepted);
+            var r = [], f = false;
+            for (var i = 0; i < c.all.length; i++) {
+                var k = c.all[i], b = v[k];
+                if (k === 'analytics' && typeof b !== 'boolean') b = v.statistics;
+                if (typeof b === 'boolean') { f = true; if (b) r.push(k); }
+            }
+            return f ? r : null;
+        }
+        var t = String(v).trim().toLowerCase();
+        if (/^(accepted|accept|all|granted|true|1|yes)$/.test(t)) return c.all;
+        if (/^(declined|decline|rejected|denied|necessary|none|false|0|no|revoked)$/.test(t)) return [];
+        if (t.charAt(0) === '{' || t.charAt(0) === '[') { try { return cats(JSON.parse(String(v))); } catch (e) { return null; } }
+        return null;
+    }
+    function fresh(o) {
+        var s = d.createElement('script');
+        for (var i = 0; i < o.attributes.length; i++) { var a = o.attributes[i]; if (a.name !== 'nonce') s.setAttribute(a.name, a.value); }
+        if (n) s.nonce = n;
+        if (!o.hasAttribute('async')) s.async = false;
+        s.text = o.text;
+        return s;
+    }
+    // Scripts run strictly in source order, across templates: an external script without `async` is awaited (load or error, at most
+    // 15 s) before the next script is inserted, so an inline init after its library works like in the original markup.
+    var queue = [], busy = false;
+    function next() {
+        if (busy) return;
+        var job = queue.shift();
+        if (!job) return;
+        var s = fresh(job[1]), p = job[0];
+        if (s.getAttribute('src') && !s.hasAttribute('async')) {
+            busy = true;
+            var done = false, go = function () { if (done) return; done = true; busy = false; next(); };
+            s.onload = go; s.onerror = go;
+            w.setTimeout(go, 15000);
+            if (p.parentNode) p.parentNode.replaceChild(s, p); else go();
+        } else {
+            if (p.parentNode) p.parentNode.replaceChild(s, p);
+            next();
+        }
+    }
+    function on(t) {
+        var f = d.importNode(t.content, true), l = f.querySelectorAll('script,style');
+        for (var i = 0; i < l.length; i++) {
+            var e = l[i];
+            if (e.tagName === 'SCRIPT') { var p = d.createComment(''); e.parentNode.replaceChild(p, e); queue.push([p, e]); }
+            else if (n) e.nonce = n;
+        }
+        // A neutral placeholder right before the template (the page builder's `html` block) goes once the code is in.
+        var ph = t.previousElementSibling;
+        if (ph && ph.hasAttribute && ph.hasAttribute('data-fsc-code-placeholder') && ph.parentNode) ph.parentNode.removeChild(ph);
+        t.parentNode.insertBefore(f, t);
+        t.parentNode.removeChild(t);
+        next();
+    }
+    function scan() {
+        var l = d.querySelectorAll('template[data-fsc-code]');
+        for (var i = 0; i < l.length; i++) if (ok[l[i].getAttribute('data-consent')] === true) on(l[i]);
+    }
+    function grant(v) {
+        var r = cats(v);
+        if (!r) return;
+        for (var i = 0; i < r.length; i++) if (c.all.indexOf(r[i]) !== -1) ok[r[i]] = true;
+        scan();
+    }
+    try { grant(w.localStorage.getItem(c.key)); } catch (e) {}
+    w.addEventListener(c.event, function (e) { grant(e && 'detail' in e ? e.detail : null); });
+    w.addEventListener('storage', function (e) { if (e.key === c.key) grant(e.newValue); });
+    if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', scan);
+    w.fscCode = { scan: scan, grant: grant, granted: function (k) { return ok[k] === true; } };
+})(window, document);</script><script type="application/json" id="fsc-errors">{"dsn":"https://0123456789abcdef0123456789abcdef@errors.fullstackstudio.nl/12","tunnel":"/_fsc/e/envelope","environment":"production","release":"abc123","route":"GET /[unmatched]"}</script><script src="/_fsc/e/reporter.js?v=0.28.0" defer referrerpolicy="no-referrer"></script></head><body><template data-fsc-code data-consent="marketing" data-name="Pixel"><noscript><img src="https://www.facebook.com/tr?id=1"></noscript><iframe src="https://player.vimeo.com/x"></iframe></template>
+<script>(function (w, d) {
+    if (w.fscCode) { w.fscCode.scan(); return; }
+    var c = {"key":"fsc-consent","event":"fsc:consent","all":["analytics","marketing","preferences"]}, cs = d.currentScript, n = cs ? (cs.nonce || cs.getAttribute('nonce') || '') : '', ok = {};
+    function cats(v) {
+        if (v === true) return c.all;
+        if (v === false) return [];
+        if (v == null || v === '') return null;
+        if (typeof v === 'object') {
+            if (Array.isArray(v)) return v.filter(function (x) { return typeof x === 'string'; });
+            if (v.choice === 'all') return c.all;
+            if (v.choice === 'none') return [];
+            if (Array.isArray(v.categories)) return cats(v.categories);
+            if ('accepted' in v && typeof v.accepted !== 'object') return cats(v.accepted);
+            var r = [], f = false;
+            for (var i = 0; i < c.all.length; i++) {
+                var k = c.all[i], b = v[k];
+                if (k === 'analytics' && typeof b !== 'boolean') b = v.statistics;
+                if (typeof b === 'boolean') { f = true; if (b) r.push(k); }
+            }
+            return f ? r : null;
+        }
+        var t = String(v).trim().toLowerCase();
+        if (/^(accepted|accept|all|granted|true|1|yes)$/.test(t)) return c.all;
+        if (/^(declined|decline|rejected|denied|necessary|none|false|0|no|revoked)$/.test(t)) return [];
+        if (t.charAt(0) === '{' || t.charAt(0) === '[') { try { return cats(JSON.parse(String(v))); } catch (e) { return null; } }
+        return null;
+    }
+    function fresh(o) {
+        var s = d.createElement('script');
+        for (var i = 0; i < o.attributes.length; i++) { var a = o.attributes[i]; if (a.name !== 'nonce') s.setAttribute(a.name, a.value); }
+        if (n) s.nonce = n;
+        if (!o.hasAttribute('async')) s.async = false;
+        s.text = o.text;
+        return s;
+    }
+    // Scripts run strictly in source order, across templates: an external script without `async` is awaited (load or error, at most
+    // 15 s) before the next script is inserted, so an inline init after its library works like in the original markup.
+    var queue = [], busy = false;
+    function next() {
+        if (busy) return;
+        var job = queue.shift();
+        if (!job) return;
+        var s = fresh(job[1]), p = job[0];
+        if (s.getAttribute('src') && !s.hasAttribute('async')) {
+            busy = true;
+            var done = false, go = function () { if (done) return; done = true; busy = false; next(); };
+            s.onload = go; s.onerror = go;
+            w.setTimeout(go, 15000);
+            if (p.parentNode) p.parentNode.replaceChild(s, p); else go();
+        } else {
+            if (p.parentNode) p.parentNode.replaceChild(s, p);
+            next();
+        }
+    }
+    function on(t) {
+        var f = d.importNode(t.content, true), l = f.querySelectorAll('script,style');
+        for (var i = 0; i < l.length; i++) {
+            var e = l[i];
+            if (e.tagName === 'SCRIPT') { var p = d.createComment(''); e.parentNode.replaceChild(p, e); queue.push([p, e]); }
+            else if (n) e.nonce = n;
+        }
+        // A neutral placeholder right before the template (the page builder's `html` block) goes once the code is in.
+        var ph = t.previousElementSibling;
+        if (ph && ph.hasAttribute && ph.hasAttribute('data-fsc-code-placeholder') && ph.parentNode) ph.parentNode.removeChild(ph);
+        t.parentNode.insertBefore(f, t);
+        t.parentNode.removeChild(t);
+        next();
+    }
+    function scan() {
+        var l = d.querySelectorAll('template[data-fsc-code]');
+        for (var i = 0; i < l.length; i++) if (ok[l[i].getAttribute('data-consent')] === true) on(l[i]);
+    }
+    function grant(v) {
+        var r = cats(v);
+        if (!r) return;
+        for (var i = 0; i < r.length; i++) if (c.all.indexOf(r[i]) !== -1) ok[r[i]] = true;
+        scan();
+    }
+    try { grant(w.localStorage.getItem(c.key)); } catch (e) {}
+    w.addEventListener(c.event, function (e) { grant(e && 'detail' in e ? e.detail : null); });
+    w.addEventListener('storage', function (e) { if (e.key === c.key) grant(e.newValue); });
+    if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', scan);
+    w.fscCode = { scan: scan, grant: grant, granted: function (k) { return ok[k] === true; } };
+})(window, document);</script>
+<script>(function (w, d) {
+    if (w.fscClicks) return;
+    w.fscClicks = true;
+    d.addEventListener('click', function (e) {
+        var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+        if (!a) return;
+        var h = a.getAttribute('href') || '', l = h.trim().toLowerCase(), k = null;
+        if (l.indexOf('tel:') === 0) k = 'tel';
+        else if (l.indexOf('mailto:') === 0) k = 'mailto';
+        else if (l.indexOf('whatsapp:') === 0 || /^https?:\/\/(wa\.me|(api|web|chat)\.whatsapp\.com)(\/|$)/.test(l)) k = 'whatsapp';
+        if (!k) return;
+        if (k !== 'tel') h = h.split('?')[0].split('#')[0];
+        try { var u = w.umami; if (u && typeof u.track === 'function') u.track('contact-click', { kind: k, href: h }); } catch (x) {}
+    }, { capture: true, passive: true });
+})(window, document);</script><script id="fsc-analytics" defer src="/_fsc/a/script.js" data-website-id="2d585159-5e61-400a-8326-029816f769a9" data-host-url="/_fsc/a" data-do-not-track="true" data-domains="jansen.nl" data-fsc-recorder-src="/_fsc/a/recorder.js"></script>
+<script defer src="/_fsc/a/fsc.js" data-tracker="fsc-analytics" data-consent-key="fsc-consent" data-consent-event="fsc:consent" data-params="utm_source,utm_medium,utm_campaign,utm_term,utm_content,gclid,gbraid,wbraid,dclid,gclsrc,fbclid,msclkid,ttclid,li_fat_id,twclid,rdt_cid,epik,sccid"></script>
+</body>

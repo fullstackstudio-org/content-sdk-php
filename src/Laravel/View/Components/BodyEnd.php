@@ -7,6 +7,7 @@ namespace FullStackStudio\Content\Laravel\View\Components;
 use FullStackStudio\Content\Laravel\AnalyticsSettings;
 use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Site;
+use FullStackStudio\Content\Laravel\Site\Parts;
 use Illuminate\Support\HtmlString;
 use Illuminate\View\Component;
 use Throwable;
@@ -25,11 +26,17 @@ final class BodyEnd extends Component
 
     public function render(): HtmlString
     {
+        return new HtmlString(Parts::seen('body-end') ? '' : self::markup($this->nonce));
+    }
+
+    /** The body code and click listener, or '' when the module is off. Never throws. */
+    public static function markup(?string $nonce): string
+    {
         try {
             $site = SiteSettings::make()->current();
 
             if ($site === null) {
-                return new HtmlString('');
+                return '';
             }
 
             $clickEvents = false;
@@ -42,9 +49,9 @@ final class BodyEnd extends Component
                 }
             }
 
-            return new HtmlString(Site::bodyEnd($site, [...SiteSettings::renderOptions($this->nonce), 'clickEvents' => $clickEvents]));
+            return Site::bodyEnd($site, [...SiteSettings::renderOptions($nonce), 'clickEvents' => $clickEvents]);
         } catch (Throwable) {
-            return new HtmlString('');
+            return '';
         }
     }
 }

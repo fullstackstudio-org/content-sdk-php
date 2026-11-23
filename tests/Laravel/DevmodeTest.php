@@ -52,9 +52,11 @@ final class DevmodeTest extends LaravelTestCase
     public function testOtherCookieValuesAndOtherCookiesDoNotCount(): void
     {
         foreach (['fsc_devmode=0', 'fsc_devmode=11', 'xfsc_devmode=1', 'other=1'] as $cookie) {
+            $this->app->forgetScopedInstances(); // a new request: each layout part prints once per request
             self::assertStringNotContainsString('devmode.js', $this->withHeaders($this->visitor($cookie))->get('/page')->getContent(), $cookie);
         }
 
+        $this->app->forgetScopedInstances();
         self::assertStringContainsString('devmode.js', $this->withHeaders($this->visitor('a=b; fsc_devmode=1; c=d'))->get('/page')->getContent());
     }
 
@@ -95,6 +97,7 @@ final class DevmodeTest extends LaravelTestCase
 
         self::assertStringNotContainsString('devmode.js', $this->withHeaders($this->visitor())->get('/page')->getContent(), 'the default cookie name no longer counts');
 
+        $this->app->forgetScopedInstances();
         $html = $this->withHeaders($this->visitor('my_dev=1'))->get('/page')->getContent();
 
         self::assertStringContainsString('data-cookie="my_dev"', $html);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\Site\Parts;
 use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Seo;
 use Illuminate\View\Component;
@@ -25,6 +26,34 @@ final class Meta extends Component
 
     public function render(): View
     {
+        if (Parts::seen('meta')) {
+            return view('content::meta', ['html' => '']);
+        }
+
+        return view('content::meta', ['html' => self::compose($this->page, $this->path, $this->type)]);
+    }
+
+    /**
+     * The meta HTML for one page or article. `$overrides` (`title`, `description`, `image`, `canonical`, `noindex`) are applied over the
+     * Hub values, literally. Used by this component and by `<x-content::head>`.
+     *
+     * @param array<string, mixed>|null $page
+     * @param array<string, mixed> $overrides
+     */
+    public static function compose(?array $page, ?string $path, string $type = 'website', array $overrides = []): string
+    {
+        return Seo::html(self::build($page, $path, $type, $overrides));
+    }
+
+    /**
+     * The meta array behind {@see self::compose()}.
+     *
+     * @param array<string, mixed>|null $page
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    public static function build(?array $page, ?string $path, string $type = 'website', array $overrides = []): array
+    {
         $client = app(ContentClient::class);
 
         try {
@@ -40,13 +69,17 @@ final class Meta extends Component
             $ogImage = null;
         }
 
-        $meta = Seo::meta($seo, $this->page, [
+        $meta = Seo::meta($seo, $page, [
             'baseUrl' => $client->baseUrl(),
-            'path' => $this->path,
-            'type' => $this->type === 'article' ? 'article' : 'website',
+            'path' => $path,
+            'type' => $type === 'article' ? 'article' : 'website',
             'fallbackImage' => is_array($ogImage) && is_string($ogImage['url'] ?? null) ? $ogImage : null,
         ]);
 
-        return view('content::meta', ['html' => Seo::html($meta)]);
+        if ($overrides !== []) {
+            $meta = Seo::override($meta, $overrides, $client->baseUrl());
+        }
+
+        return $meta;
     }
 }

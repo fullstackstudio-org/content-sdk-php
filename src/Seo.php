@@ -122,6 +122,137 @@ final class Seo
         return implode("\n", $lines);
     }
 
+    /**
+     * Applies site overrides (`title`, `description`, `image`, `canonical`, `noindex`) over a meta array from {@see self::meta()}. Overrides are
+     * literal: the title template is not applied again. `image` is a URL string or `{url, width?, height?, alt?}`. Empty values are ignored.
+     *
+     * @param array<string, mixed> $meta
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    public static function override(array $meta, array $overrides, string $baseUrl = ClientOptions::DEFAULT_BASE_URL): array
+    {
+        $og = is_array($meta['openGraph'] ?? null) ? $meta['openGraph'] : [];
+        $twitter = is_array($meta['twitter'] ?? null) ? $meta['twitter'] : [];
+
+        foreach (['title', 'description'] as $key) {
+            $value = self::filled($overrides[$key] ?? null);
+
+            if ($value !== null) {
+                $meta[$key] = $value;
+                $og[$key] = $value;
+                $twitter[$key] = $value;
+            }
+        }
+
+        $canonical = self::filled($overrides['canonical'] ?? null);
+
+        if ($canonical !== null) {
+            $meta['canonical'] = $canonical;
+            $og['url'] = $canonical;
+        }
+
+        $image = $overrides['image'] ?? null;
+        $image = is_string($image) && $image !== '' ? ['url' => $image] : $image;
+
+        if (is_array($image) && self::filled($image['url'] ?? null) !== null) {
+            $image['url'] = self::absolute((string) $image['url'], $baseUrl);
+            $og['image'] = self::clean(array_intersect_key($image, array_flip(['url', 'width', 'height', 'alt'])));
+            $twitter['image'] = $image['url'];
+            $twitter['card'] = 'summary_large_image';
+        }
+
+        if (($overrides['noindex'] ?? false) === true) {
+            $meta['robots'] = 'noindex, nofollow';
+        }
+
+        $meta['openGraph'] = self::clean($og);
+        $meta['twitter'] = self::clean($twitter);
+
+        return self::clean($meta);
+    }
+
+    /**
+     * `<link rel="alternate" hreflang>` tags. `$alternates` is a list of `{locale, url}` (absolute URLs); `$default` is the URL of the default
+     * locale version, printed as `x-default` when there is one. Fewer than two versions give an empty string (one version is no alternate).
+     *
+     * @param list<array{locale: string, url: string}> $alternates
+     */
+    public static function hreflang(array $alternates, ?string $default = null): string
+    {
+        if (count($alternates) < 2) {
+            return '';
+        }
+
+        $e = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $lines = array_map(
+            static fn (array $alternate): string => '<link rel="alternate" hreflang="' . $e($alternate['locale']) . '" href="' . $e($alternate['url']) . '">',
+            $alternates,
+        );
+
+        if ($default !== null && $default !== '') {
+            $lines[] = '<link rel="alternate" hreflang="x-default" href="' . $e($default) . '">';
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Schema.org JSON-LD for an article or an event, as a complete `<script type="application/ld+json">` tag, or '' when the resource has no
+     * usable title. Only fields that exist are printed. `$url` is the absolute canonical URL (`mainEntityOfPage` for articles, `url` for events).
+     *
+     * @param 'article'|'event' $type
+     * @param array<string, mixed> $resource
+     */
+    public static function jsonLd(string $type, array $resource, ?string $url = null, string $baseUrl = ClientOptions::DEFAULT_BASE_URL, ?string $nonce = null): string
+    {
+        $title = self::filled($resource['title'] ?? null);
+
+        if ($title === null) {
+            return '';
+        }
+
+        $cover = is_array($resource['cover'] ?? null) ? self::filled($resource['cover']['url'] ?? null) : null;
+        $image = $cover !== null ? self::absolute($cover, $baseUrl) : null;
+
+        if ($type === 'article') {
+            $author = self::filled($resource['authorName'] ?? null);
+            $data = [
+                '@context' => 'https://schema.org',
+                '@type' => 'Article',
+                'headline' => $title,
+                'datePublished' => self::filled($resource['publishedAt'] ?? null),
+                'dateModified' => self::filled($resource['updatedAt'] ?? null),
+                'author' => $author !== null ? ['@type' => 'Person', 'name' => $author] : null,
+                'image' => $image,
+                'mainEntityOfPage' => $url !== null && $url !== '' ? ['@type' => 'WebPage', '@id' => $url] : null,
+            ];
+        } else {
+            $location = self::filled($resource['location'] ?? null);
+            $data = [
+                '@context' => 'https://schema.org',
+                '@type' => 'Event',
+                'name' => $title,
+                'startDate' => self::filled($resource['startsAt'] ?? null),
+                'endDate' => self::filled($resource['endsAt'] ?? null),
+                'location' => $location !== null ? ['@type' => 'Place', 'name' => $location] : null,
+                'image' => $image,
+                'eventStatus' => ($resource['status'] ?? null) === 'cancelled' ? 'https://schema.org/EventCancelled' : null,
+                'url' => $url,
+            ];
+        }
+
+        $json = json_encode(self::clean($data), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        if (! is_string($json)) {
+            return '';
+        }
+
+        $attribute = $nonce !== null && $nonce !== '' ? ' nonce="' . htmlspecialchars($nonce, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"' : '';
+
+        return '<script type="application/ld+json"' . $attribute . '>' . $json . '</script>';
+    }
+
     private static function filled(mixed $value): ?string
     {
         return is_string($value) && $value !== '' ? $value : null;

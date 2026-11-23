@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Errors\Errors as ErrorMonitoring;
+use FullStackStudio\Content\Laravel\Site\Parts;
 use Illuminate\Support\HtmlString;
 use Illuminate\View\Component;
 use Throwable;
@@ -27,6 +28,12 @@ final class Errors extends Component
 
     public function render(): HtmlString
     {
+        return new HtmlString(Parts::seen('errors') ? '' : self::markup($this->nonce));
+    }
+
+    /** The reporter tags (config block and script), or '' when the module is off. Never throws. */
+    public static function markup(?string $nonce): string
+    {
         try {
             $app = app();
             $config = $app['config'];
@@ -34,7 +41,7 @@ final class Errors extends Component
             $settings = $config->get('content.errors.browser', true) ? $monitoring->config() : null;
 
             if ($settings === null || $settings->browserDsn === null) {
-                return new HtmlString('');
+                return '';
             }
 
             $base = '/' . trim((string) $config->get('content.errors.tunnel.path', '_fsc/e'), '/');
@@ -47,15 +54,13 @@ final class Errors extends Component
                 'route' => $monitoring->route(true) ?? 'GET /[unmatched]',
             ];
             $json = json_encode($data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-            $nonce = $this->nonce !== null && $this->nonce !== '' ? ' nonce="' . e($this->nonce) . '"' : '';
+            $nonce = $nonce !== null && $nonce !== '' ? ' nonce="' . e($nonce) . '"' : '';
             $src = $base . '/reporter.js?v=' . rawurlencode(ContentClient::VERSION);
 
-            return new HtmlString(
-                '<script type="application/json" id="' . self::ELEMENT_ID . '"' . $nonce . '>' . $json . '</script>'
-                . '<script src="' . e($src) . '"' . $nonce . ' defer referrerpolicy="no-referrer"></script>'
-            );
+            return '<script type="application/json" id="' . self::ELEMENT_ID . '"' . $nonce . '>' . $json . '</script>'
+                . '<script src="' . e($src) . '"' . $nonce . ' defer referrerpolicy="no-referrer"></script>';
         } catch (Throwable) {
-            return new HtmlString('');
+            return '';
         }
     }
 }

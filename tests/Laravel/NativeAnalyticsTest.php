@@ -142,6 +142,7 @@ final class NativeAnalyticsTest extends LaravelTestCase
         self::assertStringNotContainsString('data-pid-domain', Blade::render('<x-content::analytics />'), 'host-only by default');
 
         config(['content.analytics.pid_cookie_domain' => '.Example.nl']);
+        $this->app->forgetScopedInstances(); // a new request: each layout part prints once per request
         self::assertStringContainsString('data-params="utm_source,gclid" data-search-params="q,s,search,zoeken" data-pid-domain=".example.nl"></script>', Blade::render('<x-content::analytics />'));
 
         foreach (['nl', '"><script>', 'example.nl; Secure', ' '] as $bad) {
@@ -155,6 +156,7 @@ final class NativeAnalyticsTest extends LaravelTestCase
         $old = self::config('umami');
         unset($old['analytics']['engine'], $old['analytics']['native']);
         $this->content->always(FakeTransport::json($old));
+        $this->app->forgetScopedInstances();
         $html = Blade::render('<x-content::analytics />');
         self::assertStringContainsString('data-website-id="' . self::WEBSITE . '"', $html);
         self::assertStringNotContainsString('fsa.js', $html);
@@ -162,6 +164,7 @@ final class NativeAnalyticsTest extends LaravelTestCase
         // A Hub that sends no signing key (publishable token, no master secret): signing is impossible, so the native tag is left out.
         cache()->flush();
         $this->content->always(FakeTransport::json(self::config('both', ['signingKey' => null])));
+        $this->app->forgetScopedInstances();
         $html = Blade::render('<x-content::analytics />');
         self::assertStringContainsString('data-website-id', $html);
         self::assertStringNotContainsString('fsa.js', $html);
