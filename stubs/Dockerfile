@@ -66,7 +66,6 @@ ENV APP_ENV=production \
     SESSION_DRIVER=file \
     CACHE_STORE=file \
     QUEUE_CONNECTION=sync \
-    FSC_WEBHOOK_ENABLED=true \
     FSC_FORMS_ENABLED=true
 
 USER www-data

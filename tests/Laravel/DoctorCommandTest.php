@@ -797,6 +797,32 @@ final class DoctorCommandTest extends LaravelTestCase
         $this->artisan('fsc:doctor', ['--skip-env' => true])->assertExitCode(0);
     }
 
+    public function testAFreshSiteWithoutWebhookSecretHasNoWebhookFailureOfItsOwn(): void
+    {
+        // A fresh `content:install` site: no secret yet, so the route is not registered (it follows the secret) and the doctor must not fail on it.
+        $this->site(null, ['content.webhook.enabled' => false, 'content.webhook.secret' => '']);
+
+        $skipped = $this->results(false);
+        $this->assertLine($skipped, Doctor::INFO, 'Webhookroute volgt zodra FSC_WEBHOOK_SECRET gezet is');
+        self::assertNull($this->statusOf($skipped, 'Webhookroute ontbreekt'));
+        self::assertNotContains('Webhookroute ontbreekt', $this->failures($skipped));
+
+        // Before going live (without --skip-env) the missing secret is the one failure, with the way out in the hint.
+        $this->assertLine($this->results(), Doctor::FAIL, 'FSC_WEBHOOK_SECRET ontbreekt');
+        self::assertNull($this->statusOf($this->results(), 'Webhookroute ontbreekt'));
+    }
+
+    public function testASecretRegistersTheWebhookRouteAndAnExplicitOffWithASecretIsTheFailure(): void
+    {
+        // The route follows the secret, whatever FSC_WEBHOOK_ENABLED did before: enabled is derived from the secret in the package config.
+        $this->site(null, ['content.webhook.enabled' => true, 'content.webhook.secret' => 'fsc_whsec_abc']);
+        $this->assertLine($this->results(), Doctor::OK, 'Webhookroute POST /content/webhook is geregistreerd');
+        $this->assertLine($this->results(), Doctor::OK, 'FSC_WEBHOOK_SECRET is gezet');
+
+        $this->site(null, ['content.webhook.enabled' => false, 'content.webhook.secret' => 'fsc_whsec_abc']);
+        $this->assertLine($this->results(), Doctor::FAIL, 'Webhookroute ontbreekt');
+    }
+
     public function testASecretInAViewFails(): void
     {
         $this->completeSite();

@@ -33,12 +33,16 @@ return [
     ],
 
     /*
-     * The webhook receiver. The route is opt-in: set `enabled` to true, or call `Content::routes()` yourself.
+     * The webhook receiver. The route is registered by itself as soon as `FSC_WEBHOOK_SECRET` is set (the secret of the webhook that was
+     * created in the Hub); `FSC_WEBHOOK_ENABLED=false` switches it off even then, `FSC_WEBHOOK_ENABLED=true` registers it without a secret
+     * (every call then answers 500 until the secret is set). Or call `Content::routes()` yourself.
      * Content calls it server to server, so it must not use CSRF protection: the default `api` middleware group has none.
      * If you put it in the `web` group, add the path to the CSRF exceptions (`$middleware->validateCsrfTokens(except: ['content/webhook'])`).
      */
     'webhook' => [
-        'enabled' => (bool) env('FSC_WEBHOOK_ENABLED', false),
+        'enabled' => in_array(env('FSC_WEBHOOK_ENABLED'), [null, ''], true)
+            ? (string) env('FSC_WEBHOOK_SECRET', '') !== ''
+            : filter_var(env('FSC_WEBHOOK_ENABLED'), FILTER_VALIDATE_BOOLEAN),
         'path' => env('FSC_WEBHOOK_PATH', 'content/webhook'),
         'secret' => env('FSC_WEBHOOK_SECRET'),
         'tolerance' => (int) env('FSC_WEBHOOK_TOLERANCE', 300),

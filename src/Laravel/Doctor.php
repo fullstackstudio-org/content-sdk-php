@@ -119,15 +119,14 @@ final class Doctor
             $this->add(self::OK, 'FSC_SERVER_TOKEN is gezet (servertoken)');
         }
 
-        if ($this->config('content.webhook.enabled')) {
-            $secret = (string) $this->config('content.webhook.secret');
-            if ($secret === '') {
-                $this->add(self::FAIL, 'FSC_WEBHOOK_SECRET ontbreekt', 'Maak in de Hub een webhook naar https://<site>/content/webhook en zet het geheim als runtime-env.');
-            } elseif (! str_starts_with($secret, 'fsc_whsec_')) {
-                $this->add(self::WARN, 'FSC_WEBHOOK_SECRET begint niet met fsc_whsec_', 'Controleer of dit het geheim van de webhook uit de Hub is.');
-            } else {
-                $this->add(self::OK, 'FSC_WEBHOOK_SECRET is gezet');
-            }
+        // The webhook route registers itself as soon as the secret is set, so a live site needs the secret whatever FSC_WEBHOOK_ENABLED says.
+        $secret = (string) $this->config('content.webhook.secret');
+        if ($secret === '') {
+            $this->add(self::FAIL, 'FSC_WEBHOOK_SECRET ontbreekt', 'Maak in de Hub een webhook naar https://<site>/content/webhook en zet het geheim als runtime-env; de route staat daarna vanzelf aan.');
+        } elseif (! str_starts_with($secret, 'fsc_whsec_')) {
+            $this->add(self::WARN, 'FSC_WEBHOOK_SECRET begint niet met fsc_whsec_', 'Controleer of dit het geheim van de webhook uit de Hub is.');
+        } else {
+            $this->add(self::OK, 'FSC_WEBHOOK_SECRET is gezet');
         }
 
         if ((string) $this->config('app.key') === '') {
@@ -397,8 +396,11 @@ final class Doctor
 
         if ($routes->getByName('content.webhook') !== null) {
             $this->add(self::OK, 'Webhookroute POST /' . trim((string) $this->config('content.webhook.path', 'content/webhook'), '/') . ' is geregistreerd');
+        } elseif ((string) $this->config('content.webhook.secret') === '') {
+            // Not a failure of the code: the route follows the secret. Without --skip-env the missing secret is the failure (see the environment lines).
+            $this->add(self::INFO, 'Webhookroute volgt zodra FSC_WEBHOOK_SECRET gezet is (automatisch)', 'Zonder webhook zie je wijzigingen in de Hub pas na de cache-TTL.');
         } else {
-            $this->add(self::FAIL, 'Webhookroute ontbreekt', 'Zet FSC_WEBHOOK_ENABLED=true (of roep Content::routes() aan), anders zie je wijzigingen pas na de cache-TTL.');
+            $this->add(self::FAIL, 'Webhookroute ontbreekt', 'FSC_WEBHOOK_ENABLED=false zet de route uit terwijl er een geheim is: haal die variabele weg (of roep Content::routes() aan), anders zie je wijzigingen pas na de cache-TTL.');
         }
 
         $usesForms = $this->viewsContain('<x-content::form') || $this->viewsContain('<x-content::page-blocks');

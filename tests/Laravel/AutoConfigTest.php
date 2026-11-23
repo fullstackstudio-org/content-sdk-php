@@ -38,6 +38,36 @@ final class AutoConfigTest extends LaravelTestCase
         self::assertSame('terms', Auto::legalPaths()['algemene-voorwaarden']);
     }
 
+    /** The package config is a plain PHP file: evaluate it under a given environment to see what a site gets. */
+    private function webhookEnabledWith(?string $enabled, ?string $secret): bool
+    {
+        $repository = \Illuminate\Support\Env::getRepository();
+
+        foreach (['FSC_WEBHOOK_ENABLED' => $enabled, 'FSC_WEBHOOK_SECRET' => $secret] as $name => $value) {
+            $repository->clear($name);
+            if ($value !== null) {
+                $repository->set($name, $value);
+            }
+        }
+
+        try {
+            return (require __DIR__ . '/../../config/content.php')['webhook']['enabled'];
+        } finally {
+            $repository->clear('FSC_WEBHOOK_ENABLED');
+            $repository->clear('FSC_WEBHOOK_SECRET');
+        }
+    }
+
+    public function testTheWebhookRouteFollowsTheSecretUnlessSwitchedOffExplicitly(): void
+    {
+        self::assertFalse($this->webhookEnabledWith(null, null), 'no secret, no route');
+        self::assertFalse($this->webhookEnabledWith('', ''), 'empty values count as unset');
+        self::assertTrue($this->webhookEnabledWith(null, 'fsc_whsec_abc'), 'a secret turns it on by itself');
+        self::assertFalse($this->webhookEnabledWith('false', 'fsc_whsec_abc'), 'FSC_WEBHOOK_ENABLED=false still wins');
+        self::assertTrue($this->webhookEnabledWith('true', 'fsc_whsec_abc'));
+        self::assertTrue($this->webhookEnabledWith('true', null), 'an explicit true registers the route without a secret');
+    }
+
     public function testMasterSwitchAndFeatureSwitch(): void
     {
         config(['content.auto.pages' => false]);
