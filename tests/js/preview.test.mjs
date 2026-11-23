@@ -1320,6 +1320,60 @@ describe('keys inside the frame (protocol 2)', () => {
     });
 });
 
+describe('F6 inside the frame (protocol 2)', () => {
+    const names = (t) => t.sent.filter((s) => s.message.type === 'shortcut').map((s) => s.message.name);
+
+    it('forwards F6 and Shift+F6 as pane-next and pane-prev and keeps the browser from using them', () => {
+        const t = run();
+        t.init();
+        const body = t.doc.body;
+
+        expect(t.fire('keydown', body, { key: 'F6' }).prevented).toBe(true);
+        expect(t.fire('keydown', body, { key: 'F6', shiftKey: true }).prevented).toBe(true);
+
+        expect(names(t)).toEqual(['pane-next', 'pane-prev']);
+        expect(t.sent.filter((s) => s.message.type === 'shortcut').every((s) => s.message.ns === 'fsc-preview' && s.message.v === 1)).toBe(true);
+    });
+
+    it('also forwards it from inside an edit', () => {
+        const t = run();
+        t.init();
+        const field = heading(t.blocks, 0);
+        t.fire('click', field);
+
+        expect(t.fire('keydown', field, { key: 'F6' }).prevented).toBe(true);
+        expect(names(t)).toEqual(['pane-next']);
+    });
+
+    it('leaves F6 with Ctrl, Alt or Meta, and during IME composition, alone', () => {
+        const t = run();
+        t.init();
+        const body = t.doc.body;
+
+        expect(t.fire('keydown', body, { key: 'F6', ctrlKey: true }).prevented).toBe(false);
+        expect(t.fire('keydown', body, { key: 'F6', altKey: true }).prevented).toBe(false);
+        expect(t.fire('keydown', body, { key: 'F6', metaKey: true }).prevented).toBe(false);
+        expect(t.fire('keydown', body, { key: 'F6', isComposing: true }).prevented).toBe(false);
+        expect(t.fire('keydown', body, { key: 'F6', keyCode: 229 }).prevented).toBe(false);
+
+        expect(names(t)).toEqual([]);
+    });
+
+    it('says nothing before the portal started protocol 2', () => {
+        const t = run();
+
+        expect(t.fire('keydown', t.doc.body, { key: 'F6' }).prevented).toBe(false);
+        expect(names(t)).toEqual([]);
+    });
+
+    it('does not post without a framing portal (own window)', () => {
+        const t = run({ framed: false });
+        t.init();
+
+        expect(names(t)).toEqual([]);
+    });
+});
+
 describe('the Hub fallback (opaque origin)', () => {
     it('sends project with every request and refresh=1 with the fetch, and keeps the scroll in the window name', async () => {
         const t = run({ project: 'proj-1', noStorage: true, nextPage: { root: el('html', {}, [el('body')]) } });

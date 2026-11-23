@@ -21,6 +21,7 @@
  *   report the active formats for the portal's format bar, `format {command, value?, blockId?, field?}` applies bold, italic, link, unlink,
  *   h2, h3, p, ul, ol, and Cmd/Ctrl+K asks the portal for an address (`shortcut link`). Pasted markup is reduced to those tags (no attribute
  *   but a checked `href`) before it is inserted; nothing pasted ever runs.
+ *   F6 and Shift+F6 pressed in the site are forwarded as `shortcut {name: 'pane-next'}` / `'pane-prev'` so the portal can move the focus on.
  * - Works without a parent or opener (opened in its own window): no messages, the rest still applies.
  */
 (function () {
@@ -1052,6 +1053,9 @@
         var mod = event.metaKey || event.ctrlKey;
         var key = String(event.key || '').toLowerCase();
         var shortcut = function (name) { event.preventDefault(); post('shortcut', { name: name }); };
+        // F6 / Shift+F6 move the focus to the next / previous pane of the portal's builder; the browser's own F6 would only cycle its chrome.
+        // Plain F6 only: with Ctrl, Alt or Meta it is someone else's shortcut. Works in an edit too (the focus leaving the frame ends it).
+        if (key === 'f6' && !mod && !event.altKey && !(event.isComposing || event.keyCode === 229)) { shortcut(event.shiftKey ? 'pane-prev' : 'pane-next'); return; }
         if (editing && !(event.isComposing || event.keyCode === 229 || editing.composing)) {
             if (key === 'enter' && editing.kind === 'plain') { event.preventDefault(); endEdit('enter'); return; }
             if (key === 'escape') { endEdit('escape'); shortcut('escape'); return; }
