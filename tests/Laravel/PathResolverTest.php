@@ -342,4 +342,69 @@ final class PathResolverTest extends FakeHubTestCase
 
         self::assertSame('article', $this->resolve('/blog/hallo')?->type);
     }
+    public function testAnArticleTemplateWithATrailingSlashResolves(): void
+    {
+        $this->seo['articlePathTemplate'] = '/blog/{slug}/';
+        $this->article('hallo');
+
+        self::assertSame('article', $this->resolve('/blog/hallo/')?->type);
+        self::assertSame('/blog/hallo', $this->resolve('/blog/hallo')?->path);
+        self::assertSame('articles', $this->resolve('/blog/')?->type, 'the parent list works too');
+        self::assertNotContains('/pages', array_slice($this->hubPaths(), 0, 3), 'still decisive');
+    }
+
+    public function testARootTemplateWithATrailingSlashIsRootLevel(): void
+    {
+        $this->seo['articlePathTemplate'] = '/{slug}/';
+        config(['content.links.event' => '/{slug}/']);
+        $this->page('gedeeld');
+        $this->article('gedeeld');
+        $this->article('alleen-artikel');
+        $this->events['alleen-event'] = ['id' => 'e2', 'slug' => 'alleen-event', 'status' => 'published'];
+
+        self::assertSame('page', $this->resolve('/gedeeld/')?->type, 'a page wins over a root level article');
+        self::assertSame('article', $this->resolve('/alleen-artikel/')?->type);
+        self::assertSame('event', $this->resolve('/alleen-event/')?->type);
+    }
+
+    public function testALocaleRootTemplateIsRootLevel(): void
+    {
+        $this->seo['articlePathTemplate'] = '/{locale}/{slug}';
+        $this->page('over-ons', 'en', ['title' => 'About']);
+        $this->page('/', 'en', ['title' => 'Home']);
+        $this->article('hello', 'en');
+        $this->article('hallo', 'nl');
+
+        self::assertSame('page', $this->resolve('/en/over-ons')?->type, 'a page at /en/x is found before the article');
+        self::assertSame('Home', $this->resolve('/en')?->resource['title'], 'the locale root is the home page, not a list');
+        $article = $this->resolve('/en/hello');
+        self::assertSame('article', $article?->type);
+        self::assertSame('en', $article->locale);
+        self::assertSame('nl', $this->resolve('/nl/hallo')?->locale);
+        self::assertNull($this->resolve('/de/hallo'), 'only project locales fill {locale}');
+    }
+    public function testAnEventIsProjectedToItsPublicFields(): void
+    {
+        // A server token gets the internal view: it must not reach views, handlers or the head.
+        config(['content.links.event' => '/evenementen/{slug}']);
+        $this->events['open-dag'] = [
+            'id' => 'e1', 'slug' => 'open-dag', 'status' => 'published', 'title' => 'Open dag', 'summary' => 'Kom langs', 'descriptionHtml' => '<p>x</p>',
+            'location' => 'Hoofdstraat 1', 'startsAt' => '2026-12-05T13:00:00Z', 'endsAt' => '2026-12-05T16:00:00Z', 'available' => 10,
+            'salesStartAt' => null, 'salesEndAt' => null, 'maxPerRegistration' => 4, 'currency' => 'EUR', 'salesState' => 'open',
+            'coverMediaId' => 'm1', 'cover' => ['id' => 'm1', 'url' => 'https://content.test/api/media/m1'], 'registrationUrl' => 'https://hub.test/e/open-dag',
+            'ticketTypes' => [
+                ['id' => 't1', 'name' => 'Gratis', 'description' => null, 'priceCents' => 0, 'available' => 10, 'active' => true, 'capacity' => 50, 'sold' => 40],
+                ['id' => 't2', 'name' => 'Oud', 'description' => null, 'priceCents' => 500, 'available' => 0, 'active' => false],
+            ],
+            'notifyEmails' => ['staf@klant.test'], 'internalNotes' => 'geheim', 'capacity' => 50, 'registrationCount' => 40, 'createdBy' => 'u1',
+        ];
+
+        $event = $this->resolve('/evenementen/open-dag')?->resource;
+
+        self::assertIsArray($event);
+        self::assertSame(['id', 'slug', 'title', 'summary', 'descriptionHtml', 'location', 'startsAt', 'endsAt', 'available', 'salesStartAt', 'salesEndAt',
+            'maxPerRegistration', 'currency', 'salesState', 'ticketTypes', 'coverMediaId', 'cover', 'registrationUrl', 'status'], array_keys($event));
+        self::assertSame([['id' => 't1', 'name' => 'Gratis', 'description' => null, 'priceCents' => 0, 'available' => 10]], $event['ticketTypes'], 'only active ticket types, public fields');
+        self::assertSame('published', $event['status']);
+    }
 }

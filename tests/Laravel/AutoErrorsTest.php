@@ -35,6 +35,7 @@ final class AutoErrorsTest extends LaravelTestCase
         'testConfiguredLayoutAndSectionAreUsed' => ['content.auto.layout' => 'layouts.site', 'content.auto.section' => 'body', 'content.auto.wrap' => 'container mx-auto'],
         'testDebugKeepsLaravelsDebugPageForAHubFailure' => ['app.debug' => true],
         'testSwitchedOffEverythingIsLaravels' => ['content.auto.errors' => false],
+        'testHubOrAbortSendsRetryAfterAndNoStoreEvenWithErrorsOff' => ['content.auto.errors' => false],
     ];
 
     protected function setUp(): void
@@ -180,6 +181,15 @@ final class AutoErrorsTest extends LaravelTestCase
         self::assertCount(1, $this->reported);
     }
 
+    public function testHubOrAbortSendsRetryAfterAndNoStoreEvenWithErrorsOff(): void
+    {
+        $response = $this->get('/or-abort');
+
+        $response->assertStatus(503);
+        $response->assertHeader('Retry-After', '300');
+        self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+    }
+
     public function testAbort404InSiteCodeUsesThePackage404(): void
     {
         $this->layout();
@@ -231,6 +241,17 @@ final class AutoErrorsTest extends LaravelTestCase
         $response->assertDontSee('layout broke');
         self::assertStringStartsWith('<!DOCTYPE html>', ltrim((string) $response->getContent()));
         self::assertCount(1, $this->reported, 'the broken layout is reported once');
+    }
+
+    public function testABrokenLayoutIsReportedOnceNotOnEvery404(): void
+    {
+        $this->siteView('layouts.app', '<html>@php(throw new RuntimeException("layout broke"))@yield(\'content\')</html>');
+
+        $this->get('/abort/404')->assertNotFound()->assertSee('Pagina niet gevonden');
+        $this->get('/does-not-exist')->assertNotFound()->assertSee('Pagina niet gevonden');
+        $this->get('/abort/404')->assertNotFound();
+
+        self::assertCount(1, $this->reported, 'bot scans must not turn into one report per 404');
     }
 
     public function testALayoutThatThrowsAHubFailureFallsBackWithoutASecondReport(): void

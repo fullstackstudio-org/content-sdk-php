@@ -26,7 +26,8 @@ use Throwable;
  *
  * The page comes from `page`/`article` or else from the resolved resource of the request ({@see PageContext}). Meta overrides, highest first:
  * the `meta` prop (`title`, `description`, `image`, `canonical`, `noindex`), `Content::seo([...])`, the resource's own fields, the project's
- * SEO defaults. The canonical is `path` (else the resolved path, else the request path) and never carries a query string.
+ * SEO defaults. The canonical is `path` (else the resolved path, else the request path) and never carries a query string. At status 404 or
+ * 503 there is no resource, canonical, hreflang or JSON-LD.
  *
  * The meta parts and the reporter print only when the request asks for them (a `page`, `article`, `meta` or `path` prop, a resolved
  * resource, a status or `Content::seo()` values) and no `<x-content::meta>` printed before. Otherwise this component prints only the site
@@ -107,8 +108,11 @@ final class Head extends Component
             // Without a request context the props still work.
         }
 
-        $resolved = $context?->resolved();
+        // An error page (404, 503) describes no resource: no canonical, hreflang or JSON-LD, whatever the props say.
+        $error = in_array($context?->status(), [404, 503], true);
+        $resolved = $error ? null : $context?->resolved();
         [$type, $resource] = match (true) {
+            $error => [null, null],
             $this->page !== null => ['page', $this->page],
             $this->article !== null => ['article', $this->article],
             $resolved !== null && in_array($resolved->type, ['page', 'article', 'event', 'legal'], true) => [$resolved->type, $resolved->resource],
@@ -121,6 +125,10 @@ final class Head extends Component
             $meta = Meta::build($resource, $path, $type === 'article' ? 'article' : 'website', $overrides);
         } catch (Throwable) {
             return '';
+        }
+
+        if ($error) {
+            unset($meta['canonical'], $meta['openGraph']['url']);
         }
 
         $html = Seo::html($meta);

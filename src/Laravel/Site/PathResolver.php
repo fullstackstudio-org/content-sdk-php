@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\Site;
 
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Auto\Auto;
+use FullStackStudio\Content\Laravel\Preview\Preview;
 
 /**
  * Decides at request time which Hub resource a path is, in the order of the resolver table of the out of the box site plan:
@@ -13,7 +14,12 @@ use FullStackStudio\Content\Laravel\Auto\Auto;
  *  0. reject unsafe paths without a Hub call; 1. strip a non-default project locale; 2. legal document; 3. event (own template);
  *  4. article / category list / article list (article template); 5. page by path; 6. root level article, then event, after a page 404.
  *
+ * A root level template is `/{slug}` or `/{id}`, also `/{locale}/{slug}`; templates come normalised (no trailing slash) from {@see Urls}.
+ *
  * A template match is decisive: `/blog/x` asks for the article only, never for a page. Only published resources are served. Null is a 404.
+ *
+ * In a portal preview ({@see Preview}) the previewed page is what the editor wants to see: step 2 is skipped (a page on a legal path shows),
+ * the previewed page is served whatever its status, and it is rendered in its own language when that is a project locale.
  * Throws nothing but a {@see \FullStackStudio\Content\ContentException} (a Hub failure other than 404). `Resolved::$path` is the path without
  * locale prefix (for a `{locale}` article template: as matched); `Resolved::$locale` is always the language the content was read in.
  */
@@ -24,6 +30,13 @@ final class PathResolver
     private const SAFE = '/^[A-Za-z0-9][A-Za-z0-9\/_-]*$/D';
 
     private const LOCALE = '[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*';
+
+    /** The public event fields, as the Hub's `EventRules::toPublicEventView()` plus `registrationUrl` (what a pub token gets). */
+    private const EVENT_FIELDS = ['id', 'slug', 'title', 'summary', 'descriptionHtml', 'location', 'startsAt', 'endsAt', 'available', 'salesStartAt',
+        'salesEndAt', 'maxPerRegistration', 'currency', 'salesState', 'ticketTypes', 'coverMediaId', 'cover', 'registrationUrl'];
+
+    /** The public fields of an active ticket type. */
+    private const TICKET_FIELDS = ['id', 'name', 'description', 'priceCents', 'available'];
 
     public function __construct(private readonly ContentClient $client, private readonly Urls $urls)
     {
@@ -52,8 +65,10 @@ final class PathResolver
         $locale ??= $default;
         app()->setLocale($locale);
 
-        // Step 2
-        if (Auto::on('legal') && ($kind = $this->legalKind($rest)) !== null) {
+        $preview = Preview::isActive() ? app(Preview::class) : null;
+
+        // Step 2 (not in a preview: the previewed page is what the editor wants to see)
+        if ($preview === null && Auto::on('legal') && ($kind = $this->legalKind($rest)) !== null) {
             $document = Hub::call(fn (): array => $this->client->legal->get($kind, ['locale' => $locale]));
 
             if (is_array($document) && $document !== []) {
@@ -101,6 +116,14 @@ final class PathResolver
         if (Auto::on('pages')) {
             $page = Hub::call(fn (): array => $this->client->getPage($rest, ['locale' => $locale]));
 
+            if (is_array($page) && $page !== [] && $preview !== null && self::isPreviewPage($page, $preview)) {
+                $own = $page['locale'] ?? null;
+                $locale = is_string($own) && in_array($own, $this->urls->locales(), true) ? $own : $locale;
+                app()->setLocale($locale);
+
+                return new Resolved('page', $page, $rest, $locale);
+            }
+
             if (is_array($page) && $page !== [] && ($page['status'] ?? 'published') === 'published') {
                 return new Resolved('page', $page, $rest, $locale);
             }
@@ -134,7 +157,36 @@ final class PathResolver
             return null;
         }
 
-        return new Resolved('event', $event, $path, $locale);
+        return new Resolved('event', self::publicEvent($event), $path, $locale);
+    }
+
+    /**
+     * The server token reads the internal event (capacity, inactive ticket types, staff fields): only the public fields reach views,
+     * handlers and the head, plus `status` (a cancelled event shows its state). Fields the Hub did not send stay absent.
+     *
+     * @param array<string, mixed> $event
+     * @return array<string, mixed>
+     */
+    private static function publicEvent(array $event): array
+    {
+        $public = array_intersect_key($event, array_flip(self::EVENT_FIELDS));
+
+        if (array_key_exists('ticketTypes', $public)) {
+            $types = [];
+
+            foreach (is_array($public['ticketTypes']) ? $public['ticketTypes'] : [] as $type) {
+                if (is_array($type) && ($type['active'] ?? true) !== false) {
+                    $types[] = array_intersect_key($type, array_flip(self::TICKET_FIELDS));
+                }
+            }
+
+            $public['ticketTypes'] = $types;
+        }
+
+        // In the order of the public view, then the status.
+        $ordered = array_replace(array_intersect_key(array_flip(self::EVENT_FIELDS), $public), $public);
+
+        return $ordered + (array_key_exists('status', $event) ? ['status' => $event['status']] : []);
     }
 
     private function article(string $slug, string $path, string $locale): ?Resolved
@@ -197,6 +249,24 @@ final class PathResolver
         ]);
     }
 
+    /**
+     * Whether `getPage()` answered with the previewed page (its override), not a page of the Hub.
+     *
+     * @param array<string, mixed> $page
+     */
+    private static function isPreviewPage(array $page, Preview $preview): bool
+    {
+        $previewed = $preview->page();
+
+        if ($previewed === null) {
+            return false;
+        }
+
+        $id = $previewed['id'] ?? null;
+
+        return is_string($id) && $id !== '' ? ($page['id'] ?? null) === $id : $page === $previewed;
+    }
+
     /** @return non-empty-string|null null when the path is not safe to look up (step 0) */
     private static function normalize(string $path): ?string
     {
@@ -232,9 +302,16 @@ final class PathResolver
         return null;
     }
 
-    /** A template that is just `/{slug}` (or `/{id}`): it competes with pages, so it is tried after the page lookup. */
+    /**
+     * A template that is just `/{slug}` (or `/{id}`), also behind a leading `/{locale}`: it competes with pages, so it is tried after the
+     * page lookup. Expects a template normalised by {@see Urls::template()}.
+     */
     private static function rootLevel(string $template): bool
     {
+        if (str_starts_with($template, '/{locale}/')) {
+            $template = substr($template, strlen('/{locale}'));
+        }
+
         return in_array($template, ['/{slug}', '/{id}'], true);
     }
 

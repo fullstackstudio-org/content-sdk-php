@@ -176,4 +176,50 @@ final class UrlsTest extends FakeHubTestCase
             self::assertSame($article['slug'], $resolver->resolve($url)?->resource['slug'], $url);
         }
     }
+    /** @return array<string, array{string, string, bool}> */
+    public static function slashTemplates(): array
+    {
+        $cases = [];
+
+        foreach (['/blog/{slug}/', '/{slug}/', '/{locale}/nieuws/{slug}/'] as $template) {
+            foreach ([false, true] as $slash) {
+                $cases[$template . ($slash ? ' with' : ' without') . ' trailing_slash'] = [$template, '/evenementen/{slug}/', $slash];
+            }
+        }
+
+        return $cases;
+    }
+
+    /** A template the Hub accepts with a trailing slash still round trips; the output slash follows `trailing_slash` only. */
+    #[DataProvider('slashTemplates')]
+    public function testTemplatesWithATrailingSlashRoundTrip(string $articleTemplate, string $eventTemplate, bool $slash): void
+    {
+        $this->seo['articlePathTemplate'] = $articleTemplate;
+        config(['content.auto.trailing_slash' => $slash, 'content.links.event' => $eventTemplate]);
+        $this->article('hallo', 'nl');
+        $this->events['open-dag'] = ['id' => 'e1', 'slug' => 'open-dag', 'status' => 'published'];
+        $urls = $this->urls();
+
+        self::assertSame(rtrim($articleTemplate, '/'), $urls->articleTemplate());
+        self::assertSame('/evenementen/{slug}', $urls->eventTemplate());
+
+        $end = $slash ? '/' : '';
+        $expected = ['/blog/{slug}/' => '/blog/hallo', '/{slug}/' => '/hallo', '/{locale}/nieuws/{slug}/' => '/nl/nieuws/hallo'][$articleTemplate] . $end;
+        $articleUrl = $urls->article($this->articles[0]);
+        $eventUrl = $urls->event($this->events['open-dag']);
+        self::assertSame($expected, $articleUrl);
+        self::assertSame('/evenementen/open-dag' . $end, $eventUrl);
+
+        $resolver = $this->app->make(PathResolver::class);
+        $this->app->instance('request', Request::create($articleUrl));
+        self::assertSame('hallo', $resolver->resolve($articleUrl)?->resource['slug'], $articleUrl);
+        self::assertSame('open-dag', $resolver->resolve($eventUrl)?->resource['slug'], $eventUrl);
+    }
+
+    public function testTheRootTemplateStaysTheRoot(): void
+    {
+        config(['content.links.event' => '/']);
+
+        self::assertNull($this->urls()->eventTemplate(), 'a template without {slug} or {id} is no event template');
+    }
 }

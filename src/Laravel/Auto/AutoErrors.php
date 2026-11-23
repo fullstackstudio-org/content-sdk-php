@@ -26,11 +26,13 @@ use Throwable;
  *   `Retry-After: 300` and `Cache-Control: no-store`) instead of a 500. Laravel's normal report path reports it once; a Hub 404 is never
  *   reported. With `APP_DEBUG=true` a Hub failure keeps Laravel's debug page.
  * - Every HTML 404 and 503 renders the site's `errors/{status}` view (or `errors/4xx`, `errors/5xx`) when it exists, else the package's
- *   `content::errors.{status}`. The status is put in the {@see PageContext} first, so the layout's tracker counts a 404.
+ *   `content::errors.{status}`. The status is put in the {@see PageContext} first, so the layout's tracker counts a 404; a resource resolved
+ *   before the error is forgotten and the page is noindex.
  * - JSON and `api/*` requests keep Laravel's own rendering, except an escaped Hub failure: a JSON 503 `{"error":"unavailable"}` (or 404
  *   `{"error":"not_found"}`). Render callbacks the site registered (`withExceptions`, its own handler or
  *   a provider) run first: this hook is added after every provider booted.
- * - Never recurses and never throws: a failing error view ends in standalone markup without layout or components.
+ * - Never recurses and never throws: a failing error view ends in standalone markup without layout or components; that failure is reported
+ *   once per process (application), not on every 404.
  *
  * No stack trace, Hub message or token reaches a response: the views get an exception without message.
  */
@@ -42,6 +44,9 @@ final class AutoErrors
     private const STATUSES = [404, 503];
 
     private static bool $rendering = false;
+
+    /** @var \WeakMap<object, true>|null applications that already reported a broken error view: one report per process, not per 404 */
+    private static ?\WeakMap $viewFailureReported = null;
 
     /**
      * Called once from the service provider's `boot()`. `$publish` is the provider's `publishes()` (protected there).
@@ -82,8 +87,13 @@ final class AutoErrors
 
         $hooked[$handler] = true;
 
+        $hubNotFound = static fn (Throwable $e): bool => Auto::on('errors') && self::contentException($e)?->isNotFound() === true;
+
         if (method_exists($handler, 'dontReportWhen')) {
-            $handler->dontReportWhen(static fn (Throwable $e): bool => Auto::on('errors') && self::contentException($e)?->isNotFound() === true);
+            $handler->dontReportWhen($hubNotFound);
+        } elseif (method_exists($handler, 'reportable')) {
+            // Laravel 11 has no `dontReportWhen()`: a report callback that returns false stops the report (later callbacks and the log).
+            $handler->reportable(static fn (Throwable $e): ?bool => $hubNotFound($e) ? false : null);
         }
 
         $handler->renderable(static fn (Throwable $e, $request) => self::render($handler, $e, $request));
@@ -188,7 +198,12 @@ final class AutoErrors
         }
 
         try {
-            app(PageContext::class)->setStatus($status);
+            // A 404 or 503 can follow a successful resolve (a handler's `abort(404)`, `abort_if` in a view): its head must not show the
+            // resource. Every error page, also the site's own view, is noindex.
+            $context = app(PageContext::class);
+            $context->forget();
+            $context->seo(['noindex' => true]);
+            $context->setStatus($status);
         } catch (Throwable) {
             // No context: the page renders without it.
         }
@@ -222,8 +237,14 @@ final class AutoErrors
         try {
             return view($view, ['errors' => new ViewErrorBag(), 'exception' => $e, 'fscStatus' => $status])->render();
         } catch (Throwable $failure) {
-            // A broken layout or view is a bug worth seeing; a Hub failure inside it was already reported (or is a 404).
-            if (self::contentException($failure) === null) {
+            // A broken layout or view is a bug worth seeing, once: every 404 of a bot scan would report it again. A Hub failure inside it
+            // was already reported (or is a 404). Keyed by the application, so a long-lived worker reports once and every test app anew.
+            self::$viewFailureReported ??= new \WeakMap();
+            $app = app();
+
+            if (self::contentException($failure) === null && ! isset(self::$viewFailureReported[$app])) {
+                self::$viewFailureReported[$app] = true;
+
                 try {
                     report($failure);
                 } catch (Throwable) {

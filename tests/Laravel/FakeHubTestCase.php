@@ -84,7 +84,7 @@ abstract class FakeHubTestCase extends LaravelTestCase
         self::fail('No request to ' . $path);
     }
 
-    private function answer(Request $request): Response
+    protected function answer(Request $request): Response
     {
         $path = substr((string) parse_url($request->url, PHP_URL_PATH), strlen('/api/v1'));
         parse_str((string) parse_url($request->url, PHP_URL_QUERY), $q);
