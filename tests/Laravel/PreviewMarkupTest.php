@@ -20,6 +20,8 @@ final class PreviewMarkupTest extends LaravelTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // The 0.26 fixtures are English; the default is Dutch now (FormBlockTest).
+        $this->app['config']->set('content.forms.locale', 'en');
         $http = new FakeTransport();
         $http->always(FakeTransport::json(['form' => ['key' => 'contact', 'name' => 'Contact', 'honeypotField' => 'website', 'fields' => [
             ['name' => 'name', 'type' => 'text', 'label' => 'Naam', 'required' => true, 'maxLength' => 20],

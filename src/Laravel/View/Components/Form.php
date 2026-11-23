@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Forms;
+use FullStackStudio\Content\Laravel\FormLocale;
 use FullStackStudio\Content\Laravel\Preview\Preview;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Route;
@@ -15,7 +16,7 @@ use Throwable;
 
 /**
  * `<x-content::form form-key="contact" />`: a server-rendered form built from the form definition in Content. It works without JavaScript:
- * it POSTs to the package's form route (opt-in: `Content::formRoutes()` or `FSC_FORMS_ENABLED=true`), which validates, submits to Content with
+ * it POSTs to the package's form route (registered by default; switch off with `FSC_FORMS_ENABLED=false`), which validates, submits to Content with
  * the visitor's IP and redirects back with a flash message, the old input and the errors per field.
  *
  * Needs the `web` middleware group around the page (session and CSRF). Turnstile (when the form has a site key) is rendered as the usual widget and needs
@@ -54,7 +55,7 @@ final class Form extends Component
     public function __construct(public readonly string $formKey, ?string $locale = null, array $labels = [], ?string $action = null, ?array $definition = null)
     {
         $this->preview = Preview::isActive();
-        $this->labels = Forms::labels($locale ?? config('content.forms.locale') ?? app()->getLocale(), $labels);
+        $this->labels = Forms::labels($locale ?? FormLocale::resolve(), $labels);
         $this->bag = 'content_form_' . $formKey;
         $this->anchor = 'fsc-form-' . $formKey;
         $this->action = $action ?? (Route::has('content.form') ? route('content.form', ['key' => $formKey]) : url(trim((string) config('content.forms.path', 'content/forms'), '/') . '/' . rawurlencode($formKey)));
@@ -68,6 +69,13 @@ final class Form extends Component
         }
 
         $this->definition = $definition ?: null;
+
+        // A submit label the Hub form definition may carry wins over the default text (an explicit `labels` override still wins over both).
+        $submit = is_string($this->definition['submitLabel'] ?? null) ? trim($this->definition['submitLabel']) : '';
+
+        if ($submit !== '' && !isset($labels['submit'])) {
+            $this->labels['submit'] = $submit;
+        }
 
         if ($this->definition === null && $this->loadError === null) {
             $this->loadError = $this->labels['loadError'];
