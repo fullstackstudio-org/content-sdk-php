@@ -47,7 +47,13 @@ final class Robots
         $headers = ['Content-Type' => 'text/plain; charset=UTF-8'];
 
         try {
-            $index = (app(ContentClient::class)->getSeo()['robotsIndex'] ?? true) !== false;
+            $seo = app(ContentClient::class)->getSeo();
+            $index = ($seo['robotsIndex'] ?? true) !== false;
+
+            // The sitemap lives on the site's canonical origin (the request host may be an internal or preview one).
+            if (!isset($options['sitemap']) && is_string($seo['canonicalOrigin'] ?? null) && trim($seo['canonicalOrigin']) !== '') {
+                $options['sitemap'] = rtrim(trim($seo['canonicalOrigin']), '/') . '/sitemap.xml';
+            }
         } catch (ContentException $error) {
             $index = true;
 

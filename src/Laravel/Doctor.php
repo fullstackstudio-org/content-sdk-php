@@ -549,11 +549,12 @@ final class Doctor
             // The SDK's content route answers Hub paths: reported in the "automatisch" lines above.
         } elseif ($owner['by'] === 'site' && str_contains((string) $owner['uri'], '{')) {
             $this->add(self::OK, 'Catch-all voor pagina\'s uit de Hub is aanwezig (' . $owner['uri'] . ')');
-        } elseif (array_diff(Sitemap::ownPaths(), ['/']) !== []) {
+        } elseif (array_diff(Sitemap::ownPaths(true), ['/']) !== []) {
             // A hand-built site with only explicit routes: as before, a warning.
             $this->add(self::WARN, 'Geen catch-all route voor pagina\'s uit de Hub', 'Route::get(\'/{path}\', [PageController::class, \'show\'])->where(\'path\', \'.*\'); als allerlaatste route, of laat de SDK de pagina\'s tonen (FSC_AUTO_PAGES=true).');
         } else {
-            $this->add(self::FAIL, 'Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', 'Laat de SDK ze tonen (FSC_AUTO=true, FSC_AUTO_PAGES=true) of bouw een catch-all: Route::get(\'/{path}\', [PageController::class, \'show\'])->where(\'path\', \'.*\'); als allerlaatste route.');
+            // FSC_AUTO_PAGES=false is a choice, not a mistake: a warning, never a failure.
+            $this->add((Auto::on('enabled') && ! Auto::on('pages')) ? self::WARN : self::FAIL, 'Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', 'Laat de SDK ze tonen (FSC_AUTO=true, FSC_AUTO_PAGES=true) of bouw een catch-all: Route::get(\'/{path}\', [PageController::class, \'show\'])->where(\'path\', \'.*\'); als allerlaatste route.');
         }
 
         $this->checkWelcome();

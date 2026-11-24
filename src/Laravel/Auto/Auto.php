@@ -63,6 +63,31 @@ final class Auto
         return $feature === 'enabled' || self::flag(self::get($feature));
     }
 
+    /**
+     * Middleware of the content routes (`content.auto.middleware`): the Hub pages and the legal paths. The default is cookie free: the Hub
+     * redirect lookup (when `redirects` is on) and {@see LazySession}, which only starts a session for a page that renders a form. A site that
+     * wants the old behaviour sets `['web']`.
+     *
+     * @return list<string>
+     */
+    public static function middleware(): array
+    {
+        $configured = self::get('middleware');
+
+        if (is_string($configured) && $configured !== '') {
+            return [$configured];
+        }
+
+        if (is_array($configured) && $configured !== []) {
+            return array_values(array_filter($configured, 'is_string'));
+        }
+
+        return array_values(array_filter([
+            self::on('redirects') ? \FullStackStudio\Content\Laravel\RedirectMiddleware::class : null,
+            \FullStackStudio\Content\Laravel\Site\LazySession::class,
+        ]));
+    }
+
     /** Layout view name the default views extend, or null for the package layout. */
     public static function layout(): ?string
     {

@@ -9,6 +9,7 @@ use FullStackStudio\Content\Laravel\Site\TrailingSlash;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Http\Kernel as KernelContract;
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Http\Request;
 use Illuminate\Routing\UrlGenerator;
 use ReflectionProperty;
 use Throwable;
@@ -52,6 +53,7 @@ final class AutoPlatform
             if (Auto::on('platform')) {
                 self::applyProxies($app);
                 self::applyScheme($app);
+                self::registerSchemeMiddleware($app);
             }
 
             if (Auto::on('redirects')) {
@@ -121,7 +123,66 @@ final class AutoPlatform
         }
 
         TrustProxies::at('*');
+
+        // Not Laravel's default of all forwarded headers: a client can send `X-Forwarded-Host` too (Cloudflare passes it on), and trusting it
+        // lets a visitor choose the host of `url()`, redirects and cache keys. The app's own `withHeaders()` call wins.
+        if (self::staticProperty(TrustProxies::class, 'alwaysTrustHeaders') === null) {
+            TrustProxies::withHeaders(self::forwardedHeaders($app));
+        }
+
         self::$state['proxies'] = self::APPLIED;
+    }
+
+    /**
+     * Bit field of the forwarded headers to trust (`content.auto.proxy_headers`, default `for`, `proto` and `port`; `host` and `prefix`
+     * are there for a site that really needs them).
+     */
+    private static function forwardedHeaders(Application $app): int
+    {
+        $map = [
+            'for' => Request::HEADER_X_FORWARDED_FOR,
+            'proto' => Request::HEADER_X_FORWARDED_PROTO,
+            'port' => Request::HEADER_X_FORWARDED_PORT,
+            'host' => Request::HEADER_X_FORWARDED_HOST,
+            'prefix' => Request::HEADER_X_FORWARDED_PREFIX,
+        ];
+        $configured = $app['config']->get('content.auto.proxy_headers', ['for', 'proto', 'port']);
+        $bits = 0;
+
+        foreach (is_array($configured) ? $configured : [] as $name) {
+            $bits |= $map[strtolower((string) $name)] ?? 0;
+        }
+
+        return $bits === 0 ? $map['for'] | $map['proto'] | $map['port'] : $bits;
+    }
+
+    /**
+     * Also decides the scheme per request (global middleware): the environment can change after boot (a test that switches to production,
+     * a worker whose config is reloaded), and a scheme decided only once at boot would then stay `http`.
+     */
+    private static function registerSchemeMiddleware(Application $app): void
+    {
+        $push = static function (object $kernel): void {
+            if (method_exists($kernel, 'pushMiddleware') && ! (method_exists($kernel, 'hasMiddleware') && $kernel->hasMiddleware(ForceHttps::class))) {
+                $kernel->pushMiddleware(ForceHttps::class);
+            }
+        };
+
+        if ($app->resolved(KernelContract::class)) {
+            $push($app->make(KernelContract::class));
+
+            return;
+        }
+
+        $app->afterResolving(KernelContract::class, $push);
+    }
+
+    /** What the {@see ForceHttps} middleware runs on every request: the boot time decision again, with the environment as it is now. */
+    public static function applySchemeNow(Application $app): void
+    {
+        if (Auto::on('platform')) {
+            self::applyScheme($app);
+        }
     }
 
     private static function applyScheme(Application $app): void
@@ -175,7 +236,9 @@ final class AutoPlatform
             return;
         }
 
-        if (in_array(RedirectMiddleware::class, $web, true)) {
+        $global = method_exists($kernel, 'getGlobalMiddleware') ? $kernel->getGlobalMiddleware() : [];
+
+        if (in_array(RedirectMiddleware::class, $web, true) || in_array(RedirectMiddleware::class, $global, true)) {
             self::$state['redirects'] = self::BY_APP;
 
             return;

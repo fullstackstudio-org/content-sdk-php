@@ -183,7 +183,7 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertNotNull($page);
         self::assertSame('{fscPath}', $page->uri());
         self::assertSame(['GET', 'HEAD'], $page->methods());
-        self::assertSame(['web'], $page->gatherMiddleware());
+        self::assertSame([\FullStackStudio\Content\Laravel\Site\LazySession::class], $page->gatherMiddleware());
         self::assertSame(['fscPath' => '.*'], $page->wheres);
         self::assertTrue($page->isFallback);
         self::assertSame(SiteController::class, $page->getActionName());
@@ -205,13 +205,14 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertSame([], $this->hub->requests);
     }
 
-    public function testTheContentRouteServesEveryPathThroughTheWebGroup(): void
+    public function testTheContentRouteServesEveryPathWithoutACookie(): void
     {
         $this->get('/')->assertOk()->assertSeeText('auto:');
         self::assertSame('auto:', $this->get('/')->getContent());
         self::assertSame('auto:over-ons', $this->get('/over-ons')->getContent());
         self::assertSame('auto:blog/2026/een-artikel', $this->get('/blog/2026/een-artikel')->getContent());
-        $this->get('/over-ons')->assertCookie((string) config('session.cookie'));
+        $this->get('/over-ons')->assertCookieMissing((string) config('session.cookie'));
+        self::assertSame([], $this->get('/over-ons')->headers->getCookies());
     }
 
     public function testASiteRouteWithTheSameUriWins(): void
@@ -389,17 +390,17 @@ final class AutoRoutesTest extends LaravelTestCase
         }
     }
 
-    public function testWithPagesOffTheContentRouteStillRunsTheWebGroup(): void
+    public function testWithPagesOffTheContentRouteStillRunsTheContentMiddleware(): void
     {
         $this->site(null, ['pages' => false]);
 
         $page = $this->named(AutoRoutes::PAGE);
         self::assertNotNull($page);
-        self::assertSame(['web'], $page->gatherMiddleware());
+        self::assertSame([\FullStackStudio\Content\Laravel\Site\LazySession::class], $page->gatherMiddleware());
 
-        // The real (placeholder) controller answers 404 after the group ran.
+        // The real (placeholder) controller answers 404 after the middleware ran.
         $this->app->forgetInstance(SiteController::class);
-        $this->get('/over-ons')->assertNotFound()->assertCookie((string) config('session.cookie'));
+        $this->get('/over-ons')->assertNotFound();
     }
 
     public function testTheMasterSwitchRemovesEveryAutomaticRoute(): void

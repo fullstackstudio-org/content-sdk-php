@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\Site;
 
 use FullStackStudio\Content\Laravel\Auto\Auto;
+use FullStackStudio\Content\Laravel\Preview\Preview;
 use Illuminate\Http\Request;
 
 /**
@@ -33,6 +34,15 @@ final class SiteController
             abort(404);
         }
 
+        // The Hub matches page paths case-insensitively: `/Diensten` finds the page `/diensten` and would answer 200 with its own canonical,
+        // a duplicate of the real page. Send it to the stored path instead (query kept).
+        if (($stored = self::storedPath($resolved)) !== null) {
+            $query = (string) $request->getQueryString();
+            $target = app(Urls::class)->path($stored, $resolved->locale) . ($query === '' ? '' : '?' . $query);
+
+            return redirect()->to($target, 301);
+        }
+
         $context->resolve($resolved);
         $context->setStatus(200);
 
@@ -43,6 +53,25 @@ final class SiteController
         }
 
         return view(Auto::view($resolved->type), self::data($resolved));
+    }
+
+    /** The path the Hub stores for a page when the request asked for it in other letters (`/Diensten` for `/diensten`), else null. */
+    private static function storedPath(Resolved $resolved): ?string
+    {
+        if ($resolved->type !== 'page' || Preview::isActive()) {
+            return null;
+        }
+
+        $stored = $resolved->resource['path'] ?? null;
+
+        if (! is_string($stored) || $stored === '') {
+            return null;
+        }
+
+        $requested = trim($resolved->path, '/');
+        $stored = trim($stored, '/');
+
+        return $stored !== $requested && strcasecmp($stored, $requested) === 0 ? '/' . $stored : null;
     }
 
     /** The feature that serves a type must be on (the resolver already skips it; this keeps a changed config from leaking a cached type). */

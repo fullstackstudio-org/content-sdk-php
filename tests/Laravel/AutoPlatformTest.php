@@ -30,10 +30,26 @@ final class AutoPlatformTest extends LaravelTestCase
         'testProductionForcesHttps' => ['env' => 'production'],
         'testAppForcedSchemeWins' => ['env' => 'production', 'scheme' => 'http'],
         'testPostRedirectIsHttpsBehindAProxyInProduction' => ['env' => 'production', 'proxies' => null],
+        'testForwardedHostCanBeTrustedOnRequest' => ['env' => 'production', 'proxies' => null, 'config' => ['content.auto.proxy_headers' => ['for', 'proto', 'host']]],
         'testSwitchesOffApplyNothing' => ['env' => 'production', 'config' => ['content.auto.platform' => false, 'content.auto.redirects' => false]],
         'testMasterSwitchOffAppliesNothing' => ['env' => 'production', 'config' => ['content.auto' => ['enabled' => false]]],
         'testPlatformOffKeepsRedirects' => ['env' => 'production', 'config' => ['content.auto.platform' => false]],
     ];
+
+    protected function setUp(): void
+    {
+        // The trusted proxies and headers are process wide: every test starts as a fresh process.
+        TrustProxies::flushState();
+
+        parent::setUp();
+    }
+
+    protected function tearDown(): void
+    {
+        TrustProxies::flushState();
+
+        parent::tearDown();
+    }
 
     protected function defineEnvironment($app): void
     {
@@ -156,9 +172,41 @@ final class AutoPlatformTest extends LaravelTestCase
         // The pod sees plain http from the ingress; the proxy says the visitor used https.
         Route::post('/formulier', static fn () => redirect('/bedankt'));
 
-        $response = $this->post('/formulier', [], ['X-Forwarded-Proto' => 'https', 'X-Forwarded-Host' => 'example.nl']);
+        $response = $this->post('/formulier', [], ['X-Forwarded-Proto' => 'https']);
 
         $response->assertStatus(302);
+        $this->assertSame('https://localhost/bedankt', $response->headers->get('Location'));
+    }
+
+    public function testTheSchemeIsDecidedPerRequest(): void
+    {
+        // Booted outside production, switched to production afterwards (a test, or a worker that reloads its environment).
+        $this->assertNull($this->scheme());
+        Route::get('/waar', static fn () => url('/x'));
+
+        $this->app['env'] = 'production';
+
+        $this->assertSame('https://localhost/x', $this->get('/waar')->getContent());
+        $this->assertSame('https://', $this->scheme());
+    }
+
+    public function testForwardedHostIsIgnoredByDefault(): void
+    {
+        // A client can send X-Forwarded-Host too: it must not choose the host of generated URLs and redirects.
+        Route::post('/formulier', static fn () => redirect('/bedankt'));
+        Route::get('/waar', static fn () => url('/x'));
+
+        $response = $this->post('/formulier', [], ['X-Forwarded-Proto' => 'https', 'X-Forwarded-Host' => 'evil.example']);
+        $this->assertSame('https://localhost/bedankt', $response->headers->get('Location'));
+        $this->assertStringNotContainsString('evil.example', $this->get('/waar', ['X-Forwarded-Host' => 'evil.example'])->getContent());
+    }
+
+    public function testForwardedHostCanBeTrustedOnRequest(): void
+    {
+        Route::post('/formulier', static fn () => redirect('/bedankt'));
+
+        $response = $this->post('/formulier', [], ['X-Forwarded-Proto' => 'https', 'X-Forwarded-Host' => 'example.nl']);
+
         $this->assertSame('https://example.nl/bedankt', $response->headers->get('Location'));
     }
 

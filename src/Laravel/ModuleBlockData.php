@@ -279,6 +279,8 @@ final class ModuleBlockData
         $listId = is_string($block['listId'] ?? null) && preg_match(self::UUID, $block['listId']) === 1 ? strtolower($block['listId']) : '';
         $flash = null;
 
+        \FullStackStudio\Content\Laravel\Site\LazySession::start();
+
         try {
             $flash = session()->get('content_newsletter.' . $key);
         } catch (Throwable) {

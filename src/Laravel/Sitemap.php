@@ -30,6 +30,68 @@ final class Sitemap
     /** `Cache-Control` of an answered sitemap or robots.txt (the plan's cache table). */
     public const PUBLIC_CACHE = 'public, max-age=900';
 
+    /** @var list<callable(): iterable<string|array{path: string, lastmod?: ?string, locale?: ?string}>> */
+    private static array $extra = [];
+
+    /**
+     * Adds URLs to the automatic sitemap: `Sitemap::extra(fn () => ['/product/a', ['path' => '/product/b', 'lastmod' => '2026-11-01']])`.
+     * Call it from a service provider's `boot()`. A callback returns paths (`/x`) or `['path' => ..., 'lastmod' => ..., 'locale' => ...]`.
+     * With `config:cache`, name an invokable class in `content.auto.sitemap.extra` instead.
+     *
+     * @param callable(): iterable<string|array{path: string, lastmod?: ?string, locale?: ?string}> $callback
+     */
+    public static function extra(callable $callback): void
+    {
+        self::$extra[] = $callback;
+    }
+
+    /** Forgets the callbacks given to {@see self::extra()} (tests). */
+    public static function flushExtra(): void
+    {
+        self::$extra = [];
+    }
+
+    /** @return list<array{path: string, lastmod: ?string, locale: ?string}> */
+    private static function extraEntries(): array
+    {
+        $callbacks = self::$extra;
+        $class = Auto::option('sitemap', 'extra');
+
+        if (is_string($class) && $class !== '' && class_exists($class)) {
+            $callbacks[] = app($class);
+        }
+
+        $list = [];
+
+        foreach ($callbacks as $callback) {
+            try {
+                $items = $callback();
+            } catch (Throwable $error) {
+                // A broken callback must not take the whole sitemap down.
+                try {
+                    Log::warning('[content] sitemap extra callback failed.', ['error' => $error::class]);
+                } catch (Throwable) {
+                }
+
+                continue;
+            }
+
+            foreach (is_iterable($items) ? $items : [] as $item) {
+                $path = is_string($item) ? $item : ($item['path'] ?? null);
+
+                if (!is_string($path) || trim($path) === '') {
+                    continue;
+                }
+
+                $lastmod = is_array($item) && isset($item['lastmod']) && $item['lastmod'] !== '' ? (string) $item['lastmod'] : null;
+                $locale = is_array($item) && is_string($item['locale'] ?? null) && $item['locale'] !== '' ? $item['locale'] : null;
+                $list[] = ['path' => $path, 'lastmod' => $lastmod, 'locale' => $locale];
+            }
+        }
+
+        return $list;
+    }
+
     /** Registers `Route::get(...)->noSitemap()`: keeps a route out of the automatic sitemap. Called by the service provider. */
     public static function registerRouteMacro(): void
     {
@@ -95,6 +157,7 @@ final class Sitemap
             }
 
             $urls = app(Urls::class);
+            $patterns = self::excludePatterns();
             $origin = rtrim(is_string($hub['canonicalOrigin'] ?? null) && $hub['canonicalOrigin'] !== '' ? $hub['canonicalOrigin'] : url('/'), '/');
             $entries = [];
 
@@ -102,10 +165,28 @@ final class Sitemap
                 $entries[$origin . $urls->path($path)] = null;
             }
 
+            // Extra URLs of the site (parameterised routes, its own lastmod and order): they come before the Hub's entries and win a duplicate.
+            foreach (self::extraEntries() as $entry) {
+                $path = $entry['path'];
+                $suffix = '';
+
+                if (preg_match('/^([^?#]*)(.*)$/s', $path, $parts) === 1) {
+                    [, $path, $suffix] = $parts;
+                }
+
+                $url = $origin . $urls->path($path, $entry['locale']) . $suffix;
+                $entries[$url] ??= $entry['lastmod'];
+            }
+
             foreach ($hub['entries'] ?? [] as $entry) {
                 $path = $entry['path'] ?? null;
 
                 if (!is_string($path) || $path === '') {
+                    continue;
+                }
+
+                // `exclude` also covers the Hub's own entries (a Hub page that only feeds the SEO of a designed route, e.g. `home`).
+                if ($patterns !== [] && Str::is($patterns, trim((string) preg_replace('/[?#].*$/s', '', $path), '/'))) {
                     continue;
                 }
 
@@ -135,22 +216,26 @@ final class Sitemap
     }
 
     /**
-     * Paths (`/over-ons`) of the site's own static pages, sorted (rule D11): every parameterless GET route in the `web` group, minus the
+     * Paths (`/over-ons`) of the site's own static pages, sorted (rule D11): every parameterless GET route in the `web` group (or another group named in `sitemap.groups`, or listed by name in `sitemap.routes`), minus the
      * routes of this package (`_fsc/*`, `content/*`, names `content.*`), redirects, routes behind `auth`/`can`/`verified`, routes that are
      * not pages (`api/*`, a file extension such as `.xml`, Laravel's `up`), `content.auto.sitemap.exclude` patterns and `->noSitemap()`.
      * Reads the router as it is, so it gives the same list with cached routes. No Hub call.
      *
+     * `$anyGroup` ignores the group (for the doctor: a page route in a custom group like `site` is still a page route).
+     *
      * @return list<string>
      */
-    public static function ownPaths(): array
+    public static function ownPaths(bool $anyGroup = false): array
     {
-        $patterns = array_map(static fn ($pattern): string => trim((string) $pattern, '/'), (array) Auto::option('sitemap', 'exclude', []));
+        $patterns = self::excludePatterns();
+        $groups = $anyGroup ? ['*'] : array_values(array_filter((array) Auto::option('sitemap', 'groups', ['web']), 'is_string'));
+        $names = array_values(array_filter((array) Auto::option('sitemap', 'routes', []), 'is_string'));
         $paths = [];
 
         foreach (app('router')->getRoutes()->getRoutes() as $route) {
             $uri = trim($route->uri(), '/');
 
-            if (!self::isOwnPage($route, $uri) || ($patterns !== [] && Str::is($patterns, $uri))) {
+            if (!self::isOwnPage($route, $uri, $groups ?: ['web'], $names) || ($patterns !== [] && Str::is($patterns, $uri))) {
                 continue;
             }
 
@@ -163,7 +248,17 @@ final class Sitemap
         return $paths;
     }
 
-    private static function isOwnPage(Route $route, string $uri): bool
+    /** @return list<string> the `sitemap.exclude` patterns without surrounding slashes */
+    private static function excludePatterns(): array
+    {
+        return array_values(array_map(static fn ($pattern): string => trim((string) $pattern, '/'), (array) Auto::option('sitemap', 'exclude', [])));
+    }
+
+    /**
+     * @param list<string> $groups middleware or group names of which a route needs one (`web` by default; `*` = any route)
+     * @param list<string> $names route names that are included whatever their middleware (`sitemap.routes`)
+     */
+    private static function isOwnPage(Route $route, string $uri, array $groups, array $names): bool
     {
         if (!in_array('GET', $route->methods(), true) || $route->isFallback || str_contains($uri, '{') || ($route->defaults[self::NO_SITEMAP] ?? false)) {
             return false;
@@ -188,7 +283,9 @@ final class Sitemap
 
         $middleware = array_map(static fn ($item): string => is_string($item) ? $item : '', $route->gatherMiddleware());
 
-        if (!in_array('web', $middleware, true)) {
+        $listed = is_string($name) && in_array($name, $names, true);
+
+        if (!$listed && !in_array('*', $groups, true) && array_intersect($groups, $middleware) === []) {
             return false;
         }
 

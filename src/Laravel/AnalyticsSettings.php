@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel;
 
 use FullStackStudio\Content\Analytics;
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\ContentException;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Config\Repository as Config;
 use Throwable;
@@ -18,6 +19,7 @@ use Throwable;
 final class AnalyticsSettings
 {
     public const CACHE_KEY = 'fsc-analytics:config:v1';
+    public const LAST_GOOD_KEY = 'fsc-analytics:last-good:v1';
 
     public function __construct(private readonly ContentClient $client, private readonly Cache $cache, private readonly Config $config)
     {
@@ -75,11 +77,29 @@ final class AnalyticsSettings
             return is_array($cached['config']) ? $cached['config'] : null;
         }
 
+        $failed = false;
+
         try {
-            $config = $this->client->getAnalyticsProxyConfig(['cache' => false]);
+            // A short timeout: a Hub outage must not hold up every page of a site (the failure is remembered below).
+            $config = $this->client->getAnalyticsProxyConfig(['cache' => false, 'timeoutMs' => max(100, (int) $this->config->get('content.analytics.config_timeout_ms', 2000))]);
             $config = ($config['ready'] ?? false) === true ? $config : null;
+        } catch (ContentException $error) {
+            // Module off or not provisioned is an answer; anything else (Hub down) keeps serving the last good config.
+            $config = null;
+            $failed = !$error->isModuleDisabled() && !$error->isNotFound();
         } catch (Throwable) {
             $config = null;
+            $failed = true;
+        }
+
+        try {
+            if ($config !== null) {
+                $this->cache->put(self::LAST_GOOD_KEY, $config, 604_800);
+            } elseif ($failed) {
+                $good = $this->cache->get(self::LAST_GOOD_KEY);
+                $config = is_array($good) ? $good : null;
+            }
+        } catch (Throwable) {
         }
 
         try {

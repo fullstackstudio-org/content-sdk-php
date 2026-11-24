@@ -12,8 +12,19 @@
     $consent = [];
 
     if (! Preview::isActive()) {
+        // A short timeout, and a failed read pauses further reads for 15 seconds: a Hub outage must not hold up every page.
         try {
-            $consent = app(\FullStackStudio\Content\ContentClient::class)->getConsentConfig();
+            if (\Illuminate\Support\Facades\Cache::get('fsc-consent:pause:v1') === null) {
+                try {
+                    $consent = app(\FullStackStudio\Content\ContentClient::class)->getConsentConfig(['timeoutMs' => 2000]);
+                } catch (\Throwable $e) {
+                    $consent = [];
+
+                    if (! ($e instanceof \FullStackStudio\Content\ContentException && ($e->isModuleDisabled() || $e->isNotFound()))) {
+                        \Illuminate\Support\Facades\Cache::put('fsc-consent:pause:v1', 1, 15);
+                    }
+                }
+            }
         } catch (\Throwable) {
             $consent = [];
         }

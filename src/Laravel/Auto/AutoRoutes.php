@@ -92,7 +92,7 @@ final class AutoRoutes
                     continue;
                 }
 
-                $router->middleware('web')->get($uri, SiteController::class)->name(self::LEGAL . $uri);
+                $router->middleware(Auto::middleware())->get($uri, SiteController::class)->name(self::LEGAL . $uri);
                 $added = true;
             }
         }
@@ -129,12 +129,12 @@ final class AutoRoutes
             }
         }
 
-        // The content route stays registered when `pages` is off: it must still run the `web` group (Hub redirects for unknown paths) and
+        // The content route stays registered when `pages` is off: it must still run the content middleware (Hub redirects for unknown paths) and
         // then answer 404. The controller decides per type which features are on.
         $uri = '{' . self::PATH_PARAMETER . '}';
 
         if (! self::taken($router, 'GET', $uri)) {
-            $router->middleware('web')
+            $router->middleware(Auto::middleware())
                 ->get($uri, SiteController::class)
                 ->where(self::PATH_PARAMETER, '.*')
                 ->name(self::PAGE)

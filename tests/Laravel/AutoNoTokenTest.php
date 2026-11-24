@@ -42,4 +42,15 @@ final class AutoNoTokenTest extends TestCase
         self::assertNotNull($this->app['router']->getRoutes()->getByName(AutoRoutes::PAGE));
         self::assertFalse($this->app->resolved(ContentClient::class));
     }
+
+    public function testTheRedirectMiddlewarePassesThroughWithoutAToken(): void
+    {
+        $this->app['config']->set('content.auto.redirects', true);
+        $this->app['router']->get('/gewoon', static fn () => 'ok');
+        $this->app['router']->middleware(\FullStackStudio\Content\Laravel\RedirectMiddleware::class)->get('/met-redirect', static fn () => 'ok');
+
+        $this->get('/met-redirect')->assertOk()->assertSee('ok');
+        $this->get('/unknown')->assertNotFound();
+        self::assertFalse($this->app->resolved(ContentClient::class));
+    }
 }

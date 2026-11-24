@@ -326,8 +326,16 @@ return [
      *   `build`, `storage` and the visitor proxy paths (`a`, `e`, `n`, `t`, `r`). `trailing_slash_skip`: extra first path segments to skip.
      * - `articles.category_segment`: path segment of a category list under the article parent (`/blog/categorie/<slug>`).
      *   `articles.per_page`: page size of the article list.
+     * - `middleware`: middleware of the content route and the legal paths. Default (null) is cookie free: no session, cookies or CSRF check
+     *   on a plain Hub page (a page that renders a Hub form or a newsletter signup starts the session itself). `['web']` restores the old behaviour.
+     * - `proxy_headers`: forwarded headers the `platform` feature trusts from the proxies (default `['for', 'proto', 'port']`; add `host` only for
+     *   a site that really needs `X-Forwarded-Host`, since a client can send it too). Ignored when the app set its own trusted proxies or headers.
      * - `legal_paths`: path => legal document kind. Replaces the default list as a whole when the app sets it.
-     * - `sitemap.exclude`: path patterns (`*` wildcard) left out of the sitemap.
+     * - `sitemap.exclude`: path patterns (`*` wildcard) left out of the sitemap, for the site's own routes and for the Hub's entries alike.
+     *   `sitemap.groups`: middleware or group names whose GET routes count as the site's own pages (default `['web']`, `'*'` = every route);
+     *   `sitemap.extra`: invokable class (works with config:cache) that returns extra URLs (`['/product/a', ['path' => '/product/b', 'lastmod' => '...']]`);
+     *   `Sitemap::extra(fn () => [...])` does the same from a provider.
+     *   `sitemap.routes`: route names that are included whatever their middleware (for pages outside the `web` group).
      * - `layout` (env FSC_AUTO_LAYOUT): Blade layout the default views extend, `section`: its content section, `wrap` (env FSC_AUTO_WRAP):
      *   classes of the content container. Without `layout` the package layout is used.
      * - `views`: type => view name, replaces the default view of `page`, `article`, `articles`, `category`, `event`, `legal`.
@@ -346,10 +354,15 @@ return [
             'category_segment' => 'categorie',
             'per_page' => 12,
         ],
+        'middleware' => null,
+        'proxy_headers' => ['for', 'proto', 'port'],
         'legal' => (bool) env('FSC_AUTO_LEGAL', true),
         'sitemap' => [
             'enabled' => (bool) env('FSC_AUTO_SITEMAP', true),
             'exclude' => [],
+            'groups' => ['web'],
+            'routes' => [],
+            'extra' => null,
         ],
         'robots' => [
             'enabled' => (bool) env('FSC_AUTO_ROBOTS', true),

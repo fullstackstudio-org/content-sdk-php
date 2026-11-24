@@ -108,8 +108,9 @@ final class Head extends Component
             // Without a request context the props still work.
         }
 
-        // An error page (404, 503) describes no resource: no canonical, hreflang or JSON-LD, whatever the props say.
-        $error = in_array($context?->status(), [404, 503], true);
+        // An error page (any 4xx or 5xx) describes no resource: no canonical, hreflang or JSON-LD, whatever the props say, and it is never indexed.
+        $status = $context?->status();
+        $error = is_int($status) && $status >= 400;
         $resolved = $error ? null : $context?->resolved();
         [$type, $resource] = match (true) {
             $error => [null, null],
@@ -121,6 +122,10 @@ final class Head extends Component
         $path = self::cleanPath($this->path) ?? self::resolvedPath($resolved) ?? self::requestPath();
         $overrides = array_replace($context?->seo() ?? [], $this->meta ?? []);
 
+        if ($error && ! (is_string($overrides['noindex'] ?? null) && $overrides['noindex'] !== '')) {
+            $overrides['noindex'] = true;
+        }
+
         try {
             $meta = Meta::build($type === 'event' && is_array($resource) ? self::eventMetaSource($resource) : $resource, $path, $type === 'article' ? 'article' : 'website', $overrides);
         } catch (Throwable) {
@@ -131,7 +136,7 @@ final class Head extends Component
             unset($meta['canonical'], $meta['openGraph']['url']);
         }
 
-        $html = Seo::html($meta);
+        $html = self::withoutPrinted(Seo::html($meta));
 
         if ($resource === null || $type === null) {
             return $html;
@@ -218,6 +223,37 @@ final class Head extends Component
         } catch (Throwable) {
             return '';
         }
+    }
+
+    /**
+     * Drops the tags of `$html` that the layout already printed before this component (a handwritten `<title>`, `<meta name="robots">`,
+     * `og:` tags): two of them would be a second title and conflicting robots. The layout's output so far is the current output buffer;
+     * a tag printed after this component, or in another view, is not seen.
+     */
+    private static function withoutPrinted(string $html): string
+    {
+        $printed = ob_get_level() > 0 ? (string) ob_get_contents() : '';
+
+        if ($printed === '' || ! str_contains($printed, '<')) {
+            return $html;
+        }
+
+        $kept = [];
+
+        foreach (explode("\n", $html) as $line) {
+            $key = match (true) {
+                str_starts_with($line, '<title') => '#<title[\s>]#i',
+                preg_match('/^<meta (name|property)="([^"]+)"/', $line, $m) === 1 => '#<meta\s[^>]*(?:name|property)=["\']' . preg_quote(html_entity_decode($m[2]), '#') . '["\']#i',
+                str_starts_with($line, '<link rel="canonical"') => '#<link\s[^>]*rel=["\']canonical["\']#i',
+                default => null,
+            };
+
+            if ($key === null || preg_match($key, $printed) !== 1) {
+                $kept[] = $line;
+            }
+        }
+
+        return implode("\n", $kept);
     }
 
     /** A path without query string or fragment, with a leading slash; null for an empty one. */

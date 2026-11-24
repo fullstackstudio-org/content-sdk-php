@@ -81,6 +81,8 @@ final class Form extends Component
             $this->loadError = $this->labels['loadError'];
         }
 
+        // On a cookie free content route the session starts here, the first time a page really renders a form (see LazySession).
+        \FullStackStudio\Content\Laravel\Site\LazySession::start();
         $this->flash = self::session('content_form.' . $formKey);
         $errors = self::session('errors');
         $messages = $errors instanceof ViewErrorBag && $errors->hasBag($this->bag) ? $errors->getBag($this->bag)->toArray() : [];

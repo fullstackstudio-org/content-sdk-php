@@ -347,7 +347,22 @@ final class DoctorCommandTest extends LaravelTestCase
         $failures = $this->failures($results);
         self::assertContains('GET /sitemap.xml ontbreekt', $failures);
         self::assertContains('GET /api/health ontbreekt', $failures);
-        self::assertContains('Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', $failures);
+        // FSC_AUTO_PAGES=false is a choice: a warning, not a failure.
+        self::assertNotContains('Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', $failures);
+        $this->assertLine($results, Doctor::WARN, 'Geen route voor pagina\'s uit de Hub');
+    }
+
+    public function testPagesSwitchedOffWithOwnRoutesInCustomGroupsIsNotAFailure(): void
+    {
+        $this->site(static function (Router $router): void {
+            $router->middleware('site')->get('/over-ons', fn () => 'x');
+            $router->middleware('forms')->get('/contact', fn () => 'x');
+        }, ['content.auto.pages' => false]);
+
+        $results = $this->results();
+
+        self::assertNotContains('Geen route voor pagina\'s uit de Hub: niets toont de pagina\'s van het project', $this->failures($results));
+        $this->assertLine($results, Doctor::WARN, 'Geen catch-all route voor pagina\'s uit de Hub');
     }
 
     public function testASiteWithOwnRoutesButPagesSwitchedOffOnlyWarnsAboutTheMissingCatchAll(): void

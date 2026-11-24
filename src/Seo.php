@@ -123,7 +123,7 @@ final class Seo
     }
 
     /**
-     * Applies site overrides (`title`, `description`, `image`, `canonical`, `noindex`) over a meta array from {@see self::meta()}. Overrides are
+     * Applies site overrides (`title`, `description`, `image`, `canonical`, `noindex` (bool or a robots string), `ogType`) over a meta array from {@see self::meta()}. Overrides are
      * literal: the title template is not applied again. `image` is a URL string or `{url, width?, height?, alt?}`. Empty values are ignored.
      *
      * @param array<string, mixed> $meta
@@ -162,8 +162,19 @@ final class Seo
             $twitter['card'] = 'summary_large_image';
         }
 
-        if (($overrides['noindex'] ?? false) === true) {
+        // `noindex` is true (`noindex, nofollow`) or the robots value itself (`noindex, follow`).
+        $noindex = $overrides['noindex'] ?? false;
+
+        if ($noindex === true) {
             $meta['robots'] = 'noindex, nofollow';
+        } elseif (is_string($noindex) && trim($noindex) !== '') {
+            $meta['robots'] = trim($noindex);
+        }
+
+        $ogType = self::filled($overrides['ogType'] ?? null);
+
+        if ($ogType !== null) {
+            $og['type'] = $ogType;
         }
 
         $meta['openGraph'] = self::clean($og);

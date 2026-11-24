@@ -214,6 +214,71 @@ final class AutoSitemapTest extends LaravelTestCase
         self::assertSame('application/xml; charset=UTF-8', $response->headers->get('Content-Type'));
     }
 
+    public function testExcludeAlsoRemovesHubEntries(): void
+    {
+        $this->sitemap['entries'] = [
+            ['path' => '/home', 'locale' => 'nl'],
+            ['path' => '/diensten', 'locale' => 'nl'],
+            ['path' => '/interne/pagina', 'locale' => 'nl'],
+            ['path' => '/home?x=1', 'locale' => 'nl'],
+        ];
+        $this->site(static fn (Router $router) => $router->middleware('web')->get('/', fn () => 'home'), ['sitemap' => ['enabled' => true, 'exclude' => ['home', 'interne/*']]]);
+
+        self::assertSame(['https://klant.test/', 'https://klant.test/diensten'], $this->locs($this->get('/sitemap.xml')->getContent()));
+    }
+
+    public function testPageRoutesOutsideTheWebGroupCanBeIncludedByGroupOrByName(): void
+    {
+        $routes = static function (Router $router): void {
+            $router->middleware('pages')->get('/in-pages-groep', fn () => 'x');
+            $router->get('/kaal', fn () => 'x')->name('kaal');
+            $router->get('/ander', fn () => 'x');
+        };
+
+        $this->site($routes);
+        self::assertSame([], Sitemap::ownPaths());
+
+        $this->site($routes, ['sitemap' => ['enabled' => true, 'groups' => ['web', 'pages']]]);
+        self::assertSame(['/in-pages-groep'], Sitemap::ownPaths());
+
+        $this->site($routes, ['sitemap' => ['enabled' => true, 'routes' => ['kaal']]]);
+        self::assertSame(['/kaal'], Sitemap::ownPaths());
+
+        $this->site($routes, ['sitemap' => ['enabled' => true, 'groups' => ['*']]]);
+        self::assertSame(['/ander', '/in-pages-groep', '/kaal'], Sitemap::ownPaths());
+    }
+
+    public function testExtraUrlsCanBeAddedByCallbackAndByClass(): void
+    {
+        $this->sitemap['entries'] = [['path' => '/product/a', 'locale' => 'nl', 'lastmod' => '2026-01-01']];
+        $this->site(static fn (Router $router) => $router->middleware('web')->get('/over-ons', fn () => 'x'), ['sitemap' => ['enabled' => true, 'extra' => AutoSitemapExtraProbe::class]]);
+
+        Sitemap::extra(static fn () => ['/product/a', ['path' => '/product/b', 'lastmod' => '2026-11-02']]);
+
+        try {
+            $xml = $this->get('/sitemap.xml')->getContent();
+        } finally {
+            Sitemap::flushExtra();
+        }
+
+        self::assertSame(['https://klant.test/over-ons', 'https://klant.test/product/a', 'https://klant.test/product/b', 'https://klant.test/van-de-klasse'], $this->locs($xml));
+        self::assertStringContainsString('<loc>https://klant.test/product/b</loc><lastmod>2026-11-02</lastmod>', $xml);
+        self::assertStringContainsString('<loc>https://klant.test/van-de-klasse</loc><lastmod>2026-11-03</lastmod>', $xml);
+    }
+
+    public function testRobotsPointsTheSitemapAtTheCanonicalOrigin(): void
+    {
+        $this->seo = ['robotsIndex' => true, 'canonicalOrigin' => 'https://www.klant.nl/'];
+        $this->site();
+
+        self::assertStringContainsString("Sitemap: https://www.klant.nl/sitemap.xml\n", $this->get('/robots.txt')->getContent());
+
+        $this->seo = ['robotsIndex' => true];
+        $this->site();
+
+        self::assertStringContainsString('Sitemap: http://localhost/sitemap.xml', $this->get('/robots.txt')->getContent());
+    }
+
     public function testTheOriginFallsBackToTheAppUrl(): void
     {
         $this->sitemap['canonicalOrigin'] = null;
@@ -416,5 +481,15 @@ final class AutoSitemapTest extends LaravelTestCase
 
         self::assertFalse(Robots::response()->headers->hasCacheControlDirective('public'), 'the helper sets no cache header');
         $this->get('/robots.txt')->assertOk();
+    }
+}
+
+/** Invokable class named in `content.auto.sitemap.extra`. */
+final class AutoSitemapExtraProbe
+{
+    /** @return list<array{path: string, lastmod: string}> */
+    public function __invoke(): array
+    {
+        return [['path' => '/van-de-klasse', 'lastmod' => '2026-11-03']];
     }
 }
