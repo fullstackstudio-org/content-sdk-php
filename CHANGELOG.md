@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.32.0 (not yet tagged)
+## 0.32.0 (2026-11-24)
 
 ### Upgrading from 0.28 to 0.32
 
@@ -100,7 +100,7 @@ Payments as a global module, step 3.2 (plan payments-global). A minor bump: only
 - **`payments->list(array $params = [])`**: all payments of the project over every source, newest first (`payments`, `page`, `limit`, `total`); filters `status`, `subject`, `view`, `from`, `to`, `q`, `page`, `limit`. Never names the payer.
 - **`payments->start($input, $options, ?string $method = null)`** and **`payments->startForOrder($order, $options, ?string $method = null)`**: the new optional last argument is the chosen method id. An id the connection that would take the payment does not offer is a `ContentException` with `errorCode()` `payment_method_unavailable` (HTTP 409), before anything is created; call `methods()` again and let the buyer choose again. Without `$method` the request is byte for byte what it was.
 
-## 0.31.0 (not yet tagged)
+## 0.31.0 (never tagged on its own; released in 0.32.0)
 
 Page builder v2 and the out of the box site (0.29 and 0.30 were never tagged on their own; their entries follow). What a site owner or builder needs to know:
 
