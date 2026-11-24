@@ -31,8 +31,8 @@ final class PathResolver
 
     private const LOCALE = '[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*';
 
-    /** The public event fields, as the Hub's `EventRules::toPublicEventView()` plus `registrationUrl` (what a pub token gets). */
-    private const EVENT_FIELDS = ['id', 'slug', 'title', 'summary', 'descriptionHtml', 'location', 'startsAt', 'endsAt', 'available', 'salesStartAt',
+    /** The public event fields, as the Hub's `EventRules::toPublicEventView()` plus `capacity` (the event's total seats, null for no limit; the sold and registration counters stay out) and `registrationUrl` (what a pub token gets). */
+    private const EVENT_FIELDS = ['id', 'slug', 'title', 'summary', 'descriptionHtml', 'location', 'startsAt', 'endsAt', 'capacity', 'available', 'salesStartAt',
         'salesEndAt', 'maxPerRegistration', 'currency', 'salesState', 'ticketTypes', 'coverMediaId', 'cover', 'registrationUrl', 'locale', 'availableLocales'];
 
     /** The public fields of an active ticket type. */

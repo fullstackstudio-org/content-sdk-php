@@ -1102,7 +1102,18 @@ final class Doctor
             }
         }
 
-        $views = $this->siteBlockViews();
+        $unreadable = [];
+        $views = $this->siteBlockViews($unreadable);
+
+        // A `views` prop whose array the doctor cannot read (a variable set in a controller or composer, a config call): the builder
+        // cannot see those views either, so the site is told to put them in `content.blocks`.
+        foreach ($unreadable as $file => $expression) {
+            $this->add(
+                self::WARN,
+                'Blokviews via de views-prop van <x-content::page-blocks> in ' . $this->relative($file) . ' zijn niet te lezen (' . $expression . ')',
+                "Zet ze in config/content.php onder 'blocks' => ['<type>' => '<view>'] (en 'block_layouts'): dan ziet de doctor ze, en de paginabouwer ook. De prop blijft werken, maar alleen een array in de view zelf (@php(\$views = ['hero' => 'blocks.hero'])) of in de tag kan de doctor lezen. Zie AGENTS.md, \"Eigen blokview in de bouwer\".",
+            );
+        }
 
         if ($views === []) {
             if ($typos === 0) {
@@ -1148,9 +1159,14 @@ final class Doctor
      * The block types the site renders with a view of its own: `content.blocks.<type>` and the `views` prop of `<x-content::page-blocks>`
      * (read statically). A view in the package's namespace (`content::blocks.*`, also a published override) is a default view, like in the component.
      *
+     * The prop is read in three forms: an array literal in the tag, a `$variable` whose array literal (`$views = ['hero' => 'blocks.hero']`)
+     * stands in the same view, and nothing else. What cannot be read (a variable from a controller or view composer, a function call) is
+     * reported in `$unreadable` as file => the prop's expression.
+     *
+     * @param array<string, string> $unreadable
      * @return array<string, string> type => view name
      */
-    private function siteBlockViews(): array
+    private function siteBlockViews(array &$unreadable = []): array
     {
         $views = [];
 
@@ -1160,13 +1176,29 @@ final class Doctor
             }
         }
 
-        foreach ($this->views() as $contents) {
+        foreach ($this->views() as $path => $contents) {
             if (preg_match_all('/<x-content::page-blocks\b(?:"[^"]*"|\'[^\']*\'|[^>"\'])*>/s', $contents, $tags) < 1) {
                 continue;
             }
 
             foreach ($tags[0] as $tag) {
-                if (preg_match_all('/[\'"]([A-Za-z][A-Za-z0-9]*)[\'"]\s*=>\s*[\'"]([A-Za-z0-9_.:\-]+)[\'"]/', $tag, $pairs, PREG_SET_ORDER) > 0) {
+                $source = $tag;
+
+                // `:views="$views"`: the array literal assigned to that variable in this view.
+                if (preg_match('/:views\s*=\s*(?:"\s*(\$[A-Za-z_][A-Za-z0-9_]*)\s*"|\'\s*(\$[A-Za-z_][A-Za-z0-9_]*)\s*\')/', $tag, $variable) === 1) {
+                    $name = ($variable[1] ?? '') !== '' ? $variable[1] : ($variable[2] ?? '');
+
+                    if (preg_match('/' . preg_quote($name, '/') . '\s*=\s*(?:\[|array\()([^\]\)]*)[\]\)]/s', $contents, $assigned) === 1) {
+                        $source .= ' ' . $assigned[1];
+                    } else {
+                        $unreadable[$path] = $name;
+                    }
+                } elseif (preg_match('/:views\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/', $tag, $expression) === 1 && ! str_contains($expression[0], '=>') && trim(($expression[1] ?? '') . ($expression[2] ?? '')) !== '[]') {
+                    // A function call or any other expression that is not an array literal.
+                    $unreadable[$path] = trim(($expression[1] ?? '') . ($expression[2] ?? ''));
+                }
+
+                if (preg_match_all('/[\'"]([A-Za-z][A-Za-z0-9]*)[\'"]\s*=>\s*[\'"]([A-Za-z0-9_.:\-]+)[\'"]/', $source, $pairs, PREG_SET_ORDER) > 0) {
                     foreach ($pairs as $pair) {
                         if ($pair[1] !== 'unknown' && ! str_starts_with($pair[2], 'content::blocks.')) {
                             $views[$pair[1]] ??= $pair[2];

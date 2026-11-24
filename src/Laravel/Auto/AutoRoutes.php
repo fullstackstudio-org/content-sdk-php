@@ -19,7 +19,11 @@ use Throwable;
  * The out of the box routes: `sitemap.xml`, `robots.txt`, `api/health` and the fallback route that serves Hub content.
  *
  * The site's own code always wins (plan decision D2), by construction:
- * - Registration runs in `$app->booted()`, after the site's route files are loaded.
+ * - Registration runs in `$app->booted()`, after the site's route files are loaded. The exceptions are `api/health` and the legal paths:
+ *   they are registered early (in the provider's `boot()`, before any route file), so a site's root catch-all (`Route::get('{path}', ...)`
+ *   in `routes/web.php`) cannot swallow them (a health check that answers with the site's 404 page kills the pod). A route file that
+ *   registers the same method and URI later still replaces them (the router keys routes by method and URI), so the site wins an
+ *   explicit choice but not an accident.
  * - A route whose method and URI the site already registered is skipped (adding it would replace the site's).
  * - The content route is a fallback route, matched after every normal route, also after routes added later; a site's own
  *   `Route::fallback()` was registered first and wins among the fallbacks.
@@ -41,6 +45,9 @@ final class AutoRoutes
 
     public const NOT_FOUND = 'content.auto.not-found';
 
+    /** Prefix of the name of a legal route; the path follows (`content.auto.legal.privacy`). */
+    public const LEGAL = 'content.auto.legal.';
+
     /** Methods the second fallback answers with Laravel's own 404/405: the content route is GET only. */
     private const OTHER_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -50,9 +57,51 @@ final class AutoRoutes
     /** Called once from the service provider's `boot()`. */
     public static function register(Application $app): void
     {
+        self::registerEarly($app);
+
         $app->booted(static function (Application $app): void {
             self::registerRoutes($app);
         });
+    }
+
+    /**
+     * `api/health` and the legal paths, before the site's route files are loaded (see the class comment). A site route with the same
+     * method and URI, registered later, replaces them. Locale prefixed legal paths (`/en/privacy`) are not registered here: the project's
+     * languages are only known from the Hub, so they are served by the fallback route (a site catch-all swallows them).
+     */
+    public static function registerEarly(Application $app): void
+    {
+        if ((method_exists($app, 'routesAreCached') && $app->routesAreCached()) || ! Auto::on('enabled')) {
+            return;
+        }
+
+        /** @var Router $router */
+        $router = $app->make('router');
+        $added = false;
+
+        if (Auto::on('health')) {
+            $router->get('api/health', HealthController::class)->name(self::HEALTH);
+            $added = true;
+        }
+
+        if (Auto::on('legal')) {
+            foreach (Auto::legalPaths() as $path => $kind) {
+                $uri = trim($path, '/');
+
+                if ($uri === '' || self::taken($router, 'GET', $uri)) {
+                    continue;
+                }
+
+                $router->middleware('web')->get($uri, SiteController::class)->name(self::LEGAL . $uri);
+                $added = true;
+            }
+        }
+
+        if ($added) {
+            $routes = $router->getRoutes();
+            $routes->refreshNameLookups();
+            $routes->refreshActionLookups();
+        }
     }
 
     /** Adds the routes of every feature that is on and that the site did not register itself. */
@@ -64,13 +113,15 @@ final class AutoRoutes
 
         /** @var Router $router */
         $router = $app->make('router');
-        $added = false;
+
+        // `api/health` and the legal paths were registered early ({@see self::registerEarly()}); a site route that replaced one of them
+        // left a stale name behind, so the lookups are rebuilt below.
+        $added = true;
 
         // Utility routes: no middleware group, so no session, cookies or CSRF, and cacheable answers.
         foreach ([
             'sitemap' => ['sitemap.xml', SitemapController::class, self::SITEMAP],
             'robots' => ['robots.txt', RobotsController::class, self::ROBOTS],
-            'health' => ['api/health', HealthController::class, self::HEALTH],
         ] as $feature => [$uri, $action, $name]) {
             if (Auto::on($feature) && ! self::taken($router, 'GET', $uri)) {
                 $router->get($uri, $action)->name($name);

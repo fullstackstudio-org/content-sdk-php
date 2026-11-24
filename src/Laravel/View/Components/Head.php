@@ -122,7 +122,7 @@ final class Head extends Component
         $overrides = array_replace($context?->seo() ?? [], $this->meta ?? []);
 
         try {
-            $meta = Meta::build($resource, $path, $type === 'article' ? 'article' : 'website', $overrides);
+            $meta = Meta::build($type === 'event' && is_array($resource) ? self::eventMetaSource($resource) : $resource, $path, $type === 'article' ? 'article' : 'website', $overrides);
         } catch (Throwable) {
             return '';
         }
@@ -159,6 +159,36 @@ final class Head extends Component
         }
 
         return $html;
+    }
+
+    /**
+     * An event has no SEO fields: its description is the summary, else the first words of its description (plain text), else the project
+     * default (applied by `Seo::meta()` when this leaves `seoDescription` empty). The title is the event title, so the project's title
+     * template adds the site name exactly as it does for a page. A `seoDescription` the event does carry wins.
+     *
+     * @param array<string, mixed> $event
+     * @return array<string, mixed>
+     */
+    private static function eventMetaSource(array $event): array
+    {
+        if (is_string($event['seoDescription'] ?? null) && trim($event['seoDescription']) !== '') {
+            return $event;
+        }
+
+        $text = is_string($event['summary'] ?? null) ? trim($event['summary']) : '';
+
+        if ($text === '' && is_string($event['descriptionHtml'] ?? null)) {
+            $plain = html_entity_decode(strip_tags(str_replace(['</p>', '</li>', '<br>', '<br/>', '<br />'], ' ', $event['descriptionHtml'])), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $text = trim((string) preg_replace('/\s+/u', ' ', $plain));
+
+            if (mb_strlen($text) > 160) {
+                $cut = mb_substr($text, 0, 157);
+                $space = mb_strrpos($cut, ' ');
+                $text = rtrim($space !== false && $space > 100 ? mb_substr($cut, 0, $space) : $cut, " ,.;:-") . '...';
+            }
+        }
+
+        return $text === '' ? $event : ['seoDescription' => $text] + $event;
     }
 
     /** The site standards: the layer line, dev panel tags, verification metas, favicon, theme-color, LocalBusiness JSON-LD, own head code. */

@@ -246,6 +246,10 @@ final class InstallCommandTest extends LaravelTestCase
         $nginx = $this->read('docker/nginx.conf');
         self::assertStringContainsString('fastcgi_buffer_size 32k', $nginx);
         self::assertStringContainsString('listen 3000', $nginx);
+        // Behind Cloudflare and the ingress the request arrives as http: PHP has to know the visitor used https.
+        self::assertStringContainsString('fastcgi_param HTTPS $fsc_https;', $nginx);
+        self::assertStringContainsString('fastcgi_param HTTP_X_FORWARDED_PROTO $fsc_proto;', $nginx);
+        self::assertMatchesRegularExpression('/map \$fsc_proto \$fsc_https \{\s+default on;/', $nginx);
         self::assertStringContainsString('registry.int0.net/rt/', $this->read('.github/workflows/build01-image.yml'));
     }
 

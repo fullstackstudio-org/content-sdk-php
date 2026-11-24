@@ -219,6 +219,32 @@ final class HeadScriptsTest extends LaravelTestCase
         self::assertStringNotContainsString('</script> ', $m[1]);
     }
 
+    public function testAnEventHeadUsesTheSummaryAndTheTitleTemplate(): void
+    {
+        $this->app->forgetScopedInstances();
+        app(PageContext::class)->resolve(new Resolved('event', ['title' => 'Open dag', 'summary' => 'Kom langs en proef mee.', 'startsAt' => '2026-12-01T09:00:00Z'], '/agenda/open-dag', 'nl'));
+
+        $html = Blade::render('<x-content::head />');
+
+        self::assertStringContainsString('<title>Open dag | Jansen</title>', $html);
+        self::assertStringContainsString('<meta name="description" content="Kom langs en proef mee.">', $html);
+        self::assertStringContainsString('<meta property="og:description" content="Kom langs en proef mee.">', $html);
+        self::assertStringNotContainsString('Standaard', $html);
+    }
+
+    public function testAnEventWithoutASummaryFallsBackToItsDescriptionThenTheDefault(): void
+    {
+        $this->app->forgetScopedInstances();
+        app(PageContext::class)->resolve(new Resolved('event', ['title' => 'Open dag', 'summary' => '', 'descriptionHtml' => '<p>Een <strong>lange</strong> beschrijving.</p>', 'startsAt' => '2026-12-01T09:00:00Z'], '/agenda/open-dag', 'nl'));
+
+        self::assertStringContainsString('<meta name="description" content="Een lange beschrijving.">', Blade::render('<x-content::head />'));
+
+        $this->app->forgetScopedInstances();
+        app(PageContext::class)->resolve(new Resolved('event', ['title' => 'Open dag', 'startsAt' => '2026-12-01T09:00:00Z'], '/agenda/open-dag', 'nl'));
+
+        self::assertStringContainsString('<meta name="description" content="Standaard">', Blade::render('<x-content::head />'));
+    }
+
     public function testAnEventPageGetsHreflangFromItsAvailableLocales(): void
     {
         config(['content.links.event' => '/agenda/{slug}']);

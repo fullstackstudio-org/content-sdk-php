@@ -1154,6 +1154,32 @@ final class DoctorCommandTest extends LaravelTestCase
         $this->assertLine($this->results(), Doctor::WARN, 'Eigen view voor blok faq');
     }
 
+    public function testAViewsPropFromAVariableInTheSameViewIsRead(): void
+    {
+        $this->completeSite();
+        mkdir($this->views . '/blocks', 0777, true);
+        file_put_contents($this->views . '/blocks/faq.blade.php', '<div>{{ $block["heading"] ?? "" }}</div>');
+        file_put_contents($this->views . '/page.blade.php', "@php(\$views = ['faq' => 'blocks.faq'])\n<x-content::page-blocks :blocks=\"\$page['blocks']\" wrap=\"wrap\" :views=\"\$views\" />");
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::WARN, 'Eigen view voor blok faq');
+        self::assertNull($this->statusOf($results, 'zijn niet te lezen'));
+        self::assertNull($this->statusOf($results, 'Blokken hebben geen eigen views'));
+    }
+
+    public function testAViewsPropFromAControllerVariableAsksForContentBlocks(): void
+    {
+        $this->completeSite();
+        file_put_contents($this->views . '/page.blade.php', '<x-content::page-blocks :blocks="$page[\'blocks\']" wrap="wrap" :views="$views" />');
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::WARN, 'Blokviews via de views-prop van <x-content::page-blocks> in ');
+        $line = array_values(array_filter($results, fn ($r) => str_contains($r['label'], 'zijn niet te lezen')))[0];
+        self::assertStringContainsString('($views)', $line['label']);
+        self::assertStringContainsString("'blocks'", $line['hint']);
+        self::assertSame([], $this->failures($results), 'a warning, never a failure');
+    }
+
     public function testStrictFailsOnWarnings(): void
     {
         $this->completeSite();

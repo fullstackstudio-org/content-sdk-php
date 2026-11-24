@@ -54,7 +54,7 @@ Automatic, nothing to do: the SDK adds `Link: <Hub origin>; rel=preconnect` and 
 ```json
 // composer.json
 "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-"require": { "fullstackstudio/content": "^0.31" }
+"require": { "fullstackstudio/content": "^0.32" }
 ```
 
 ```bash
@@ -353,8 +353,10 @@ Verify: `fsc:doctor` lines `Platform automatisch (SDK)`, `SESSION_DRIVER`, `APP_
 
 ### A6. Routes: sitemap, robots, health, pages
 
-The package registers these after the site's routes have loaded, so a route of the site with the same method and URI is never replaced, and a catch-all of
-the site wins by order. The content route is a fallback route: it matches after every normal route, also routes other packages add later. Nothing is
+The package registers `sitemap.xml`, `robots.txt` and the content route after the site's routes have loaded, so a route of the site with the same method and URI is never replaced, and a catch-all of
+the site wins by order. **`api/health` and the legal paths are the exception**: they are registered earlier (in the provider's `boot()`, before any route file), so a root catch-all
+(`Route::get('/{path}', ...)` in `routes/web.php`) does not swallow them. A route of the site with the same method and URI, registered later, still replaces them (an explicit choice
+of the site). Locale prefixed legal paths (`/en/privacyverklaring`) are served by the fallback route, so a site catch-all still shadows those. The content route is a fallback route: it matches after every normal route, also routes other packages add later. Nothing is
 registered at runtime when routes are cached (`route:cache` at start holds them), and every action is a controller class.
 
 **One fallback route serves all Hub content.** `GET {path}` (name `content.auto.page`, `web` group) asks the resolver which resource the path is, at request time,
@@ -735,9 +737,10 @@ are what the pilot needed beyond the bare steps.
 | 10 | Nothing: run `fsc:doctor --online` (0 `FOUT`, 0 `LET OP`) and the curl checks of "Controleer je site" on the test address, then live | |
 
 **Order for a site with a root catch-all** (`Route::get('/{path}', ...)` in `routes/web.php`): 1, 3, 4, 5, 6, 7, then **2, 8 and 9 in one commit**, then 10.
-The catch-all matches `api/health` and the legal paths, and it wins over every route the package adds (`routes/api.php` loads before `routes/web.php`,
-the package's routes after both). Deleting the health route first gives a 404 on `/api/health` (doctor: `FOUT GET /api/health ontbreekt`, `Healthcheck: eigen route wint: {path}`);
-deleting the legal route first makes the catch-all serve a Hub page with the same path instead of the legal document.
+From 0.32 the package registers `api/health` and the legal paths before the site's route files, so the catch-all does not shadow them (it still wins over the content route, the
+sitemap and the robots route, which are registered after both `routes/api.php` and `routes/web.php`). A site that still has its own health route or legal routes keeps them: a route
+with the same method and URI replaces the package's. Deleting them is safe in any order; with the old SDK (below 0.32) deleting the health route first gave a 404 on `/api/health`
+(doctor: `FOUT GET /api/health ontbreekt`, `Healthcheck: eigen route wint: {path}`) and deleting the legal route first made the catch-all serve a Hub page with the same path instead of the legal document.
 
 Notes per step:
 
@@ -758,14 +761,16 @@ Notes per step:
   in a `min-width` query) and themes it with `--fsc-consent-bg` and `--fsc-consent-text`. Delete the old banner CSS. Never send a consent POST to a customer's project to "check the
   proof": check that `POST /_fsc/c` answers 422 to an invalid body.
 - **Step 7.** A designed standalone `errors/503` (contact details, house colours, no layout and no components) stays: the package only adds `Retry-After` and `no-store`.
-- **Step 9, event pages.** The package hands its event view only the public event fields (no `capacity`, no `seo`, `seoTitle` or `seoDescription`), and the head of an event
-  prints the bare event title and the project's default description. A site that showed the group size or used `"<title> | <site>"` and the summary keeps them with a
+- **Step 9, event pages.** The package hands its event view only the public event fields (`capacity`, the total seats, is one of them from 0.32; the sold and registration
+  counters, `seo`, `seoTitle` and `seoDescription` are not). The head of an event prints the event title through the project's title template (`"<title> | <site>"`, like a page), and
+  as description the summary, else the first words of the description, else the project's default description. Anything more (a custom title or description) is a
   `View::composer('content::site.event', ...)` that reads `$content->events->get($slug, ['cache' => true])` (the answer the resolver already cached, no extra Hub call) and calls
   `Content::seo([...])`.
 - **Step 9, view data.** The package's views get `$page`/`$article`/`$event`/`$document`, `$path` and `$resolved`, nothing else: data the old controller passed (reviews, a site
   config) comes from `config()` or a composer. `$path` is the resolved path **without** a trailing slash; use `request()->getPathInfo()` where the old view relied on the slashed path.
-- **Step 9, block views.** Move site block views from the `:views` prop of `<x-content::page-blocks>` to `content.blocks` in `config/content.php`: the doctor and the page builder only
-  see views registered there. Declare `content.block_layouts.<type>` (`[]` for a view without layouts) and add `$edit(...)` markers so headings and texts can be typed on the canvas.
+- **Step 9, block views.** Move site block views from the `:views` prop of `<x-content::page-blocks>` to `content.blocks` in `config/content.php`: the page builder only
+  sees views registered there. The doctor reads a `:views` array in the tag or a `$views = [...]` array in the same view; a variable it cannot read (set in a controller or
+  composer) gives a `LET OP` that asks for `content.blocks`. Declare `content.block_layouts.<type>` (`[]` for a view without layouts) and add `$edit(...)` markers so headings and texts can be typed on the canvas.
 - **Step 10.** `LET OP APP_URL is geen https` is expected locally (http dev server); it must be the https address in the runtime env.
 
 Designed pages (home, contact, landing pages) and their controllers stay: they are the site's own routes and win. A site may stop after any step.
@@ -1613,7 +1618,7 @@ It also has webshop, members, appointments, tickets, invoices, newsletter, chat,
 ```json
 {
     "repositories": [{ "type": "vcs", "url": "https://github.com/fullstackstudio-org/content-sdk-php" }],
-    "require": { "fullstackstudio/content": "^0.31" }
+    "require": { "fullstackstudio/content": "^0.32" }
 }
 ```
 

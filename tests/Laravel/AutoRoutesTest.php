@@ -9,6 +9,7 @@ use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Http\Request as HubRequest;
 use FullStackStudio\Content\Http\Response as HubResponse;
 use FullStackStudio\Content\Http\Transport;
+use FullStackStudio\Content\Laravel\Auto\Auto;
 use FullStackStudio\Content\Laravel\Auto\AutoRoutes;
 use FullStackStudio\Content\Laravel\Site\HealthController;
 use FullStackStudio\Content\Laravel\Site\SiteController;
@@ -250,6 +251,53 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertSame(['by' => 'site', 'uri' => '{path}', 'action' => AutoRoutesTestSite::class], AutoRoutes::owner('GET', '/over-ons'));
     }
 
+    public function testHealthAndLegalPathsWinOverASiteRootCatchAll(): void
+    {
+        $this->site(static function (Router $router): void {
+            // As a site's `routes/web.php` does: one catch-all for every path, registered after the package's own boot.
+            $router->middleware('web')->get('/{path}', AutoRoutesTestSite::class)->where('path', '.*');
+        });
+
+        self::assertSame('{"ok":true}', $this->get('/api/health')->getContent());
+        self::assertSame(['by' => 'sdk', 'uri' => 'api/health', 'action' => HealthController::class], AutoRoutes::owner('GET', '/api/health'));
+
+        foreach (Auto::legalPaths() as $path => $kind) {
+            $trimmed = trim($path, '/');
+            self::assertSame('auto:' . $trimmed, $this->get('/' . $trimmed)->getContent(), $path);
+            self::assertSame('auto:' . $trimmed, $this->get('/' . $trimmed . '/')->getContent(), $path . ' with a trailing slash');
+            self::assertSame('sdk', AutoRoutes::owner('GET', '/' . $trimmed)['by'], $path);
+            self::assertNotNull($this->named(AutoRoutes::LEGAL . $trimmed), $path);
+        }
+
+        // Everything else is still the site's.
+        self::assertSame('site:over-ons', $this->get('/over-ons')->getContent());
+        self::assertSame('site:', $this->get('/')->getContent());
+    }
+
+    public function testASiteRouteForALegalPathReplacesTheEarlyOne(): void
+    {
+        $path = trim((string) array_key_first(Auto::legalPaths()), '/');
+        $this->site(static function (Router $router) use ($path): void {
+            $router->middleware('web')->get('/' . $path, AutoRoutesTestSite::class);
+            $router->middleware('web')->get('/{path}', AutoRoutesTestSite::class)->where('path', '.*');
+        });
+
+        self::assertSame('site:' . $path, $this->get('/' . $path)->getContent());
+        self::assertNull($this->named(AutoRoutes::LEGAL . $path));
+        self::assertSame('site', AutoRoutes::owner('GET', '/' . $path)['by']);
+    }
+
+    public function testLegalAndHealthRoutesFollowTheirSwitches(): void
+    {
+        $this->site(static function (Router $router): void {
+            $router->middleware('web')->get('/{path}', AutoRoutesTestSite::class)->where('path', '.*');
+        }, ['legal' => false, 'health' => false]);
+
+        self::assertSame('site:api/health', $this->get('/api/health')->getContent());
+        self::assertSame('site:privacy', $this->get('/privacy')->getContent());
+        self::assertNull($this->named(AutoRoutes::HEALTH));
+    }
+
     public function testASiteFallbackWinsOverTheContentRoute(): void
     {
         $this->site(static function (Router $router): void {
@@ -472,7 +520,8 @@ final class AutoRoutesTestProbe
 
     public function __invoke(Request $request): string
     {
-        $text = 'auto:' . $request->route('fscPath');
+        // The legal routes have no path parameter: the path info is what the real controller reads.
+        $text = 'auto:' . ($request->route('fscPath') ?? trim($request->path(), '/'));
 
         return $this->html ? '<!doctype html><html><head></head><body>' . $text . '</body></html>' : $text;
     }

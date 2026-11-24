@@ -415,9 +415,11 @@ final class PathResolverTest extends FakeHubTestCase
         $event = $this->resolve('/evenementen/open-dag')?->resource;
 
         self::assertIsArray($event);
-        self::assertSame(['id', 'slug', 'title', 'summary', 'descriptionHtml', 'location', 'startsAt', 'endsAt', 'available', 'salesStartAt', 'salesEndAt',
+        self::assertSame(['id', 'slug', 'title', 'summary', 'descriptionHtml', 'location', 'startsAt', 'endsAt', 'capacity', 'available', 'salesStartAt', 'salesEndAt',
             'maxPerRegistration', 'currency', 'salesState', 'ticketTypes', 'coverMediaId', 'cover', 'registrationUrl', 'status'], array_keys($event));
         self::assertSame([['id' => 't1', 'name' => 'Gratis', 'description' => null, 'priceCents' => 0, 'available' => 10]], $event['ticketTypes'], 'only active ticket types, public fields');
         self::assertSame('published', $event['status']);
+        self::assertSame(50, $event['capacity'], 'the total seats are public, the counters are not');
+        self::assertArrayNotHasKey('registrationCount', $event);
     }
 }
