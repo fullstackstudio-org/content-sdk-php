@@ -23,6 +23,9 @@ final class Events
      * `['cache' => true]` to cache the answer under `content:events`, which the webhook clears on every `event.*` change (the page builder
      * blocks do). `status` filters a server token's answer (`draft|published|cancelled`).
      *
+     * With a content language (the client's, or `$options['locale']`) the texts of events and ticket types come in that language and every
+     * event has `locale` and `availableLocales` (multilanguage plan, task 16); a single-language project sends nothing extra.
+     *
      * @param array{upcoming?: bool, status?: string, page?: int, limit?: int} $params
      * @param array<string, mixed> $options
      * @return array<string, mixed> `events`, `page`, `limit`, `total`
@@ -31,7 +34,7 @@ final class Events
     {
         return $this->ctx->withTotal($this->ctx->execute([
             'path' => '/events',
-            'query' => ['upcoming' => !empty($params['upcoming']) ? 'true' : null, ...Arr::pick($params, ['status', 'page', 'limit'])],
+            'query' => ['upcoming' => !empty($params['upcoming']) ? 'true' : null, ...Arr::pick($params, ['status', 'page', 'limit']), 'locale' => $this->ctx->localeQuery($options)],
             ...self::cacheSpec($options),
             'options' => $options,
         ]));
@@ -40,7 +43,7 @@ final class Events
     /** By slug or id. Cached only with `['cache' => true]`, see {@see self::list()}. @param array<string, mixed> $options @return array<string, mixed> */
     public function get(string $idOrSlug, array $options = []): array
     {
-        return $this->ctx->execute(['path' => '/events/' . ModuleContext::seg($idOrSlug), ...self::cacheSpec($options), 'options' => $options])->data['event'] ?? [];
+        return $this->ctx->execute(['path' => '/events/' . ModuleContext::seg($idOrSlug), 'query' => ['locale' => $this->ctx->localeQuery($options)], ...self::cacheSpec($options), 'options' => $options])->data['event'] ?? [];
     }
 
     /** @param array<string, mixed> $options @return array{tags?: list<string>} */
@@ -51,16 +54,18 @@ final class Events
 
     /**
      * Registers a visitor. With a server token the visitor's IP goes along as `X-FSC-Client-Ip` (`clientIp` in the options, else the
-     * client's configured IP), so the Hub's per-visitor limits count the visitor and not your server.
+     * client's configured IP), so the Hub's per-visitor limits count the visitor and not your server. The visitor's language goes in the body
+     * as `locale` (an own `$input['locale']` wins, else the client's content language on a multilingual project): the registration and
+     * its ticket mail then speak it.
      *
-     * @param array<string, mixed> $input @param array{clientIp?: string, timeoutMs?: int} $options @return array<string, mixed>
+     * @param array<string, mixed> $input @param array{clientIp?: string, timeoutMs?: int, locale?: string} $options @return array<string, mixed>
      */
     public function register(string $idOrSlug, array $input, array $options = []): array
     {
         return $this->ctx->execute([
             'method' => 'POST',
             'path' => '/events/' . ModuleContext::seg($idOrSlug) . '/registrations',
-            'body' => $input,
+            'body' => $this->ctx->bodyWithLocale($input, $options),
             'headers' => $this->ctx->visitorHeaders(null, $options['clientIp'] ?? null),
             'options' => $options,
         ])->data;

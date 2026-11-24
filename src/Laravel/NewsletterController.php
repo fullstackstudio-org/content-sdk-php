@@ -67,6 +67,14 @@ final class NewsletterController
 
         $options = $ip !== null ? ['clientIp' => $ip] : [];
 
+        // The language of the page the form sat on (hidden field of the block, multilingual projects only): this request is not a page, so
+        // the path resolver did not set it. Only an enabled language counts; the client sends it as `locale` on subscribe.
+        $posted = $request->input(FormController::LOCALE_FIELD);
+
+        if (is_string($posted) && in_array($posted, $client->enabledLocales(), true)) {
+            $client = $client->withLocale($posted);
+        }
+
         try {
             $client->newsletter->subscribe(['email' => $email, 'listIds' => $listIds], $options);
         } catch (ContentException $e) {

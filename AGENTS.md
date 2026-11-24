@@ -129,7 +129,7 @@ layout passes nothing:
 
 | Component | Prints, in this order (each part once per request) | With its module off |
 |---|---|---|
-| `<x-content::head />` in `<head>` | meta (title with the project template, description, canonical, robots `noindex` while the project's `robotsIndex` is off, Open Graph, Twitter); hreflang from the resource's published `translations` (multilingual sites only); JSON-LD (`Article` for articles, `Event` for events); the site standards (`@layer fsc-rich;`, verification, favicon, apple-touch-icon, theme-color, LocalBusiness JSON-LD, the owner's consent-gated head code, dev panel tags with the devmode cookie); the browser error reporter | the resource's own fields; only the layer line |
+| `<x-content::head />` in `<head>` | meta (title with the project template, description, canonical, robots `noindex` while the project's `robotsIndex` is off, Open Graph, Twitter); hreflang from the resource's published `translations` (events: from `availableLocales`; multilingual sites only); JSON-LD (`Article` for articles, `Event` for events); the site standards (`@layer fsc-rich;`, verification, favicon, apple-touch-icon, theme-color, LocalBusiness JSON-LD, the owner's consent-gated head code, dev panel tags with the devmode cookie); the browser error reporter | the resource's own fields; only the layer line |
 | `<x-content::scripts />` before `</body>` | the cookie banner (texts from the Hub, hidden in the portal preview); the owner's consent-gated body code and click events (`tel:`, `mailto:`, WhatsApp); analytics (Umami and/or the native tracker, with the HTTP status of the request, so a 404 is counted) | nothing |
 
 - **What head prints for a page.** For a page, article or event of the package the head knows the resource. A designed page of the site asks for meta
@@ -1395,6 +1395,19 @@ first). Content can only exist in those languages (the Hub answers `422` otherwi
   options are shown. On a multilingual project the form carries the language of its page in a hidden field, so the submit (a separate request) answers in it too.
 - The banner prints the Hub's resolved texts; its own strings (`resources/lang/{nl,en}/content.php`, `__('content::content.consent.<key>')`) fill in only what the Hub does not send (category
   names, "altijd aan", fallbacks). Override them with `php artisan vendor:publish --tag=content-lang` (`lang/vendor/content`).
+- **The visitor's language in the modules** (batch 2). With the same rule as above (two or more enabled languages, the language is enabled, `['locale' => 'en']` in the call options wins),
+  the reads `events->list()` / `events->get()`, `appointments->services()` / `service()` / `bookingPageUrl()` and `newsletter->lists->list()` / `get()` send `?locale=` themselves: texts come
+  in that language (with a per-field fallback in the Hub) and every event, service and list has `locale` and `availableLocales`. The writes `events->register()`, `appointments->book()`,
+  `newsletter->subscribe()`, `members->register()` and `tickets->create()` put `locale` in the body (an own `locale` in the input wins, then `['locale' => ...]` in the options, then the
+  client's language); the Hub stores it and writes every later mail to that visitor in it (confirmation, reminder, reset, ticket reply). Nothing is added on a single-language project, so
+  those requests are byte-identical to before. `Content::urls()->visitorLink($hubUrl, $locale)` adds `lang=<locale>` to a link to a Hub hosted visitor page (booking page, event registration,
+  ticket page, newsletter and member pages) for a non-default enabled language; the page blocks do it for you (`registrationUrl`, `bookingPageUrl`), and `->localize($path, $locale)` gives a
+  site path its locale prefix. On your own routes call `Content::setLocale($locale)` first, and for a form that posts to your own route carry the language in a hidden field and call
+  `Content::withLocale($posted)` after checking it against `Content::enabledLocales()` (the `newsletterSignup` block and its route do this with `_fsc_locale`).
+- **Events in the site's own pages.** `content.links.event` may hold `{locale}` (`/{locale}/agenda/{slug}`, the same shape as the Hub's event `pathTemplate`, so the sitemap and your links
+  agree): the resolver then takes the language from the path, reads the event in it and answers `Resolved::$locale`. Without `{locale}` an event under a locale prefix (`/en/agenda/x`) is
+  read in that language too, and `Content::urls()->event($event, 'en')` builds `/en/agenda/x`. `<x-content::head />` prints hreflang on an event page from the event's `availableLocales`
+  (default language plus every enabled language in which all its texts are translated; two or more, multilingual sites with `content.links.event` only).
 
 With your own routes: a route prefix per enabled language, `['locale' => ...]` on reads, `localePrefix` in `Sitemap::response()`, and hreflang via
 `<x-content::head :page="$page" />` or yourself from the page's `translations` (`[{ id, locale, slug, status }]`), building every URL with

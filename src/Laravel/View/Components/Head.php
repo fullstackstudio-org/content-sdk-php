@@ -147,6 +147,12 @@ final class Head extends Component
             $html .= $tags !== '' ? "\n" . $tags : '';
         }
 
+        if ($type === 'event' && ! Parts::seen('hreflang')) {
+            $found = Alternates::forEvent($resource);
+            $tags = Seo::hreflang($found['alternates'], $found['default']);
+            $html .= $tags !== '' ? "\n" . $tags : '';
+        }
+
         if (in_array($type, ['article', 'event'], true) && ! Parts::seen('jsonld')) {
             $ld = Seo::jsonLd($type, $resource, $canonical, $baseUrl, $nonce);
             $html .= $ld !== '' ? "\n" . $ld : '';

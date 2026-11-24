@@ -92,8 +92,8 @@ final class Urls
     }
 
     /**
-     * `content.links.event` when it is a same-site path with one `{slug}` or `{id}`; null otherwise (events are then not served by the site).
-     * Normalised by {@see template()}: no trailing slash.
+     * `content.links.event` when it is a same-site path with one `{slug}` or `{id}` (and optionally `{locale}`, as in the Hub's event
+     * `pathTemplate`); null otherwise (events are then not served by the site). Normalised by {@see template()}: no trailing slash.
      */
     public function eventTemplate(): ?string
     {
@@ -103,7 +103,7 @@ final class Urls
             return null;
         }
 
-        return substr_count($template, '{slug}') + substr_count($template, '{id}') === 1 ? self::template($template) : null;
+        return substr_count($template, '{slug}') + substr_count($template, '{id}') === 1 && substr_count($template, '{locale}') <= 1 ? self::template($template) : null;
     }
 
     /**
@@ -139,8 +139,12 @@ final class Urls
         return $this->path($path, str_contains($template, '{locale}') ? null : $locale);
     }
 
-    /** @param array<string, mixed> $event Null when `content.links.event` is not set. */
-    public function event(array $event): ?string
+    /**
+     * @param array<string, mixed> $event Null when `content.links.event` is not set.
+     * @param string|null $locale None = no prefix (the path as before). A non-default enabled language gets its prefix, except with
+     *        `{locale}` in the template: then the locale is part of the template (the event's own, else the default) and no prefix is added.
+     */
+    public function event(array $event, ?string $locale = null): ?string
     {
         $template = $this->eventTemplate();
 
@@ -148,7 +152,56 @@ final class Urls
             return null;
         }
 
-        return $this->path(str_replace(['{slug}', '{id}'], [rawurlencode((string) ($event['slug'] ?? '')), rawurlencode((string) ($event['id'] ?? ''))], $template));
+        $withLocale = str_contains($template, '{locale}');
+        $inPath = $locale ?? (is_string($event['locale'] ?? null) && $event['locale'] !== '' ? $event['locale'] : $this->defaultLocale());
+        $path = str_replace(['{slug}', '{id}', '{locale}'], [rawurlencode((string) ($event['slug'] ?? '')), rawurlencode((string) ($event['id'] ?? '')), rawurlencode($inPath)], $template);
+
+        return $this->path($path, $withLocale ? null : $locale);
+    }
+
+    /**
+     * A link to a Hub hosted visitor page (booking page, registration page, ticket page, newsletter and member pages) in the visitor's
+     * language: adds `lang=<locale>` for a non-default enabled language, which is what the Hub's visitor pages read first (then
+     * `Accept-Language`, then the project default). The default language, no language, a language that is not enabled and a single-language
+     * site get the URL back exactly as it was. An own `lang` parameter is replaced, the fragment is kept.
+     */
+    public function visitorLink(string $url, ?string $locale = null): string
+    {
+        if (! $this->prefixes($locale)) {
+            return $url;
+        }
+
+        $fragment = '';
+
+        if (($hash = strpos($url, '#')) !== false) {
+            $fragment = substr($url, $hash);
+            $url = substr($url, 0, $hash);
+        }
+
+        $query = '';
+
+        if (($mark = strpos($url, '?')) !== false) {
+            $query = substr($url, $mark + 1);
+            $url = substr($url, 0, $mark);
+        }
+
+        $kept = array_values(array_filter($query === '' ? [] : explode('&', $query), static fn (string $pair): bool => $pair !== '' && ! preg_match('/^lang(=|$)/', $pair)));
+        $kept[] = 'lang=' . rawurlencode((string) $locale);
+
+        return $url . '?' . implode('&', $kept) . $fragment;
+    }
+
+    /**
+     * The path of a site route (a booking page, an own event path) in a language: a non-default enabled language gets its prefix, anything else
+     * the path as it was (no trailing slash change, unlike {@see path()}). `/` becomes `/en`.
+     */
+    public function localize(string $path, ?string $locale = null): string
+    {
+        if (! $this->prefixes($locale) || ! str_starts_with($path, '/')) {
+            return $path;
+        }
+
+        return '/' . $locale . ($path === '/' ? '' : $path);
     }
 
     /** Path of a legal document kind (`terms`, `privacy_statement`, `cookie_statement`) from `content.auto.legal_paths`, or null. */

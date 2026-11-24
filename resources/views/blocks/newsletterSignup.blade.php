@@ -11,7 +11,7 @@
     @else
     <form class="fsc-newsletter" method="POST" action="{{ $signup['action'] }}" novalidate>
         @csrf
-        <input type="hidden" name="block" value="{{ $signup['key'] }}">
+        <input type="hidden" name="block" value="{{ $signup['key'] }}">{!! ($signup['locale'] ?? '') !== '' ? '<input type="hidden" name="' . \FullStackStudio\Content\Laravel\FormController::LOCALE_FIELD . '" value="' . e($signup['locale']) . '">' : '' !!}
         @if ($signup['list'] !== '')<input type="hidden" name="list" value="{{ $signup['list'] }}">@endif
     @if ($signup['preview'])<fieldset disabled class="fsc-form__preview" style="border:0;margin:0;padding:0;min-width:0">@endif
         <div class="fsc-newsletter__row">

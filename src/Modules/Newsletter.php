@@ -30,13 +30,16 @@ final class Newsletter
      * subscribed, unsubscribed or bounced (no enumeration). A new address gets a confirmation mail (double opt-in). Throws a
      * ContentException (400) for a malformed request and 429 when the visitor tries too often.
      *
+     * The visitor's language goes along as `locale` (an own `$input['locale']` wins, else the client's content language on a multilingual
+     * project): the confirmation mail and every later mail to this subscriber speak it.
+     *
      * @param array<string, mixed> $input `email` (required), plus any of the optional fields of the API
-     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * @param array{clientIp?: string, timeoutMs?: int, locale?: string} $options
      * @return array<string, mixed>
      */
     public function subscribe(array $input, array $options = []): array
     {
-        $body = array_filter($input, static fn (mixed $value): bool => $value !== null);
+        $body = $this->ctx->bodyWithLocale(array_filter($input, static fn (mixed $value): bool => $value !== null), $options);
         $ip = $this->ctx->visitorIp($options['clientIp'] ?? null);
 
         return $this->ctx->execute([

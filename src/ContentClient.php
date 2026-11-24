@@ -114,6 +114,8 @@ final class ContentClient
 
     private readonly ModuleContext $context;
 
+    private readonly ClientOptions $options;
+
     /** @var (\Closure(string): (array<string, mixed>|null))|null set only while a portal preview renders, see overridePages() */
     private ?\Closure $pageOverride = null;
 
@@ -129,7 +131,10 @@ final class ContentClient
     /** @param array<string, mixed>|ClientOptions $options see {@see ClientOptions}; throws {@see ContentException} (`invalid_config`) on misuse */
     public function __construct(array|ClientOptions $options)
     {
-        $this->context = new ModuleContext(ClientOptions::from($options));
+        $this->options = ClientOptions::from($options);
+        $this->context = new ModuleContext($this->options);
+        // The modules (events, appointments, newsletter, members, tickets) ask the client for the visitor's language.
+        $this->context->useLocale(fn (array $callOptions): ?string => $this->localeQuery($callOptions));
         $this->admin = new Admin($this->context);
         $this->newsletter = new Newsletter($this->context);
         $this->cart = new Cart($this->context);
@@ -194,7 +199,10 @@ final class ContentClient
     /** A copy of this client (same token, transport and cache) whose content language is `$locale`; the original is untouched. */
     public function withLocale(?string $locale): static
     {
-        $copy = clone $this;
+        // Not a clone: the modules' context points back at its own client, so a copy needs its own context. Transport and cache are shared.
+        $copy = new static($this->options);
+        $copy->pageOverride = $this->pageOverride;
+        $copy->htmlBlocksByPage = $this->htmlBlocksByPage;
         $copy->setLocale($locale);
 
         return $copy;

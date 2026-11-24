@@ -18,10 +18,15 @@ final class Appointments
     {
     }
 
-    /** The active services (a server token also sees inactive ones, with buffers). @param array<string, mixed> $options @return list<array<string, mixed>> */
+    /**
+     * The active services (a server token also sees inactive ones, with buffers). With a content language (the client's, or
+     * `$options['locale']`) `name` and `description` come in that language and each service has `locale` and `availableLocales`.
+     *
+     * @param array<string, mixed> $options @return list<array<string, mixed>>
+     */
     public function services(array $options = []): array
     {
-        return $this->ctx->get('/appointments/services', [Tags::APPOINTMENT_SERVICES], null, $options)->data['services'] ?? [];
+        return $this->ctx->get('/appointments/services', [Tags::APPOINTMENT_SERVICES], $this->localeParams($options), $options)->data['services'] ?? [];
     }
 
     /**
@@ -32,7 +37,7 @@ final class Appointments
      */
     public function bookingPageUrl(array $options = []): ?string
     {
-        $url = $this->ctx->get('/appointments/services', [Tags::APPOINTMENT_SERVICES], null, $options)->data['bookingPageUrl'] ?? null;
+        $url = $this->ctx->get('/appointments/services', [Tags::APPOINTMENT_SERVICES], $this->localeParams($options), $options)->data['bookingPageUrl'] ?? null;
 
         return is_string($url) && preg_match('#^https://[^\s<>"\']+$#D', $url) === 1 ? $url : null;
     }
@@ -40,7 +45,15 @@ final class Appointments
     /** @param array<string, mixed> $options @return array<string, mixed> */
     public function service(string $id, array $options = []): array
     {
-        return $this->ctx->get('/appointments/services/' . ModuleContext::seg($id), [Tags::APPOINTMENT_SERVICES], null, $options)->data['service'] ?? [];
+        return $this->ctx->get('/appointments/services/' . ModuleContext::seg($id), [Tags::APPOINTMENT_SERVICES], $this->localeParams($options), $options)->data['service'] ?? [];
+    }
+
+    /** @param array<string, mixed> $options @return array{locale: ?string}|null the query of a read that takes a language */
+    private function localeParams(array $options): ?array
+    {
+        $locale = $this->ctx->localeQuery($options);
+
+        return $locale === null ? null : ['locale' => $locale];
     }
 
     /** The active resources (staff members, chairs, rooms) a visitor can pick; `id` and `name` only. @param array<string, mixed> $options @return list<array<string, mixed>> */
@@ -63,10 +76,12 @@ final class Appointments
 
     /**
      * Books a time. `409 slot_taken` when someone was faster. The returned `cancelToken` is the booker's key to cancel (also in their mail); it is shown once.
-     * With a server token and `memberSession` the booking belongs to that member.
+     * With a server token and `memberSession` the booking belongs to that member. The visitor's language goes in the body as `locale` (an own
+     * `$input['locale']` wins, else the client's content language on a multilingual project): the confirmation, the `.ics` and the booking
+     * page then show the service in it.
      *
      * @param array<string, mixed> $input
-     * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int} $options
+     * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int, locale?: string} $options
      * @return array<string, mixed>
      */
     public function book(array $input, array $options = []): array
@@ -74,7 +89,7 @@ final class Appointments
         return $this->ctx->execute([
             'method' => 'POST',
             'path' => '/appointments',
-            'body' => $input,
+            'body' => $this->ctx->bodyWithLocale($input, $options),
             'headers' => $this->ctx->visitorHeaders($options['memberSession'] ?? null, $options['clientIp'] ?? null),
             'options' => $options,
         ])->data;

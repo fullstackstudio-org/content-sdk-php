@@ -15,6 +15,56 @@ use Throwable;
 final class Alternates
 {
     /**
+     * The hreflang alternates of an event page: one per language in the event's `availableLocales` (the default language plus every enabled
+     * language in which all the event's texts are translated) that is enabled for the project, at least two. Only when the site serves
+     * events itself (`content.links.event`); otherwise there is no event page to point at.
+     *
+     * @param array<string, mixed> $event an event read with a content language (it has `availableLocales`)
+     * @return array{alternates: list<array{locale: string, url: string}>, default: ?string}
+     */
+    public static function forEvent(array $event): array
+    {
+        $none = ['alternates' => [], 'default' => null];
+
+        try {
+            $urls = Content::urls();
+            $available = is_array($event['availableLocales'] ?? null) ? $event['availableLocales'] : [];
+
+            if ($available === [] || ! $urls->multilingual()) {
+                return $none;
+            }
+
+            $enabled = $urls->locales();
+            $default = $urls->defaultLocale();
+            $alternates = [];
+            $defaultUrl = null;
+
+            foreach ($enabled as $code) {
+                if (! in_array($code, $available, true)) {
+                    continue;
+                }
+
+                $path = $urls->event($event, $code);
+                $url = $path === null ? null : $urls->absolute($path);
+
+                if (! is_string($url) || $url === '') {
+                    return $none;
+                }
+
+                $alternates[] = ['locale' => $code, 'url' => $url];
+
+                if ($code === $default) {
+                    $defaultUrl = $url;
+                }
+            }
+
+            return count($alternates) < 2 ? $none : ['alternates' => $alternates, 'default' => $defaultUrl];
+        } catch (Throwable) {
+            return $none;
+        }
+    }
+
+    /**
      * @param 'page'|'article' $type
      * @param array<string, mixed> $resource a page or article with its `translations` (`[{id, locale, slug, status}]`)
      * @return array{alternates: list<array{locale: string, url: string}>, default: ?string}

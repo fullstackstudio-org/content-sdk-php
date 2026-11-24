@@ -19,10 +19,12 @@ final class Tickets
     }
 
     /**
-     * Files a request on behalf of a visitor or a member. The token in the result is shown once.
+     * Files a request on behalf of a visitor or a member. The token in the result is shown once. The visitor's language goes along as
+     * `locale` (an own `$input['locale']` wins, else the client's content language on a multilingual project): the confirmation and every
+     * reply mail to the requester speak it.
      *
-     * @param array{subject: string, message: string, requester?: array<string, mixed>, priority?: string, turnstileToken?: string} $input
-     * @param array{files?: list<\FullStackStudio\Content\Http\UploadFile>, idempotencyKey?: string, memberSession?: string, clientIp?: string, timeoutMs?: int} $options
+     * @param array{subject: string, message: string, requester?: array<string, mixed>, priority?: string, turnstileToken?: string, locale?: string} $input
+     * @param array{files?: list<\FullStackStudio\Content\Http\UploadFile>, idempotencyKey?: string, memberSession?: string, clientIp?: string, timeoutMs?: int, locale?: string} $options
      *        `idempotencyKey`: the same key with the same input within 24 hours returns the same ticket (`replayed: true`).
      * @return array<string, mixed>
      */
@@ -34,7 +36,8 @@ final class Tickets
             $extra['Idempotency-Key'] = (string) $options['idempotencyKey'];
         }
 
-        $body = ['subject' => $input['subject'] ?? null, 'message' => $input['message'] ?? null, ...Arr::pick($input, ['requester', 'priority', 'turnstileToken'])];
+        $body = ['subject' => $input['subject'] ?? null, 'message' => $input['message'] ?? null, ...Arr::pick($input, ['requester', 'priority', 'turnstileToken', 'locale'])];
+        $body = $this->ctx->bodyWithLocale($body, $options);
 
         return $this->ctx->execute([
             'method' => 'POST',
