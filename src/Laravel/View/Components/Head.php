@@ -39,7 +39,8 @@ final class Head extends Component
     /**
      * @param array<string, mixed>|null $page a page from the client
      * @param array<string, mixed>|null $article an article from the client
-     * @param array<string, mixed>|null $meta overrides: `title`, `description`, `image`, `canonical`, `noindex`; `[]` asks for the site defaults
+     * @param array<string, mixed>|null $meta overrides: `title`, `description`, `image`, `canonical`, `noindex`, `ogType`; `[]` asks for the site defaults
+     * @param bool|null $jsonLd `false` prints no Article/Event JSON-LD on this page (also `Content::seo(['jsonLd' => false])`)
      */
     public function __construct(
         public readonly ?string $nonce = null,
@@ -47,6 +48,7 @@ final class Head extends Component
         public readonly ?array $article = null,
         public readonly ?array $meta = null,
         public readonly ?string $path = null,
+        public readonly ?bool $jsonLd = null,
     ) {
     }
 
@@ -158,12 +160,30 @@ final class Head extends Component
             $html .= $tags !== '' ? "\n" . $tags : '';
         }
 
-        if (in_array($type, ['article', 'event'], true) && ! Parts::seen('jsonld')) {
-            $ld = Seo::jsonLd($type, $resource, $canonical, $baseUrl, $nonce);
+        // The JSON-LD can be switched off per page (`:json-ld="false"` or `Content::seo(['jsonLd' => false])`), e.g. to print the site's own.
+        $jsonLd = ($this->jsonLd ?? ($overrides['jsonLd'] ?? true)) !== false;
+
+        if ($jsonLd && in_array($type, ['article', 'event'], true) && ! Parts::seen('jsonld')) {
+            $ld = Seo::jsonLd($type, $resource, $canonical, $baseUrl, $nonce, self::publisher($resolved?->locale));
             $html .= $ld !== '' ? "\n" . $ld : '';
         }
 
         return $html;
+    }
+
+    /** The publisher of the JSON-LD: the project's site name and origin, and the language of the page. Never throws. @return array{name: ?string, url: ?string, locale: ?string} */
+    private static function publisher(?string $locale): array
+    {
+        try {
+            $seo = app(\FullStackStudio\Content\ContentClient::class)->getSeo();
+        } catch (Throwable) {
+            $seo = [];
+        }
+
+        $name = is_string($seo['siteName'] ?? null) && trim($seo['siteName']) !== '' ? trim($seo['siteName']) : null;
+        $origin = is_string($seo['canonicalOrigin'] ?? null) && trim($seo['canonicalOrigin']) !== '' ? rtrim(trim($seo['canonicalOrigin']), '/') : null;
+
+        return ['name' => $name, 'url' => $origin, 'locale' => $locale];
     }
 
     /**

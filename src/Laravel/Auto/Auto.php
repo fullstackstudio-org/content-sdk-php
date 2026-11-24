@@ -88,6 +88,28 @@ final class Auto
         ]));
     }
 
+    /**
+     * Hosts the SDK's routes and the redirect middleware answer on (`content.auto.hosts`, patterns with `*`). Empty (the default) = every
+     * host. For a site whose other hosts (an admin subdomain) belong to the site alone.
+     *
+     * @return list<string>
+     */
+    public static function hosts(): array
+    {
+        $configured = self::get('hosts');
+        $list = is_string($configured) ? [$configured] : (is_array($configured) ? $configured : []);
+
+        return array_values(array_filter(array_map(static fn ($host): string => strtolower(trim((string) $host)), $list), static fn (string $host): bool => $host !== ''));
+    }
+
+    /** Whether the SDK answers on this host (always true without `content.auto.hosts`). */
+    public static function hostAllowed(string $host): bool
+    {
+        $hosts = self::hosts();
+
+        return $hosts === [] || \Illuminate\Support\Str::is($hosts, strtolower($host));
+    }
+
     /** Layout view name the default views extend, or null for the package layout. */
     public static function layout(): ?string
     {

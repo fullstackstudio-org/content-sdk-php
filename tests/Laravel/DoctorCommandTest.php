@@ -1026,6 +1026,42 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertSame(Doctor::WARN, $this->statusOf($this->results(), 'X-Frame-Options of frame-ancestors buiten PHP in'));
     }
 
+    public function testAFramingCommentInAServerConfigIsNotAHeader(): void
+    {
+        $this->completeSite();
+        file_put_contents($this->public . '/.htaccess', "# X-Frame-Options is set in PHP, not here\n// frame-ancestors too\n");
+
+        self::assertNull($this->statusOf($this->results(), 'X-Frame-Options of frame-ancestors buiten PHP in'));
+    }
+
+    public function testAViewThatOnlyListensForTheConsentEventIsNotABanner(): void
+    {
+        $this->layoutWith('<x-content::head />', "@include('partials.gtm')\n<x-content::scripts />");
+        file_put_contents($this->views . '/partials/gtm.blade.php', "<script>window.addEventListener('fsc:consent', function (e) { gtag('consent', 'update', e.detail); });</script>");
+        $this->site();
+
+        $results = $this->results();
+        self::assertNull($this->statusOf($results, 'Twee cookiebanners'));
+        self::assertNull($this->statusOf($results, 'Cookiebanner gevonden (stuurt'));
+    }
+
+    public function testAdminPanelLayoutsAreNotSiteLayouts(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        mkdir($this->views . '/admin', 0777, true);
+        mkdir($this->views . '/panel', 0777, true);
+        file_put_contents($this->views . '/admin/layout.blade.php', '<html><head></head><body>@yield("content")</body></html>');
+        file_put_contents($this->views . '/panel/shell.blade.php', '<html><head></head><body>@yield("content")</body></html>');
+        $this->site(null, ['content.doctor.ignore_views' => ['panel/*']]);
+
+        $results = $this->results();
+
+        foreach ($results as $result) {
+            self::assertStringNotContainsString('admin/layout', $result['label']);
+            self::assertStringNotContainsString('panel/shell', $result['label']);
+        }
+    }
+
     public function testACspWithoutSiteCspMergeIsAWarningAndOneThroughItIsOk(): void
     {
         $this->completeSite();

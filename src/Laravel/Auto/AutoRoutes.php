@@ -19,7 +19,7 @@ use Throwable;
  * The out of the box routes: `sitemap.xml`, `robots.txt`, `api/health` and the fallback route that serves Hub content.
  *
  * The site's own code always wins (plan decision D2), by construction:
- * - Registration runs in `$app->booted()`, after the site's route files are loaded. The exceptions are `api/health` and the legal paths:
+ * - Registration runs in `$app->booted()`, after the site's route files are loaded. The exceptions are `api/health`, `sitemap.xml`, `robots.txt` and the legal paths:
  *   they are registered early (in the provider's `boot()`, before any route file), so a site's root catch-all (`Route::get('{path}', ...)`
  *   in `routes/web.php`) cannot swallow them (a health check that answers with the site's 404 page kills the pod). A route file that
  *   registers the same method and URI later still replaces them (the router keys routes by method and URI), so the site wins an
@@ -82,6 +82,17 @@ final class AutoRoutes
         if (Auto::on('health')) {
             $router->get('api/health', HealthController::class)->name(self::HEALTH);
             $added = true;
+        }
+
+        // `sitemap.xml` and `robots.txt` too: a root catch-all of the site (`Route::get('{path}')->where('.*')`) must not swallow them either.
+        foreach ([
+            'sitemap' => ['sitemap.xml', SitemapController::class, self::SITEMAP],
+            'robots' => ['robots.txt', RobotsController::class, self::ROBOTS],
+        ] as $feature => [$uri, $action, $name]) {
+            if (Auto::on($feature)) {
+                $router->get($uri, $action)->name($name);
+                $added = true;
+            }
         }
 
         if (Auto::on('legal')) {
@@ -154,11 +165,30 @@ final class AutoRoutes
             $added = true;
         }
 
+        self::restrictToHosts($router);
+
         if ($added) {
             // Names are set after `add()`, so the lookups must be rebuilt for `route()` and `Route::has()`.
             $routes = $router->getRoutes();
             $routes->refreshNameLookups();
             $routes->refreshActionLookups();
+        }
+    }
+
+    /**
+     * With `content.auto.hosts` set, every route of this package (names `content.*`, controllers of the package) answers on those hosts only
+     * ({@see HostOnly}). Without it nothing changes. Runs before `route:cache`, so the middleware is part of the cache.
+     */
+    private static function restrictToHosts(Router $router): void
+    {
+        if (Auto::hosts() === []) {
+            return;
+        }
+
+        foreach ($router->getRoutes()->getRoutes() as $route) {
+            if (self::isPackageRoute($route) && ! in_array(HostOnly::class, (array) ($route->getAction('middleware') ?? []), true)) {
+                $route->middleware(HostOnly::class);
+            }
         }
     }
 

@@ -246,9 +246,10 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertSame('site:', $this->get('/')->getContent());
         self::assertSame('site:over-ons', $this->get('/over-ons')->getContent());
         self::assertSame('site:a/b', $this->get('/a/b')->getContent());
-        // The utility routes were registered (no identical URI), but the catch-all came first, so it answers them too: the site's order wins.
+        // `sitemap.xml` and `robots.txt` are registered early like `api/health`: a root catch-all does not swallow them.
         self::assertNotNull($this->named(AutoRoutes::SITEMAP));
-        self::assertSame('site:sitemap.xml', $this->get('/sitemap.xml')->getContent());
+        self::assertSame(['by' => 'sdk', 'uri' => 'sitemap.xml', 'action' => \FullStackStudio\Content\Laravel\Site\SitemapController::class], AutoRoutes::owner('GET', '/sitemap.xml'));
+        self::assertSame('sdk', AutoRoutes::owner('GET', '/robots.txt')['by']);
         self::assertSame(['by' => 'site', 'uri' => '{path}', 'action' => AutoRoutesTestSite::class], AutoRoutes::owner('GET', '/over-ons'));
     }
 

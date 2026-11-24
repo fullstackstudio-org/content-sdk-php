@@ -328,11 +328,15 @@ return [
      *   `articles.per_page`: page size of the article list.
      * - `middleware`: middleware of the content route and the legal paths. Default (null) is cookie free: no session, cookies or CSRF check
      *   on a plain Hub page (a page that renders a Hub form or a newsletter signup starts the session itself). `['web']` restores the old behaviour.
+     * - `hosts`: host patterns (`*` wildcard) the SDK's routes and the redirect middleware answer on; default `[]` = every host. For a site
+     *   that also serves an admin subdomain of its own: `['www.example.nl', 'example.nl']`.
      * - `proxy_headers`: forwarded headers the `platform` feature trusts from the proxies (default `['for', 'proto', 'port']`; add `host` only for
      *   a site that really needs `X-Forwarded-Host`, since a client can send it too). Ignored when the app set its own trusted proxies or headers.
      * - `legal_paths`: path => legal document kind. Replaces the default list as a whole when the app sets it.
      * - `sitemap.exclude`: path patterns (`*` wildcard) left out of the sitemap, for the site's own routes and for the Hub's entries alike.
      *   `sitemap.groups`: middleware or group names whose GET routes count as the site's own pages (default `['web']`, `'*'` = every route);
+     *   `sitemap.category_paths`: category slug => path prefix (`['nieuws' => '/nieuws', 'projecten' => '/projecten']`) for two sections on one Hub
+     *   article template: an article of such a category is announced under that prefix instead of the template's (reads the article list).
      *   `sitemap.extra`: invokable class (works with config:cache) that returns extra URLs (`['/product/a', ['path' => '/product/b', 'lastmod' => '...']]`);
      *   `Sitemap::extra(fn () => [...])` does the same from a provider.
      *   `sitemap.routes`: route names that are included whatever their middleware (for pages outside the `web` group).
@@ -355,6 +359,7 @@ return [
             'per_page' => 12,
         ],
         'middleware' => null,
+        'hosts' => [],
         'proxy_headers' => ['for', 'proto', 'port'],
         'legal' => (bool) env('FSC_AUTO_LEGAL', true),
         'sitemap' => [
@@ -363,6 +368,7 @@ return [
             'groups' => ['web'],
             'routes' => [],
             'extra' => null,
+            'category_paths' => [],
         ],
         'robots' => [
             'enabled' => (bool) env('FSC_AUTO_ROBOTS', true),

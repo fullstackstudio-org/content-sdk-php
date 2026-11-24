@@ -158,6 +158,8 @@ final class Sitemap
 
             $urls = app(Urls::class);
             $patterns = self::excludePatterns();
+            $categoryPaths = self::categoryPaths();
+            $articleSections = $categoryPaths === [] ? [] : self::articleSections($client, $urls, $categoryPaths);
             $origin = rtrim(is_string($hub['canonicalOrigin'] ?? null) && $hub['canonicalOrigin'] !== '' ? $hub['canonicalOrigin'] : url('/'), '/');
             $entries = [];
 
@@ -191,6 +193,11 @@ final class Sitemap
                 }
 
                 $locale = is_string($entry['locale'] ?? null) && $entry['locale'] !== '' ? $entry['locale'] : null;
+
+                // An article of a category with its own path (`sitemap.category_paths`) is announced under that path.
+                if (($entry['type'] ?? null) === 'article' && $articleSections !== []) {
+                    $path = self::sectionPath($path, (string) ($entry['slug'] ?? ''), $articleSections);
+                }
 
                 // Content in a language the project has not (or no longer) enabled is not served, so it is not announced either.
                 if ($locale !== null && ! in_array($locale, $urls->locales(), true)) {
@@ -246,6 +253,77 @@ final class Sitemap
         sort($paths);
 
         return $paths;
+    }
+
+    /** @return array<string, string> category slug => path prefix (`sitemap.category_paths`) */
+    private static function categoryPaths(): array
+    {
+        $map = [];
+
+        foreach ((array) Auto::option('sitemap', 'category_paths', []) as $slug => $prefix) {
+            if (is_string($slug) && $slug !== '' && is_string($prefix) && trim($prefix, '/') !== '') {
+                $map[$slug] = '/' . trim($prefix, '/');
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Article slug => `[article prefix, section prefix]` for every published article of a category that has its own path. The Hub's
+     * sitemap entries carry no category, so the article list is read (all pages, a failure means no rewriting). Needs an article path
+     * template without `{locale}`.
+     *
+     * @param array<string, string> $categoryPaths
+     * @return array{prefix: string, sections: array<string, string>}|array{}
+     */
+    private static function articleSections(ContentClient $client, Urls $urls, array $categoryPaths): array
+    {
+        try {
+            $template = $urls->articleTemplate();
+
+            if (str_contains($template, '{locale}') || preg_match('#^(/.+)/\{slug\}$#D', $template, $m) !== 1) {
+                return [];
+            }
+
+            $sections = [];
+
+            for ($page = 1; $page <= 50; $page++) {
+                $list = $client->listArticles(['status' => 'published', 'page' => $page, 'limit' => 100]);
+                $articles = is_array($list['articles'] ?? null) ? $list['articles'] : [];
+
+                foreach ($articles as $article) {
+                    foreach ((array) ($article['categories'] ?? []) as $category) {
+                        $slug = is_array($category) ? ($category['slug'] ?? null) : $category;
+
+                        if (is_string($slug) && isset($categoryPaths[$slug]) && is_string($article['slug'] ?? null)) {
+                            $sections[$article['slug']] ??= $categoryPaths[$slug];
+                        }
+                    }
+                }
+
+                if (count($articles) < 100) {
+                    break;
+                }
+            }
+
+            return $sections === [] ? [] : ['prefix' => $m[1], 'sections' => $sections];
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /** @param array{prefix?: string, sections?: array<string, string>} $sections */
+    private static function sectionPath(string $path, string $slug, array $sections): string
+    {
+        $section = $sections['sections'][$slug] ?? null;
+        $prefix = $sections['prefix'] ?? '';
+
+        if ($section === null || $prefix === '' || !str_starts_with($path, $prefix . '/')) {
+            return $path;
+        }
+
+        return $section . substr($path, strlen($prefix));
     }
 
     /** @return list<string> the `sitemap.exclude` patterns without surrounding slashes */

@@ -535,11 +535,17 @@ final class Doctor
             $this->add(self::FAIL, 'Webhookroute ontbreekt', 'FSC_WEBHOOK_ENABLED=false zet de route uit terwijl er een geheim is: haal die variabele weg (of roep Content::routes() aan), anders zie je wijzigingen pas na de cache-TTL.');
         }
 
-        $usesForms = $this->viewsContain('<x-content::form') || $this->viewsContain('<x-content::page-blocks');
+        // <x-content::form> certainly shows a form. <x-content::page-blocks> only might (when a page has a form block): a missing route is a
+        // failure only while the forms are not switched off on purpose (FSC_FORMS_ENABLED=false is how a site without SDK forms says so).
+        $usesForms = $this->viewsContain('<x-content::form');
+        $mayShowForms = $this->viewsContain('<x-content::page-blocks');
+        $formsOn = (bool) $this->config('content.forms.enabled', true);
         if ($routes->getByName('content.form') !== null) {
             $this->add(self::OK, 'Formulierroute POST /' . trim((string) $this->config('content.forms.path', 'content/forms'), '/') . '/{key} is geregistreerd');
-        } elseif ($usesForms) {
+        } elseif ($usesForms || ($mayShowForms && $formsOn)) {
             $this->add(self::FAIL, 'Een formulier wordt getoond (<x-content::form> of een form-blok) maar de formulierroute staat uit: het formulier geeft bij versturen een 404', 'Haal FSC_FORMS_ENABLED=false weg (de route staat standaard aan) of roep Content::formRoutes() aan.');
+        } elseif ($mayShowForms) {
+            $this->add(self::WARN, 'Formulierroute staat uit terwijl <x-content::page-blocks> een form-blok kan tonen', 'Heeft geen enkele pagina een form-blok, dan is dit goed. Anders: haal FSC_FORMS_ENABLED=false weg of roep Content::formRoutes() aan.');
         } else {
             $this->add(self::WARN, 'Formulierroute staat uit', 'Haal FSC_FORMS_ENABLED=false weg zodra de site een formulier krijgt (<x-content::form> of een form-blok).');
         }
@@ -753,10 +759,32 @@ final class Doctor
      */
     private function layouts(): array
     {
+        $ignore = array_values(array_filter((array) $this->config('content.doctor.ignore_views', []), 'is_string'));
+
         return array_filter(
             $this->views(),
-            static fn (string $contents, string $path): bool => stripos($contents, '</head>') !== false
-                && preg_match('~/(errors|mail|emails|vendor)/~', str_replace('\\', '/', $path)) !== 1,
+            function (string $contents, string $path) use ($ignore): bool {
+                if (stripos($contents, '</head>') === false) {
+                    return false;
+                }
+
+                $normal = str_replace('\\', '/', $path);
+
+                // Error pages, mail, vendor views and the common admin panel folders are not the site's public layouts.
+                if (preg_match('~/(errors|mail|emails|vendor|admin|filament|nova|backoffice|backend|beheer|dashboard|cms)/~i', $normal) === 1) {
+                    return false;
+                }
+
+                $relative = $this->relative($path);
+
+                foreach ($ignore as $pattern) {
+                    if (fnmatch($pattern, $relative) || fnmatch($pattern, $normal) || fnmatch('*/' . ltrim($pattern, '/'), $normal)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
             ARRAY_FILTER_USE_BOTH,
         );
     }
@@ -942,7 +970,13 @@ final class Doctor
         $needles = array_values(array_unique([$this->consentEvent(), 'fsc:consent']));
 
         foreach ($needles as $needle) {
-            if ($this->viewsContain($needle) || $this->siteScriptsContain($needle)) {
+            foreach ($this->views() as $contents) {
+                if (self::dispatches($contents, $needle)) {
+                    return true;
+                }
+            }
+
+            if ($this->siteScriptsDispatch($needle)) {
                 return true;
             }
         }
@@ -950,8 +984,24 @@ final class Doctor
         return false;
     }
 
-    /** Whether the site's own scripts (resources/js) mention a string. */
-    private function siteScriptsContain(string $needle): bool
+    /**
+     * Whether a source SENDS the consent event (a banner), as opposed to only listening for it (a GTM or analytics partial that reacts to
+     * the choice): the event is constructed (`new CustomEvent('x')`) or `dispatchEvent` is called in a file that names it.
+     */
+    private static function dispatches(string $contents, string $event): bool
+    {
+        if (! str_contains($contents, $event)) {
+            return false;
+        }
+
+        $name = preg_quote($event, '/');
+
+        return preg_match('/new\s+(?:Custom)?Event\s*\(\s*[\'"]' . $name . '[\'"]/', $contents) === 1
+            || (stripos($contents, 'dispatchEvent') !== false && preg_match('/addEventListener\s*\(\s*[\'"]' . $name . '[\'"]/', $contents) !== 1);
+    }
+
+    /** Whether a script of the site (resources/js) sends the consent event. */
+    private function siteScriptsDispatch(string $needle): bool
     {
         $dir = $this->app->resourcePath('js');
 
@@ -960,7 +1010,7 @@ final class Doctor
         }
 
         foreach (Finder::create()->files()->in($dir)->size('< 2M')->notPath(['build', 'vendor', 'node_modules']) as $file) {
-            if (str_contains((string) file_get_contents($file->getRealPath()), $needle)) {
+            if (self::dispatches((string) file_get_contents($file->getRealPath()), $needle)) {
                 return true;
             }
         }
@@ -1056,7 +1106,8 @@ final class Doctor
         }
 
         foreach ($this->serverConfigFiles() as $file) {
-            $contents = (string) file_get_contents($file);
+            // Comment lines (`# X-Frame-Options is set in PHP`) are not a header.
+            $contents = (string) preg_replace('/^[ \t]*(?:#|\/\/).*$/m', '', (string) file_get_contents($file));
 
             if (preg_match('/X-Frame-Options|frame-ancestors/i', $contents) === 1) {
                 $this->add(self::WARN, 'X-Frame-Options of frame-ancestors buiten PHP in ' . $this->relative($file), 'De webserver zet die header op elk antwoord, ook op het voorbeeld; dan kan het portaal de site niet tonen. Zet hem in PHP (middleware), de SDK past hem in het voorbeeld aan.');

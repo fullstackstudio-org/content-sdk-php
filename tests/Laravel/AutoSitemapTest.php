@@ -34,6 +34,9 @@ final class AutoSitemapTest extends LaravelTestCase
     /** @var array<string, mixed> */
     private array $seo = ['robotsIndex' => true];
 
+    /** @var list<array<string, mixed>> */
+    private array $articles = [];
+
     /** @var array<string, array{0: int, 1: array<string, mixed>}> API path => status and body, overrides the defaults */
     private array $failures = [];
 
@@ -99,6 +102,7 @@ final class AutoSitemapTest extends LaravelTestCase
         return match ($path) {
             '/sitemap' => FakeTransport::json($this->sitemap),
             '/seo' => FakeTransport::json(['seo' => $this->seo]),
+            '/articles' => FakeTransport::json(['articles' => $this->articles, 'total' => count($this->articles)], 200, ['X-Total-Count' => (string) count($this->articles)]),
             '/project' => FakeTransport::json(['defaultLocale' => 'nl', 'locales' => ['nl', 'en']]),
             default => FakeTransport::json(['error' => ['code' => 'not_found', 'message' => 'x']], 404),
         };
@@ -277,6 +281,30 @@ final class AutoSitemapTest extends LaravelTestCase
         $this->site();
 
         self::assertStringContainsString('Sitemap: http://localhost/sitemap.xml', $this->get('/robots.txt')->getContent());
+    }
+
+    public function testArticlesOfACategoryWithItsOwnPathAreAnnouncedUnderThatPath(): void
+    {
+        $this->seo = ['robotsIndex' => true, 'articlePathTemplate' => '/blog/{slug}'];
+        $this->articles = [
+            ['slug' => 'bericht', 'status' => 'published', 'categories' => [['slug' => 'nieuws', 'name' => 'Nieuws']]],
+            ['slug' => 'oplevering', 'status' => 'published', 'categories' => [['slug' => 'projecten']]],
+            ['slug' => 'los', 'status' => 'published', 'categories' => []],
+        ];
+        $this->sitemap['entries'] = [
+            ['path' => '/blog/bericht', 'locale' => 'nl', 'type' => 'article', 'slug' => 'bericht'],
+            ['path' => '/blog/oplevering', 'locale' => 'nl', 'type' => 'article', 'slug' => 'oplevering'],
+            ['path' => '/blog/los', 'locale' => 'nl', 'type' => 'article', 'slug' => 'los'],
+            ['path' => '/blog', 'locale' => 'nl', 'type' => 'page', 'slug' => 'blog'],
+        ];
+        $this->site(null, ['sitemap' => ['enabled' => true, 'category_paths' => ['nieuws' => '/nieuws', 'projecten' => 'projecten/']]]);
+
+        self::assertSame([
+            'https://klant.test/nieuws/bericht',
+            'https://klant.test/projecten/oplevering',
+            'https://klant.test/blog/los',
+            'https://klant.test/blog',
+        ], $this->locs($this->get('/sitemap.xml')->getContent()));
     }
 
     public function testTheOriginFallsBackToTheAppUrl(): void

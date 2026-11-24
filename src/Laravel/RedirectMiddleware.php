@@ -7,6 +7,7 @@ namespace FullStackStudio\Content\Laravel;
 use Closure;
 use FullStackStudio\Content\Cache\LaravelStore;
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\Auto\Auto;
 use FullStackStudio\Content\RedirectResolver;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Container\Container;
@@ -30,6 +31,11 @@ final class RedirectMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         if (!$request->isMethod('GET') && !$request->isMethod('HEAD')) {
+            return $next($request);
+        }
+
+        // `content.auto.hosts`: a site's other hosts (an admin subdomain) are none of the Hub's business.
+        if (!Auto::hostAllowed($request->getHost())) {
             return $next($request);
         }
 

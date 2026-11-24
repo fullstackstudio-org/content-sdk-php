@@ -170,4 +170,60 @@ final class WaveFixesTest extends FakeHubTestCase
         // The failure is remembered: the second page does not ask the dead Hub again.
         self::assertSame($firstCalls, count($this->http->requests));
     }
+
+    // --- JSON-LD, canonical without the Hub --------------------------------------------------------------------------------------
+
+    public function testArticleJsonLdCarriesDescriptionLanguageAndPublisher(): void
+    {
+        $ld = \FullStackStudio\Content\Seo::jsonLd('article', ['title' => 'Hallo', 'excerpt' => 'Kort', 'locale' => 'nl'], 'https://klant.nl/blog/hallo', 'https://klant.nl', null, ['name' => 'Jansen', 'url' => 'https://klant.nl', 'locale' => 'en']);
+        $data = json_decode(strip_tags($ld), true);
+
+        self::assertSame('Kort', $data['description']);
+        self::assertSame('nl', $data['inLanguage']);
+        self::assertSame(['@type' => 'Organization', 'name' => 'Jansen', 'url' => 'https://klant.nl'], $data['publisher']);
+    }
+
+    public function testJsonLdCanBeSwitchedOffPerPage(): void
+    {
+        $this->seo = ['canonicalOrigin' => 'https://klant.test', 'siteName' => 'Jansen', 'articlePathTemplate' => '/blog/{slug}'];
+        $this->article('hallo', 'nl', ['title' => 'Hallo', 'excerpt' => 'Kort']);
+        $article = ['slug' => 'hallo', 'title' => 'Hallo', 'excerpt' => 'Kort', 'locale' => 'nl'];
+
+        self::assertStringContainsString('application/ld+json', Blade::render('<x-content::head :article="$a" path="/blog/hallo" />', ['a' => $article]));
+        $this->app->forgetInstance(PageContext::class);
+        self::assertStringNotContainsString('application/ld+json', Blade::render('<x-content::head :article="$a" path="/blog/hallo" :json-ld="false" />', ['a' => $article]));
+    }
+
+    public function testTheCanonicalIsAbsoluteWhenTheHubIsDown(): void
+    {
+        $this->down = ['/seo'];
+        $this->app['config']->set('app.url', 'https://klant.test');
+
+        self::assertStringContainsString('<link rel="canonical" href="https://klant.test/over">', Blade::render('<x-content::head path="/over" />'));
+
+        $this->app->forgetInstance(PageContext::class);
+        \Illuminate\Support\Facades\Cache::put('fsc-seo:origin:v1', 'https://www.laatst-bekend.nl', 60);
+
+        self::assertStringContainsString('<link rel="canonical" href="https://www.laatst-bekend.nl/over">', Blade::render('<x-content::head path="/over" />'));
+    }
+
+    // --- hosts ---------------------------------------------------------------------------------------------------------------------
+
+    public function testTheSdkRoutesAnswerOnTheConfiguredHostsOnly(): void
+    {
+        $this->app['config']->set('content.auto.hosts', ['www.klant.nl']);
+        \FullStackStudio\Content\Laravel\Auto\AutoRoutes::registerRoutes($this->app);
+
+        $this->get('http://www.klant.nl/api/health')->assertOk();
+        $this->get('http://admin.klant.nl/api/health')->assertNotFound();
+    }
+
+    public function testTheRedirectMiddlewareSkipsOtherHosts(): void
+    {
+        $this->app['config']->set('content.auto.hosts', ['www.klant.nl']);
+        $this->app['router']->middleware(RedirectMiddleware::class)->get('/beheer', fn () => 'ok');
+
+        $this->get('http://admin.klant.nl/beheer')->assertOk();
+        self::assertSame([], array_filter($this->hubPaths(), static fn (string $p): bool => $p === '/redirects/resolve'));
+    }
 }

@@ -10,6 +10,7 @@ use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Seo;
 use Illuminate\View\Component;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -76,8 +77,50 @@ final class Meta extends Component
             'fallbackImage' => is_array($ogImage) && is_string($ogImage['url'] ?? null) ? $ogImage : null,
         ]);
 
+        $meta = self::absoluteCanonical($meta, $seo);
+
         if ($overrides !== []) {
             $meta = Seo::override($meta, $overrides, $client->baseUrl());
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Without the Hub's `canonicalOrigin` the canonical would be a bare path. Falls back to the last origin the Hub gave (remembered for 30
+     * days), else the app's own origin (APP_URL, else the request). A canonical the Hub made absolute is remembered, never changed.
+     *
+     * @param array<string, mixed> $meta
+     * @param array<string, mixed>|null $seo
+     * @return array<string, mixed>
+     */
+    private static function absoluteCanonical(array $meta, ?array $seo): array
+    {
+        $key = 'fsc-seo:origin:v1';
+        $origin = is_string($seo['canonicalOrigin'] ?? null) ? rtrim(trim($seo['canonicalOrigin']), '/') : '';
+
+        try {
+            if ($origin !== '') {
+                Cache::put($key, $origin, 2_592_000);
+
+                return $meta;
+            }
+
+            $canonical = $meta['canonical'] ?? null;
+
+            if (! is_string($canonical) || ! str_starts_with($canonical, '/')) {
+                return $meta;
+            }
+
+            $known = Cache::get($key);
+            $base = is_string($known) && $known !== '' ? $known : rtrim((string) (config('app.url') ?: url('/')), '/');
+            $meta['canonical'] = $base . $canonical;
+
+            if (isset($meta['openGraph']['url']) && is_string($meta['openGraph']['url']) && str_starts_with($meta['openGraph']['url'], '/')) {
+                $meta['openGraph']['url'] = $base . $meta['openGraph']['url'];
+            }
+        } catch (Throwable) {
+            // No cache or no request: the meta stays as it was.
         }
 
         return $meta;

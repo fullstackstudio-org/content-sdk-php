@@ -212,10 +212,14 @@ final class Seo
      * Schema.org JSON-LD for an article or an event, as a complete `<script type="application/ld+json">` tag, or '' when the resource has no
      * usable title. Only fields that exist are printed. `$url` is the absolute canonical URL (`mainEntityOfPage` for articles, `url` for events).
      *
+     * An article also carries `description` (`seoDescription`, else `excerpt`), `inLanguage` (the resource's `locale`, else `$site['locale']`) and
+     * a `publisher` Organization when `$site['name']` is known (`$site['url']` is its URL).
+     *
      * @param 'article'|'event' $type
      * @param array<string, mixed> $resource
+     * @param array{name?: ?string, url?: ?string, locale?: ?string} $site
      */
-    public static function jsonLd(string $type, array $resource, ?string $url = null, string $baseUrl = ClientOptions::DEFAULT_BASE_URL, ?string $nonce = null): string
+    public static function jsonLd(string $type, array $resource, ?string $url = null, string $baseUrl = ClientOptions::DEFAULT_BASE_URL, ?string $nonce = null, array $site = []): string
     {
         $title = self::filled($resource['title'] ?? null);
 
@@ -232,10 +236,15 @@ final class Seo
                 '@context' => 'https://schema.org',
                 '@type' => 'Article',
                 'headline' => $title,
+                'description' => self::filled($resource['seoDescription'] ?? null) ?? self::filled($resource['excerpt'] ?? null),
+                'inLanguage' => self::filled($resource['locale'] ?? null) ?? self::filled($site['locale'] ?? null),
                 'datePublished' => self::filled($resource['publishedAt'] ?? null),
                 'dateModified' => self::filled($resource['updatedAt'] ?? null),
                 'author' => $author !== null ? ['@type' => 'Person', 'name' => $author] : null,
                 'image' => $image,
+                'publisher' => self::filled($site['name'] ?? null) !== null
+                    ? self::clean(['@type' => 'Organization', 'name' => $site['name'], 'url' => self::filled($site['url'] ?? null)])
+                    : null,
                 'mainEntityOfPage' => $url !== null && $url !== '' ? ['@type' => 'WebPage', '@id' => $url] : null,
             ];
         } else {
