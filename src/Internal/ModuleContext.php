@@ -44,6 +44,9 @@ final class ModuleContext
     private readonly ?string $configuredIp;
     private readonly bool $serverToken;
 
+    /** @var (\Closure(array<string, mixed>): ?string)|null the client's content language resolver, see useLocale() */
+    private ?\Closure $localeResolver = null;
+
     public function __construct(private readonly ClientOptions $options)
     {
         $token = trim($options->token);
@@ -64,6 +67,55 @@ final class ModuleContext
         } else {
             throw new ContentException(0, 'invalid_config', 'ext-curl is not available: pass a `transport` option.');
         }
+    }
+
+    /**
+     * Lets the owning client tell the modules which content language a call speaks (set once by the client's constructor). The closure gets
+     * the call options and returns the language to send, or null to send nothing (single-language project, language not enabled, none set).
+     *
+     * @param \Closure(array<string, mixed>): ?string $resolver
+     */
+    public function useLocale(\Closure $resolver): void
+    {
+        $this->localeResolver = $resolver;
+    }
+
+    /**
+     * The `locale` of a read call: the call's own `$options['locale']`, else the client's content language on a multilingual project, else
+     * null. Null is dropped from the query, so a single-language request (and its cache key) stays exactly what it was.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function localeQuery(array $options = []): ?string
+    {
+        if ($this->localeResolver !== null) {
+            return ($this->localeResolver)($options);
+        }
+
+        $explicit = $options['locale'] ?? null;
+
+        return is_string($explicit) && trim($explicit) !== '' ? trim($explicit) : null;
+    }
+
+    /**
+     * Adds the visitor's language to the body of a write call: a `locale` the caller put in the input wins, then `$options['locale']`, then
+     * the client's content language (multilingual project only). Nothing is added otherwise, so the body of a single-language request is
+     * byte-identical. The Hub stores it and writes every later mail to that visitor in it.
+     *
+     * @param array<string, mixed> $body
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function bodyWithLocale(array $body, array $options = []): array
+    {
+        if (isset($body['locale']) && $body['locale'] !== '') {
+            return $body;
+        }
+
+        unset($body['locale']);
+        $locale = $this->localeQuery($options);
+
+        return $locale === null ? $body : [...$body, 'locale' => $locale];
     }
 
     /** The token is a server token (`fsc_srv_...`). */

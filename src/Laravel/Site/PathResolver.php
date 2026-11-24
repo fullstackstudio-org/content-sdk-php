@@ -33,7 +33,7 @@ final class PathResolver
 
     /** The public event fields, as the Hub's `EventRules::toPublicEventView()` plus `registrationUrl` (what a pub token gets). */
     private const EVENT_FIELDS = ['id', 'slug', 'title', 'summary', 'descriptionHtml', 'location', 'startsAt', 'endsAt', 'available', 'salesStartAt',
-        'salesEndAt', 'maxPerRegistration', 'currency', 'salesState', 'ticketTypes', 'coverMediaId', 'cover', 'registrationUrl'];
+        'salesEndAt', 'maxPerRegistration', 'currency', 'salesState', 'ticketTypes', 'coverMediaId', 'cover', 'registrationUrl', 'locale', 'availableLocales'];
 
     /** The public fields of an active ticket type. */
     private const TICKET_FIELDS = ['id', 'name', 'description', 'priceCents', 'available'];
@@ -81,8 +81,10 @@ final class PathResolver
         $eventTemplate = $this->urls->eventTemplate();
         $eventRoot = $eventTemplate !== null && self::rootLevel($eventTemplate);
 
-        if ($eventTemplate !== null && ! $eventRoot && ($match = self::match($eventTemplate, $rest, ['slug' => Urls::SEGMENT, 'id' => Urls::SEGMENT])) !== null) {
-            return $this->event($match['slug'] ?? $match['id'], $rest, $locale);
+        $eventHaystack = $eventTemplate !== null && str_contains($eventTemplate, '{locale}') ? $path : $rest;
+
+        if ($eventTemplate !== null && ! $eventRoot && ($match = $this->templateMatch($eventTemplate, $eventHaystack, ['slug' => Urls::SEGMENT, 'id' => Urls::SEGMENT])) !== null) {
+            return $this->event($match['slug'] ?? $match['id'], $eventHaystack, $this->templateLocale($match, $locale));
         }
 
         // Step 4
@@ -144,8 +146,8 @@ final class PathResolver
             }
         }
 
-        if ($eventRoot && ($match = self::match($eventTemplate, $rest, ['slug' => Urls::SEGMENT, 'id' => Urls::SEGMENT])) !== null) {
-            return $this->event($match['slug'] ?? $match['id'], $rest, $locale);
+        if ($eventRoot && ($match = $this->templateMatch($eventTemplate, $eventHaystack, ['slug' => Urls::SEGMENT, 'id' => Urls::SEGMENT])) !== null) {
+            return $this->event($match['slug'] ?? $match['id'], $eventHaystack, $this->templateLocale($match, $locale));
         }
 
         return null;
@@ -153,7 +155,9 @@ final class PathResolver
 
     private function event(string $ref, string $path, string $locale): ?Resolved
     {
-        $event = Hub::call(fn (): array => $this->client->events->get($ref, ['cache' => true]));
+        // A `{locale}` template names the language of the event link: read the event in it.
+        $client = $locale === $this->client->locale() ? $this->client : $this->client->withLocale($locale);
+        $event = Hub::call(fn (): array => $client->events->get($ref, ['cache' => true]));
 
         if (! is_array($event) || $event === [] || ($event['status'] ?? 'published') === 'draft') {
             return null;

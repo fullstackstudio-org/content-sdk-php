@@ -7,6 +7,7 @@ namespace FullStackStudio\Content\Laravel;
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\ContentException;
 use FullStackStudio\Content\Laravel\Preview\Preview;
+use FullStackStudio\Content\Laravel\Site\Urls;
 use FullStackStudio\Content\StrictHtml;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
@@ -143,14 +144,14 @@ final class ModuleBlockData
                 $href = $serviceId !== null ? $site . (str_contains($site, '?') ? '&' : '?') . 'service=' . rawurlencode($serviceId) : $site;
             }
 
-            return ['href' => $href];
+            return ['href' => self::siteLink($href)];
         }
 
         if ($hubPage === null) {
             return null;
         }
 
-        return ['href' => $serviceId !== null ? rtrim($hubPage, '/') . '/' . rawurlencode($serviceId) : $hubPage];
+        return ['href' => self::visitorLink($serviceId !== null ? rtrim($hubPage, '/') . '/' . rawurlencode($serviceId) : $hubPage)];
     }
 
     /**
@@ -264,7 +265,7 @@ final class ModuleBlockData
      * off and no `Content::newsletterRoutes()`), so the block never shows a form that cannot be sent.
      *
      * @param array<string, mixed> $block
-     * @return array{action: string, anchor: string, key: string, list: string, flash: ?array<string, mixed>, preview: bool}|null
+     * @return array{action: string, anchor: string, key: string, list: string, flash: ?array<string, mixed>, preview: bool, locale: string}|null
      */
     public static function newsletterSignup(array $block, int $index): ?array
     {
@@ -291,7 +292,28 @@ final class ModuleBlockData
             'list' => $listId === '' ? '' : Crypt::encryptString($listId),
             'flash' => is_array($flash) ? $flash : null,
             'preview' => Preview::isActive(),
+            'locale' => self::signupLocale(),
         ];
+    }
+
+    /** The language the signup form tells its route: only on a multilingual project and only an enabled language; '' otherwise (no field). */
+    private static function signupLocale(): string
+    {
+        try {
+            $client = app(ContentClient::class);
+            $locale = $client->locale();
+
+            // No language set (a single-language project never has one in practice): no Hub call at all.
+            if ($locale === null) {
+                return '';
+            }
+
+            $enabled = $client->enabledLocales();
+
+            return count($enabled) >= 2 && in_array($locale, $enabled, true) ? $locale : '';
+        } catch (Throwable) {
+            return '';
+        }
     }
 
     /** The key a block's flash message and anchor use: its id when it is a plain token, else its index. */
@@ -351,7 +373,7 @@ final class ModuleBlockData
         $state = is_string($event['salesState'] ?? null) ? $event['salesState'] : 'open';
         $starts = is_string($event['startsAt'] ?? null) ? $event['startsAt'] : null;
         $template = self::template('event');
-        $hub = is_string($event['registrationUrl'] ?? null) && preg_match(self::HUB_URL, $event['registrationUrl']) === 1 ? $event['registrationUrl'] : null;
+        $hub = is_string($event['registrationUrl'] ?? null) && preg_match(self::HUB_URL, $event['registrationUrl']) === 1 ? self::visitorLink($event['registrationUrl']) : null;
         $id = is_string($event['id'] ?? null) ? $event['id'] : '';
 
         return [
@@ -361,7 +383,7 @@ final class ModuleBlockData
             'time' => self::time($starts, is_string($event['endsAt'] ?? null) ? $event['endsAt'] : null),
             'location' => is_string($event['location'] ?? null) ? $event['location'] : '',
             'price' => self::eventPrice($event),
-            'href' => $template !== null ? str_replace(['{slug}', '{id}'], [rawurlencode($slug), rawurlencode($id)], $template) : $hub,
+            'href' => $template !== null ? self::siteEventPath($template, $slug, $id) : $hub,
             'external' => $template === null && $hub !== null,
             'state' => $state,
             'summary' => is_string($event['summary'] ?? null) ? $event['summary'] : '',
@@ -451,6 +473,54 @@ final class ModuleBlockData
      * A same-site link template from `content.links.<name>`, or null when it is not set or not a plain path (a full URL or `//host` is refused,
      * so a typo can never send visitors to another site).
      */
+    /** The visitor's language for links: the client's content language on a multilingual project, else null. */
+    private static function linkLocale(): ?string
+    {
+        try {
+            return app(ContentClient::class)->locale();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /** A Hub hosted visitor page in the visitor's language (`?lang=` for a non-default enabled language; unchanged otherwise). */
+    private static function visitorLink(string $url): string
+    {
+        try {
+            return app(Urls::class)->visitorLink($url, self::linkLocale());
+        } catch (Throwable) {
+            return $url;
+        }
+    }
+
+    /** A same-site path in the visitor's language (the locale prefix of a non-default enabled language; unchanged otherwise). */
+    private static function siteLink(string $path): string
+    {
+        try {
+            return app(Urls::class)->localize($path, self::linkLocale());
+        } catch (Throwable) {
+            return $path;
+        }
+    }
+
+    /** The site's own event link of `content.links.event`; `{locale}` is the visitor's language (default language when none). */
+    private static function siteEventPath(string $template, string $slug, string $id): string
+    {
+        $locale = self::linkLocale();
+
+        if (str_contains($template, '{locale}')) {
+            try {
+                $locale = app(Urls::class)->prefixes($locale) ? $locale : app(Urls::class)->defaultLocale();
+            } catch (Throwable) {
+                $locale = $locale ?? 'nl';
+            }
+
+            return str_replace(['{slug}', '{id}', '{locale}'], [rawurlencode($slug), rawurlencode($id), rawurlencode((string) $locale)], $template);
+        }
+
+        return self::siteLink(str_replace(['{slug}', '{id}'], [rawurlencode($slug), rawurlencode($id)], $template));
+    }
+
     private static function template(string $name): ?string
     {
         $value = config('content.links.' . $name);

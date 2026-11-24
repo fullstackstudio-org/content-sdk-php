@@ -176,14 +176,16 @@ final class Members
 
     /**
      * Always `['accepted' => true]`, also for an existing address; never a session. With `verificationRequired` the member must confirm the mail first.
+     * The visitor's language goes along as `locale` (an own `$input['locale']` wins, else the client's content language on a multilingual
+     * project): the verification mail and every later mail to this member speak it.
      *
-     * @param array{email: string, password: string, name?: string} $input
-     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * @param array{email: string, password: string, name?: string, locale?: string} $input
+     * @param array{clientIp?: string, timeoutMs?: int, locale?: string} $options
      * @return array<string, mixed>
      */
     public function register(array $input, array $options = []): array
     {
-        return $this->call('POST', '/members/register', Arr::pick($input, ['email', 'password', 'name']), null, $options);
+        return $this->call('POST', '/members/register', $this->ctx->bodyWithLocale(Arr::pick($input, ['email', 'password', 'name', 'locale']), $options), null, $options);
     }
 
     /**

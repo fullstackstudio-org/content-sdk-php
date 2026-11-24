@@ -13,16 +13,21 @@ final class NewsletterLists
     {
     }
 
-    /** @param array<string, mixed> $options @return array{lists: list<array<string, mixed>>, total: int} */
+    /**
+     * With a content language (the client's, or `$options['locale']`) `name` and `description` come in that language and each list has
+     * `locale` and `availableLocales`.
+     *
+     * @param array<string, mixed> $options @return array{lists: list<array<string, mixed>>, total: int}
+     */
     public function list(array $options = []): array
     {
-        return $this->ctx->execute(['path' => '/newsletter/lists', 'options' => $options])->data;
+        return $this->ctx->execute(['path' => '/newsletter/lists', 'query' => ['locale' => $this->ctx->localeQuery($options)], 'options' => $options])->data;
     }
 
     /** @param array<string, mixed> $options @return array<string, mixed> */
     public function get(string $id, array $options = []): array
     {
-        return $this->ctx->execute(['path' => '/newsletter/lists/' . ModuleContext::seg($id), 'options' => $options])->data['list'] ?? [];
+        return $this->ctx->execute(['path' => '/newsletter/lists/' . ModuleContext::seg($id), 'query' => ['locale' => $this->ctx->localeQuery($options)], 'options' => $options])->data['list'] ?? [];
     }
 
     /** @param array<string, mixed> $input @param array<string, mixed> $options @return array<string, mixed> */

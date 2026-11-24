@@ -219,6 +219,29 @@ final class HeadScriptsTest extends LaravelTestCase
         self::assertStringNotContainsString('</script> ', $m[1]);
     }
 
+    public function testAnEventPageGetsHreflangFromItsAvailableLocales(): void
+    {
+        config(['content.links.event' => '/agenda/{slug}']);
+        $this->app->forgetScopedInstances();
+        app(PageContext::class)->resolve(new Resolved('event', ['title' => 'Open dag', 'slug' => 'open-dag', 'locale' => 'nl', 'availableLocales' => ['nl', 'en'], 'startsAt' => '2026-12-01T09:00:00Z'], '/agenda/open-dag', 'nl'));
+
+        $html = Blade::render('<x-content::head />');
+
+        self::assertStringContainsString('<link rel="alternate" hreflang="nl" href="https://www.jansen.nl/agenda/open-dag">', $html);
+        self::assertStringContainsString('<link rel="alternate" hreflang="en" href="https://www.jansen.nl/en/agenda/open-dag">', $html);
+        self::assertStringContainsString('<link rel="alternate" hreflang="x-default" href="https://www.jansen.nl/agenda/open-dag">', $html);
+        self::assertSame(3, substr_count($html, 'rel="alternate"'));
+    }
+
+    public function testAnEventPageInOneLanguageOnlyHasNoHreflang(): void
+    {
+        config(['content.links.event' => '/agenda/{slug}']);
+        $this->app->forgetScopedInstances();
+        app(PageContext::class)->resolve(new Resolved('event', ['title' => 'Open dag', 'slug' => 'open-dag', 'locale' => 'nl', 'availableLocales' => ['nl'], 'startsAt' => '2026-12-01T09:00:00Z'], '/agenda/open-dag', 'nl'));
+
+        self::assertStringNotContainsString('hreflang', Blade::render('<x-content::head />'));
+    }
+
     public function testHreflangHasSelfTranslationsAndXDefault(): void
     {
         $page = ['title' => 'Over ons', 'slug' => 'over-ons', 'locale' => 'nl', 'translations' => [
