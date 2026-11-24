@@ -137,6 +137,31 @@ final class SiteComponentsTest extends LaravelTestCase
         $this->assertNothingAboveDebugWasLogged();
     }
 
+    public function testTheEmptyShapeIsRememberedAndLoggedOncePerCooldown(): void
+    {
+        Log::spy();
+        $this->routes['/site'] = FakeTransport::json(SiteTest::emptyShape());
+        $head = '<style>@layer fsc-rich;</style>';
+
+        self::assertSame($head, Blade::render('<x-content::head />'));
+        // A new request scope that bypasses the client cache, so only the pause can prevent a second Hub call.
+        $this->newRequest();
+        config(['content.cache.enabled' => false]);
+        $this->app->forgetInstance(ContentClient::class);
+        self::assertSame($head, Blade::render('<x-content::head />'));
+        self::assertSame('', Blade::render('<x-content::body-end />'));
+
+        self::assertCount(1, $this->calls('/site'), 'the empty answer pauses lookups like module-off');
+        Log::shouldHaveReceived('log')->once()->withArgs(static fn (string $level): bool => $level === 'debug');
+        $this->assertNothingAboveDebugWasLogged();
+
+        // A site that gets configured is picked up once the pause ends (here: cleared, as the webhook does).
+        SiteSettings::forgetPause();
+        $this->newRequest();
+        $this->routes['/site'] = FakeTransport::json(SiteTest::contract());
+        self::assertStringContainsString('google-site-verification', Blade::render('<x-content::head />'));
+    }
+
     public function testModuleDisabledFromAnOlderServerRendersNothingAndPauses(): void
     {
         Log::spy();

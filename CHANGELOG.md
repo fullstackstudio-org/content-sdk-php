@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.32.1 (2026-11-24)
+
+Patch release. A Hub that answers the site standards with an empty site (module off or nothing configured) made the SDK ask the Hub again on
+every page view and log a debug line every time.
+
+- **`SiteSettings`**: an empty answer now pauses lookups like the module-off answer does, for `content.site.module_off_cooldown_seconds`
+  (default 60). During the pause the stored empty answer is served, so the rendered output is identical, and the debug line is logged once per
+  cooldown window instead of once per request. A site that becomes configured is picked up after the cooldown, or at once on the webhook event
+  `site.updated`, which also clears the pause.
+
 ## 0.32.0 (2026-11-24)
 
 ### Upgrading from 0.28 to 0.32

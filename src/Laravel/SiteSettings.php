@@ -19,7 +19,8 @@ use Throwable;
  * The answer itself is cached by the client under the tag `content:site` (cleared by the webhook event `site.updated`). On top of that:
  * - A failure (Content down, timeout, missing scope) never throws: the last good answer is used when there is one, otherwise nothing.
  *   It is logged once as a warning and lookups pause for `content.site.failure_cooldown_seconds`, so an outage never slows pages down.
- * - The module being off (empty shape, or 404 `module_disabled` from an older server) is normal: logged at debug level only.
+ * - The module being off (empty shape, or 404 `module_disabled` from an older server) is normal: logged at debug level only, once per
+ *   `content.site.module_off_cooldown_seconds`, during which no lookups are made. The webhook event `site.updated` ends that pause.
  */
 final class SiteSettings
 {
@@ -130,15 +131,18 @@ final class SiteSettings
             return $this->site = $this->failed($error);
         }
 
-        if (($site['version'] ?? '') === '') {
-            $this->log('debug', 'Content site standards are empty for this project (module off or nothing configured).');
-        }
-
         // Written only when it differs (version), so a normal page view does not write to the cache.
         $stored = $this->lastGood();
 
         if ($stored === null || ($stored['version'] ?? null) !== ($site['version'] ?? null)) {
             $this->safePut(self::LAST_GOOD_KEY, $site, 604_800);
+        }
+
+        // An empty answer (module off or nothing configured) pauses like module-off: the paused path above serves the stored empty
+        // answer, so rendering is identical, and the debug line is logged once per cooldown window instead of once per request.
+        if (($site['version'] ?? '') === '') {
+            $this->log('debug', 'Content site standards are empty for this project (module off or nothing configured).');
+            $this->safePut(self::PAUSE_KEY, 1, max(1, (int) $this->config->get('content.site.module_off_cooldown_seconds', 60)));
         }
 
         return $this->site = $site;
