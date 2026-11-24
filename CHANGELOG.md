@@ -2,6 +2,10 @@
 
 ## 0.32.0 (not yet tagged)
 
+- Page builder v2, found on the real stack (task 20). Three fixes in `preview.js`, all only in a portal preview:
+  - The layouts a block supports were never read: the markup prints `data-fsc-layouts` comma separated (`overlay,image-right,image-left`) and the script split on white space, so every block reported no layouts and the portal hid the layout choice for default views. It now accepts commas and white space (the test fixture had used a space, which hid it).
+  - An inline `<style>` between the blocks (`blocks.css`) is no longer swapped for a copy on every refresh when the answer carries a new CSP nonce. The Hub fallback (nonce CSP, new nonce per answer) lost all block CSS after the first edit; a changed inline style now gets the page's own nonce. Signatures are compared without `nonce`.
+  - The hover message to the portal goes out at once when nothing was sent in the last 60 ms (leading edge), then at most every 60 ms with the latest value; the outline row in the portal followed the pointer 60 ms late.
 Payments as a global module, step 3.2 (plan payments-global). A minor bump: only new methods and new optional arguments; every existing signature and behaviour is unchanged. `ContentClient::VERSION` moves to `0.32.0` when this is tagged; it is not published or tagged before the Hub batch that serves the routes is released. Needs a Hub with `GET /api/v1/payments/methods` and the `method` parameter on the start routes; an older Hub answers 404 on `methods()` and rejects `method` with 400, so only use them after the Hub is updated.
 
 - **`payments->methods()`**: `[{id, label}]`, the payment methods the project can offer now (the union of its active payment connections; the provider is not named). Never cached. Show the labels to the buyer, send the chosen `id` back as `method`.

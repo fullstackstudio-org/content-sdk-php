@@ -402,7 +402,7 @@
                 index: parseInt(node.getAttribute('data-fsc-block-index'), 10) || 0,
                 type: node.getAttribute('data-fsc-block-type') || '',
                 default: node.getAttribute('data-fsc-block-default') === '1',
-                layouts: String(node.getAttribute('data-fsc-layouts') || '').split(/\s+/).filter(function (key) { return /^[a-z0-9-]{1,40}$/i.test(key); }),
+                layouts: String(node.getAttribute('data-fsc-layouts') || '').split(/[\s,]+/).filter(function (key) { return /^[a-z0-9-]{1,40}$/i.test(key); }),
                 editable: editable,
                 top: box ? Math.round(box.top + (w.scrollY || 0)) : 0,
                 height: box ? Math.round(box.bottom - box.top) : 0,
@@ -471,8 +471,10 @@
         post('select', message);
     }
 
+    /** Tells the portal which block is hovered: at once when nothing was sent in the last 60 ms, else once more at the end of that window (the latest value). */
     function postHover() {
         if (hoverTimer) { return; }
+        if (hoveredId !== hoverSent) { hoverSent = hoveredId; post('hover', { blockId: hoveredId }); }
         hoverTimer = setTimeout(function () {
             hoverTimer = null;
             if (hoveredId !== hoverSent) { hoverSent = hoveredId; post('hover', { blockId: hoveredId }); }
@@ -919,11 +921,28 @@
 
     /* Keyed swap and moves (AD7 rules 3 and 4) */
 
-    var signature = function (node) { return typeof node.__fscSig === 'string' ? node.__fscSig : node.outerHTML; };
+    // A site (the Hub fallback does) may answer with a CSP nonce that changes with every response, and the browser hides the nonce of the nodes that
+    // are in the page: compare without it, or an unchanged inline <style> looks changed, is swapped for a copy that carries the wrong nonce and the
+    // blocks lose their CSS (found on the real stack, plan page-builder-v2 Task 20).
+    var plain = function (html) { return String(html).replace(/\snonce="[^"]*"/g, ''); };
+    var signature = function (node) { return plain(typeof node.__fscSig === 'string' ? node.__fscSig : node.outerHTML); };
+
+    /** The nonce the page itself runs with (the `nonce` property survives where the attribute is hidden), or ''. */
+    function pageNonce() {
+        var holder = d.querySelectorAll('style[nonce]')[0] || d.querySelectorAll('script[nonce]')[0];
+        return holder && typeof holder.nonce === 'string' ? holder.nonce : '';
+    }
 
     function adopt(fresh) {
         var node = d.importNode(fresh, true);
         node.__fscSig = fresh.outerHTML;
+        var nonce = pageNonce();
+        if (nonce !== '') {
+            // A changed inline style carries the nonce of the answer it came from, which the page's CSP does not know: give it the page's own.
+            var styles = list(node.querySelectorAll ? node.querySelectorAll('style[nonce]') : []);
+            if (node.tagName === 'STYLE' && node.getAttribute('nonce') !== null) { styles.push(node); }
+            styles.forEach(function (style) { style.nonce = nonce; });
+        }
         return node;
     }
 
@@ -961,12 +980,12 @@
             var id = next.getAttribute('data-fsc-block');
             var old = id !== null ? oldBlocks[id] : null;
             if (id === null) {
-                for (var i = 0; i < oldOther.length; i++) { if (signature(oldOther[i]) === next.outerHTML) { return oldOther.splice(i, 1)[0]; } }
+                for (var i = 0; i < oldOther.length; i++) { if (signature(oldOther[i]) === plain(next.outerHTML)) { return oldOther.splice(i, 1)[0]; } }
                 return adopt(next);
             }
             if (!old) { return adopt(next); }
             delete oldBlocks[id];
-            if (signature(old) === next.outerHTML) { delete held[id]; return old; }
+            if (signature(old) === plain(next.outerHTML)) { delete held[id]; return old; }
             if (editing && editing.id === id) { held[id] = { node: adopt(next), ack: ack }; return old; }
             if ((needAck[id] || 0) > ack) { return old; }
             delete needAck[id];

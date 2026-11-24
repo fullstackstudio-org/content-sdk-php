@@ -108,7 +108,7 @@ function block(id, i, { text = 'Kop ' + id, top = 100 + i * 200, type = 'hero' }
     const rich = el('div', { 'data-fsc-edit': 'html', 'data-fsc-edit-kind': 'rich' }, [txt('Rijke tekst')]);
     const section = el('section', { class: 'fsc-block' }, [heading, rich, el('a', { href: '/x' })]);
     section.rect = { left: 40, top, width: 800, height: 180 };
-    return el('div', { 'data-fsc-block': id, 'data-fsc-block-index': String(i), 'data-fsc-block-type': type, 'data-fsc-block-default': '1', 'data-fsc-layouts': 'standard image-right' }, [section]);
+    return el('div', { 'data-fsc-block': id, 'data-fsc-block-index': String(i), 'data-fsc-block-type': type, 'data-fsc-block-default': '1', 'data-fsc-layouts': 'standard,image-right' }, [section]);
 }
 
 /** A page with one blocks root holding the given block ids (or [id, options] pairs). */
@@ -614,18 +614,22 @@ describe('selection, hover and insert (protocol 2)', () => {
         t.init();
 
         const hovers = () => t.sent.filter((s) => s.message.type === 'hover').map((s) => s.message.blockId);
+        // The first change goes out at once (the outline row in the portal follows the pointer without a wait), later ones at most every 60 ms.
         t.fire('mousemove', heading(t.blocks, 0), { clientX: 100, clientY: 150 });
-        t.clock.tick(60);
-        t.fire('mousemove', heading(t.blocks, 1), { clientX: 100, clientY: 350 });
-        t.fire('mousemove', heading(t.blocks, 0), { clientX: 100, clientY: 150 });
-        t.fire('mousemove', heading(t.blocks, 1), { clientX: 100, clientY: 350 });
         expect(hovers()).toEqual(['b1']);
         t.clock.tick(60);
+        t.fire('mousemove', heading(t.blocks, 1), { clientX: 100, clientY: 350 });
         expect(hovers()).toEqual(['b1', 'b2']);
+        t.fire('mousemove', heading(t.blocks, 0), { clientX: 100, clientY: 150 });
+        t.fire('mousemove', heading(t.blocks, 1), { clientX: 100, clientY: 350 });
+        t.fire('mousemove', heading(t.blocks, 0), { clientX: 100, clientY: 150 });
+        expect(hovers()).toEqual(['b1', 'b2']);
+        t.clock.tick(60);
+        expect(hovers()).toEqual(['b1', 'b2', 'b1']);
         expect(uiOf(t.root).hov.style.display).toBe('block');
         t.fire('mouseout', t.doc.body, { relatedTarget: null });
         t.clock.tick(60);
-        expect(hovers()).toEqual(['b1', 'b2', null]);
+        expect(hovers()).toEqual(['b1', 'b2', 'b1', null]);
         expect(uiOf(t.root).hov.style.display).toBe('none');
 
         const before = t.sent.length;
@@ -1110,6 +1114,30 @@ describe('keyed swap, ack and reload (protocol 2, AD7)', () => {
         expect(t.doc.activeElement).toBe(t.field);
         expect(t.field.getAttribute('contenteditable')).toBe('plaintext-only');
         expect(strip(last(t.sent, 'rendered'))).toEqual({ type: 'rendered', version: 9, timing: { fetch: 0, server: null, swap: 0 } });
+    });
+
+    it('keeps an unchanged inline <style> between blocks although every answer carries a new CSP nonce, and gives a changed one the page nonce', async () => {
+        const t = run();
+        t.init();
+        const old = el('style', { nonce: '' }, [txt('.fsc-block{margin:0}')]);
+        old.nonce = 'page-nonce';
+        t.blocks.insertBefore(old, t.blocks.children[0]);
+        const same = page(['b1', 'b2'], 9);
+        same.blocks.insertBefore(el('style', { nonce: 'answer-1' }, [txt('.fsc-block{margin:0}')]), same.blocks.children[0]);
+
+        await refresh(t, same, 0);
+
+        expect(t.blocks.children[0]).toBe(old);
+        expect(t.blocks.children).toHaveLength(3);
+
+        const changed = page(['b1', 'b2'], 10);
+        const style = el('style', { nonce: 'answer-2' }, [txt('.fsc-block{margin:1px}')]);
+        changed.blocks.insertBefore(style, changed.blocks.children[0]);
+
+        await refresh(t, changed, 0);
+
+        expect(t.blocks.children[0]).toBe(style);
+        expect(style.nonce).toBe('page-nonce');
     });
 
     it('an unchanged block is not touched', async () => {
