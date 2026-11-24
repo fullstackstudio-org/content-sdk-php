@@ -709,15 +709,17 @@ Everything else is a switch: `FSC_AUTO=false` turns the whole layer off, `FSC_AU
 ## Bestaande site omzetten
 
 A site that was hand-built before 0.30 does not have to change anything to run on a newer package: three stages, each reversible. Stage 1 first.
+Proven on the pilot `hanami4you.nl` (root catch-all, events and articles at `/{slug}/`, trailing slashes, own block views); the notes under the tables
+are what the pilot needed beyond the bare steps.
 
 **Stage 1: bump only**, per site, one PR, no code removed:
 
-1. Inventory first: SDK version, root catch-all or fallback present, own sitemap/robots, CSP, trailing slashes, locales, root-level article template, any site route or Hub page path under `a/`, `e/`, `n/`, `t/`, `r/`.
-2. `composer require fullstackstudio/content:^0.31`. Sites below 0.25 also follow the CHANGELOG steps in between.
+1. Inventory first: SDK version, root catch-all or fallback present, own sitemap/robots, CSP, trailing slashes, locales, root-level article template, any site route or Hub page path under `a/`, `e/`, `n/`, `t/`, `r/`, and **every global middleware of the site that redirects or blocks a path** (an own `TrailingSlash`, a maintenance or auth gate).
+2. `composer require fullstackstudio/content:<release>` with the constraint of the release that ships the batch (`^0.32` when 0.31 and 0.32 go out together: a caret on 0.x never crosses a minor, so `^0.31` does not install 0.32). Sites below 0.25 also follow the CHANGELOG steps in between. Before the tag, test with a composer path repository written on one line (`{ "type": "path", "url": "../<sdk checkout>/packages/content-sdk-php", "options": { "symlink": true, "versions": { "fullstackstudio/content": "0.32.0" } } }`) and the final constraint; after the tag delete that line and run `composer update fullstackstudio/content`. Never deploy with the path repository in place (the image build cannot see it).
 3. A site without a root catch-all gets `FSC_AUTO_PAGES=false` in its runtime env **before** the deploy.
-4. `php artisan fsc:doctor`: the "Automatisch" section must show `eigen route wint` or `uit` for every route feature. Deploy.
+4. `php artisan fsc:doctor`: the "Automatisch" section must show `eigen route wint` or `uit` for every route feature, and **0 `FOUT`**. A `FOUT Bezoekerspagina's: een middleware van de site stuurt /a/l/fsc-doctor om naar ...` means a global middleware of the site (usually an own `TrailingSlash`) touches the visitor paths: add `a`, `e`, `n`, `t`, `r` to its skip list in this PR, or mailed booking and unsubscribe links break as soon as the Hub verifies the site. Deploy.
 
-**Stage 2: opt in per feature** (recipe for an agent; one site, one PR; order matters):
+**Stage 2: opt in per feature** (recipe for an agent; one site, one PR, one commit per step; order matters):
 
 | Step | Delete in the site | Then check |
 |---|---|---|
@@ -727,10 +729,44 @@ A site that was hand-built before 0.30 does not have to change anything to run o
 | 4 | Sitemap route. Mark thank-you and account pages `->noSitemap()` | diff of the sorted URL list before/after is empty or explained (compare with `robotsIndex` on, or on the Hub's preview of it) |
 | 5 | Layout: the five components → `head` + `scripts`; pass `:meta`/`path` only for the site's own designed pages | `<title>`, description, canonical, og tags, JSON-LD per page type identical; exactly one of each |
 | 6 | Consent partial, `ConsentController`, `/api/consent` route (or keep them and set `FSC_AUTO_CONSENT=false`) | one banner; choice stored; proof recorded in the Hub; hidden in the portal preview |
-| 7 | `errors/503` (keep `errors/404` when it is designed) | unknown path → 404 with the tracker hook; wrong `FSC_API_URL` locally → 503 |
+| 7 | `errors/503` when it is the plain one (keep `errors/404` when it is designed, and a designed standalone `errors/503`) | unknown path → 404 with the tracker hook; wrong `FSC_API_URL` locally → 503 |
 | 8 | `LegalController` + route; move `legal.blade.php` to `vendor/content/site/legal.blade.php` if it is designed | each legal URL 200 with the current version |
-| 9 | Catch-all route + `PageController::show`; move `page`/`article`/`event` views to `resources/views/vendor/content/site/`; set `content.links.event` when events are served on-site; `FSC_AUTO_TRAILING_SLASH=true` and delete `TrailingSlash` for WordPress rebuilds | every URL of the old sitemap: same status, same canonical, same h1; portal preview renders |
-| 10 | Nothing: run `fsc:doctor` (0 `FOUT`, 0 `LET OP`) and the curl checks of "Controleer je site" on the test address, then live | |
+| 9 | Catch-all route + `PageController::show`; move `page`/`article`/`event` views to `resources/views/vendor/content/site/`; set `content.links.event` when events are served on-site; delete `TrailingSlash` for WordPress rebuilds | every URL of the old sitemap: same status, same canonical, same h1; portal preview renders |
+| 10 | Nothing: run `fsc:doctor --online` (0 `FOUT`, 0 `LET OP`) and the curl checks of "Controleer je site" on the test address, then live | |
+
+**Order for a site with a root catch-all** (`Route::get('/{path}', ...)` in `routes/web.php`): 1, 3, 4, 5, 6, 7, then **2, 8 and 9 in one commit**, then 10.
+The catch-all matches `api/health` and the legal paths, and it wins over every route the package adds (`routes/api.php` loads before `routes/web.php`,
+the package's routes after both). Deleting the health route first gives a 404 on `/api/health` (doctor: `FOUT GET /api/health ontbreekt`, `Healthcheck: eigen route wint: {path}`);
+deleting the legal route first makes the catch-all serve a Hub page with the same path instead of the legal document.
+
+Notes per step:
+
+- **Step 4, trailing slashes.** On a site with trailing slashes set `'auto' => ['trailing_slash' => true]` in `config/content.php` at this step, not at step 9: without it the
+  automatic sitemap drops the slash from every URL (also from an article template `/{slug}/`). It is a property of the site's URLs, so it belongs in the repo, not in the
+  runtime env. The site's own `TrailingSlash` may stay until step 9; both answer the same 301. Check the old `extra` list too: `url('/blog/')` drops the slash, so the old
+  sitemap often listed the designed pages without it (the automatic one gets it right).
+- **Step 4, how to diff.** While `robotsIndex` is off the sitemap is empty before and after. Render it with the Hub's answer patched to `robotsIndex: true` (a script that boots
+  the app, binds a `ContentClient` whose `Transport` wraps `CurlTransport` and rewrites `"robotsIndex":false`, and handles `GET /sitemap.xml`; bind it after `$kernel->bootstrap()`,
+  or the provider replaces it), once before and once after deleting the route.
+- **Step 5, designed pages.** The old `$meta` was a resource (`title`, `seoTitle`, `seoDescription`); the new `meta` and `Content::seo()` take overrides: the final `title` (no
+  site name is appended) and `description`. So `['seoTitle' => X, 'seoDescription' => Y]` becomes `Content::seo(['title' => X, 'description' => Y])` in the controller, and the
+  view gets no `meta`/`path` at all. An error view sets its title with `@php(\FullStackStudio\Content\Laravel\Facades\Content::seo(['title' => '...']))` above `@extends`.
+- **Step 5 before step 9.** As long as the site's own catch-all renders Hub pages and articles, the head cannot know them: write `<x-content::head :page="$page ?? null" :article="$article ?? null" />`
+  and drop the props again in the step 9 commit. Write `<x-content::scripts :consent="false" />` until step 6, or the site shows two banners in between.
+- **Step 5, JSON-LD.** Not identical by design: articles gain `Article` JSON-LD and events `Event` JSON-LD, and a 404 loses its canonical.
+- **Step 6.** The default banner sits bottom left on wide screens; a site whose banner sat elsewhere moves it with plain CSS (`.fsc-consent:not([hidden]) { inset-inline: auto 1.25rem; }`
+  in a `min-width` query) and themes it with `--fsc-consent-bg` and `--fsc-consent-text`. Delete the old banner CSS. Never send a consent POST to a customer's project to "check the
+  proof": check that `POST /_fsc/c` answers 422 to an invalid body.
+- **Step 7.** A designed standalone `errors/503` (contact details, house colours, no layout and no components) stays: the package only adds `Retry-After` and `no-store`.
+- **Step 9, event pages.** The package hands its event view only the public event fields (no `capacity`, no `seo`, `seoTitle` or `seoDescription`), and the head of an event
+  prints the bare event title and the project's default description. A site that showed the group size or used `"<title> | <site>"` and the summary keeps them with a
+  `View::composer('content::site.event', ...)` that reads `$content->events->get($slug, ['cache' => true])` (the answer the resolver already cached, no extra Hub call) and calls
+  `Content::seo([...])`.
+- **Step 9, view data.** The package's views get `$page`/`$article`/`$event`/`$document`, `$path` and `$resolved`, nothing else: data the old controller passed (reviews, a site
+  config) comes from `config()` or a composer. `$path` is the resolved path **without** a trailing slash; use `request()->getPathInfo()` where the old view relied on the slashed path.
+- **Step 9, block views.** Move site block views from the `:views` prop of `<x-content::page-blocks>` to `content.blocks` in `config/content.php`: the doctor and the page builder only
+  see views registered there. Declare `content.block_layouts.<type>` (`[]` for a view without layouts) and add `$edit(...)` markers so headings and texts can be typed on the canvas.
+- **Step 10.** `LET OP APP_URL is geen https` is expected locally (http dev server); it must be the https address in the runtime env.
 
 Designed pages (home, contact, landing pages) and their controllers stay: they are the site's own routes and win. A site may stop after any step.
 
