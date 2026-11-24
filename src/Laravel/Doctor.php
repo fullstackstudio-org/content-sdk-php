@@ -1492,6 +1492,7 @@ final class Doctor
                 $others = array_values(array_diff($locales, [(string) $default]));
                 $this->add(self::INFO, 'Talen van het project: ' . ($default ?? 'geen standaardtaal') . ' (standaard)' . ($others === [] ? ', geen prefix in de paden' : ', met pad-prefix: ' . implode(', ', $others)));
             }
+            $this->checkContentLocale($default, $locales);
         } catch (ContentException $e) {
             $this->add(self::FAIL, 'De Hub weigert of is onbereikbaar (' . $e->errorCode() . ', HTTP ' . $e->status() . ')', 'Controleer FSC_SERVER_TOKEN en FSC_API_URL.');
 
@@ -1516,6 +1517,47 @@ final class Doctor
         $this->checkVisitorVerification($project);
         $this->checkUploadLimit($project);
         $this->checkSitemap($seo);
+    }
+
+    /**
+     * A multilingual project (two or more enabled languages) needs a content language per request: without `Content::setLocale()` the cookie
+     * banner, forms, SEO texts, shop labels and module texts all come in the default language, whatever page the visitor is on. The SDK's own
+     * pages set it themselves; a site with its own routes has to. Looks for `Content::setLocale(` / `withLocale(` or a `'locale' =>` read option
+     * in the site's PHP files (not config/) and Blade views. Online only: the language list comes from the project read.
+     *
+     * @param list<string> $locales `locales` of the project read
+     */
+    private function checkContentLocale(?string $default, array $locales): void
+    {
+        $enabled = array_values(array_unique([...($default !== null ? [$default] : []), ...$locales]));
+
+        if (count($enabled) < 2) {
+            return;
+        }
+
+        $list = implode(', ', $enabled);
+
+        if ($this->autoPagesInUse()) {
+            $this->add(self::OK, "Meertalig project ({$list}): de pagina's van de SDK zetten de inhoudstaal zelf");
+
+            return;
+        }
+
+        $pattern = '/Content::(?:setLocale|withLocale)\s*\(|->withLocale\s*\(|[\'"]locale[\'"]\s*=>/';
+
+        // config/ is left out: every Laravel app has `'locale' => ...` in config/app.php.
+        $config = rtrim($this->app->configPath(), '/') . '/';
+        $files = array_filter($this->sitePhpFiles(), static fn (string $file): bool => ! str_starts_with($file, $config));
+
+        foreach ([...$files, ...array_keys([...$this->views()])] as $file) {
+            if (is_file($file) && preg_match($pattern, (string) file_get_contents($file)) === 1) {
+                $this->add(self::OK, "Meertalig project ({$list}): de site zet een inhoudstaal (" . $this->relative($file) . ')');
+
+                return;
+            }
+        }
+
+        $this->add(self::WARN, "Het project is meertalig ({$list}), maar de site zet nergens een inhoudstaal", 'Roep per verzoek Content::setLocale($locale) aan (bij een route per taal bovenaan de route of in een middleware), anders komen de cookiebanner, formulieren, SEO-teksten, verzendopties en modules altijd in de standaardtaal. Zie "Meertalige teksten" in AGENTS.md.');
     }
 
     /**

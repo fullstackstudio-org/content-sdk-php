@@ -19,18 +19,23 @@ final class Cart
      * `vatNumber` are sent only when filled in. Pass the result's total as `expectedTotalCents` to `orders->place`.
      *
      * @param array<string, mixed> $input
-     * @param array{clientIp?: string, timeoutMs?: int} $options
+     * The labels of the discount and of the shipping method come in the visitor's language: an own `$input['locale']` wins, then
+     * `$options['locale']`, then the client's content language on a multilingual project (nothing is sent on a single-language one).
+     *
+     * @param array{clientIp?: string, timeoutMs?: int, locale?: string} $options
      * @return array<string, mixed>
      */
     public function applyCode(array $input, array $options = []): array
     {
         $body = ['lines' => $input['lines'] ?? []];
 
-        foreach (['code', 'email', 'shippingMethod', 'country', 'customerKind', 'vatNumber'] as $name) {
+        foreach (['code', 'email', 'shippingMethod', 'country', 'customerKind', 'vatNumber', 'locale'] as $name) {
             if (isset($input[$name]) && $input[$name] !== '') {
                 $body[$name] = $input[$name];
             }
         }
+
+        $body = $this->ctx->bodyWithLocale($body, $options);
 
         return $this->ctx->execute([
             'method' => 'POST',
@@ -42,12 +47,19 @@ final class Cart
     }
 
     /**
+     * The shipping options for a destination. `label` and `description` come in the visitor's language (the call's `$options['locale']`, else
+     * the client's content language on a multilingual project); the answer has `locale` and `availableLocales`.
+     *
      * @param array{country?: string, weight?: int|float, subtotal?: int} $params
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
     public function shippingOptions(array $params = [], array $options = []): array
     {
-        return $this->ctx->execute(['path' => '/shipping/options', 'query' => Arr::pick($params, ['country', 'weight', 'subtotal']), 'options' => $options])->data;
+        return $this->ctx->execute([
+            'path' => '/shipping/options',
+            'query' => [...Arr::pick($params, ['country', 'weight', 'subtotal']), 'locale' => $this->ctx->localeQuery($options)],
+            'options' => $options,
+        ])->data;
     }
 }

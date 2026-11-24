@@ -19,8 +19,12 @@ final class Orders
      * to get a 409 `price_changed` instead of a surprise. Other errors: 409 `out_of_stock`, 409 `discount_invalid`, 429 `rate_limited`.
      * `accessToken` in the result is the buyer's token for returns and downloads (never put it in a URL).
      *
+     * The order is placed in the visitor's language (`locale` in the body: an own `$input['locale']` wins, then `$options['locale']`, then the client's
+     * content language on a multilingual project; nothing is sent on a single-language one): the order freezes the labels of its shipping method and
+     * discount in it and its mails speak it.
+     *
      * @param array<string, mixed> $input
-     * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int} $options
+     * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int, locale?: string} $options
      * @return array{order: array<string, mixed>, accessToken: string|null}
      */
     public function place(array $input, array $options = []): array
@@ -28,7 +32,7 @@ final class Orders
         return $this->ctx->execute([
             'method' => 'POST',
             'path' => '/orders',
-            'body' => $input,
+            'body' => $this->ctx->bodyWithLocale($input, $options),
             'headers' => $this->ctx->visitorHeaders($options['memberSession'] ?? null, $options['clientIp'] ?? null),
             'options' => $options,
         ])->data;

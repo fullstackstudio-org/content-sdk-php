@@ -41,6 +41,8 @@ final class ExampleSiteTest extends FakeHubTestCase
         parent::setUp();
 
         $this->withoutVite();
+        // What the example's AppServiceProvider does: its own strings (`site::site.*`: nav, footer, the contact page).
+        $this->app['translator']->addNamespace('site', self::EXAMPLE . '/resources/lang');
         $this->app['view']->getFinder()->prependLocation(self::EXAMPLE . '/resources/views');
         $this->app['config']->set('view.paths', [self::EXAMPLE . '/resources/views']);
 

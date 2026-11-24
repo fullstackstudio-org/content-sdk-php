@@ -625,6 +625,91 @@ final class DoctorCommandTest extends LaravelTestCase
         self::assertNull($this->statusOf($this->onlineResults(), 'noindex'));
     }
 
+    // --- Content language of a multilingual project, online -----------------------------------------------------------------------
+
+    /** @var array<string, mixed> */
+    private const MULTILINGUAL = ['name' => 'Voorbeeld', 'defaultLocale' => 'nl', 'locales' => ['nl', 'en'], 'modules' => ['pages', 'seo']];
+
+    private function ownRoutesSite(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site(static function (Router $router): void {
+            $router->middleware('web')->group(static fn () => $router->get('/over-ons', fn () => 'x'));
+        }, ['content.auto.pages' => false]);
+    }
+
+    public function testAMultilingualProjectWhoseSiteNeverSetsAContentLocaleIsAWarning(): void
+    {
+        $this->ownRoutesSite();
+        $this->hub(['robotsIndex' => true, 'entries' => [['path' => '/']]], ['robotsIndex' => true], 200, self::MULTILINGUAL);
+
+        $results = $this->onlineResults();
+
+        $this->assertLine($results, Doctor::WARN, 'Het project is meertalig (nl, en), maar de site zet nergens een inhoudstaal');
+        self::assertNull($this->statusOf($results, 'Meertalig project'));
+        $this->assertLine($results, Doctor::INFO, 'Talen van het project: nl (standaard), met pad-prefix: en');
+    }
+
+    public function testTheWarningNamesTheFixAndTheSectionOfAgentsMd(): void
+    {
+        $this->ownRoutesSite();
+        $this->hub(['entries' => []], [], 200, self::MULTILINGUAL);
+
+        foreach ($this->onlineResults() as $result) {
+            if ($result['status'] === Doctor::WARN && str_contains($result['label'], 'inhoudstaal')) {
+                self::assertStringContainsString('Content::setLocale($locale)', (string) $result['hint']);
+                self::assertStringContainsString('Meertalige teksten', (string) $result['hint']);
+
+                return;
+            }
+        }
+
+        self::fail('No warning about the content locale.');
+    }
+
+    public function testAMultilingualProjectOnTheSdkPagesIsFine(): void
+    {
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site();
+        $this->hub(['robotsIndex' => true, 'entries' => [['path' => '/']]], ['robotsIndex' => true], 200, self::MULTILINGUAL);
+
+        $results = $this->onlineResults();
+
+        $this->assertLine($results, Doctor::OK, 'Meertalig project (nl, en): de pagina\'s van de SDK zetten de inhoudstaal zelf');
+        self::assertNull($this->statusOf($results, 'nergens een inhoudstaal'));
+    }
+
+    public function testAViewOrRouteThatSetsTheContentLocaleSilencesTheWarning(): void
+    {
+        $this->ownRoutesSite();
+        file_put_contents($this->views . '/partials/lang.blade.php', "@php(\\FullStackStudio\\Content\\Laravel\\Facades\\Content::setLocale(app()->getLocale()))");
+        $this->hub(['entries' => []], [], 200, self::MULTILINGUAL);
+
+        $results = $this->onlineResults();
+
+        $this->assertLine($results, Doctor::OK, 'Meertalig project (nl, en): de site zet een inhoudstaal');
+        self::assertNull($this->statusOf($results, 'nergens een inhoudstaal'));
+    }
+
+    public function testASingleLanguageProjectNeverGetsTheContentLocaleLine(): void
+    {
+        $this->ownRoutesSite();
+        $this->hub(['entries' => []], [], 200);
+
+        $results = $this->onlineResults();
+
+        self::assertNull($this->statusOf($results, 'inhoudstaal'));
+        self::assertNull($this->statusOf($results, 'Meertalig project'));
+    }
+
+    public function testOfflineNeverChecksTheContentLocale(): void
+    {
+        $this->ownRoutesSite();
+        $this->hub(['entries' => []], [], 200, self::MULTILINGUAL);
+
+        self::assertNull($this->statusOf($this->results(), 'inhoudstaal'));
+    }
+
     public function testOnlineSitemapWhenTheHubFailsIsAFailure(): void
     {
         $this->layoutWith('<x-content::head />', '<x-content::scripts />');

@@ -1415,6 +1415,53 @@ With your own routes: a route prefix per enabled language, `['locale' => ...]` o
 
 Verify: each language version links to the others and to itself.
 
+### Meertalige teksten (short texts the Hub translates)
+
+On a multilingual project (two or more enabled languages) the Hub keeps the short texts of things that exist once, such as a form, an event, a shipping
+method or the cookie banner, in the default language plus a translation per other language (the `i18n` overlay; the customer edits it in the portal).
+You never read `i18n` yourself: ask for a language and the Hub answers the text in it. Build the pages in "Meertalige site" above first; this section
+is what is left for the texts.
+
+- **What the Hub translates**: the cookie banner texts; the SEO defaults (site name, title template, default description); forms (success message, field
+  labels, the labels of select options, the payment description); events and ticket types; appointment services and the booking page title and intro; newsletter
+  lists; shipping methods (and the old shipping rates of the `orders` config); discounts (label and description); product categories; the payment
+  description; FAQ categories; the alt text of media; the chatbot's name and greeting; the footer of the mail layout. Not translated, one value for every
+  language: names of people and resources, prices, countries, codes, slugs (one slug per event and product category, the language is in the URL prefix), internal
+  names. Articles, pages and products are separate records per language (translations), see "Meertalige site"; FAQ items, legal documents, chatbot knowledge, mail
+  templates and personalisation variants are a record per language too. Out of scope and always one language: invoice PDFs, ticket conversations, newsletter
+  campaigns (one language per campaign), business data in the SEO settings.
+- **The rule for reads.** Every read of such a thing takes `?locale=`, and the answer has `locale` (the language that was applied) and `availableLocales` (the
+  languages in which every text of it is translated). A text without a translation falls back per field (own text, shipped default text, default language), so
+  a label is never empty. The SDK sends `locale` by itself with the rule of "Meertalige site": the call's own `['locale' => 'en']` wins, else the client's content
+  language (`Content::setLocale()`), only on a project with two or more enabled languages and only an enabled language. On a single-language project, or without a
+  content language, nothing is added: the request and its cache key are exactly what they were.
+- **`Content::setLocale($locale)` once per request.** The SDK's own pages do it (`PathResolver`). On your own routes you do it: at the top of the route or in a
+  middleware, with the language of the route prefix (`app()->setLocale()` is Laravel's own locale and does not tell the SDK). Without it every text comes in the default
+  language, whatever page the visitor is on; `php artisan fsc:doctor` (online) warns with `LET OP` when the project is multilingual and the site never sets a content
+  language. PHP-FPM keeps it per request; under Octane set it on every request. For a form that posts to your own route carry the language in a hidden field and call
+  `Content::withLocale($posted)` after checking it against `Content::enabledLocales()`.
+- **What reads and writes carry it automatically** (all without any option): the cookie banner, SEO settings and forms (`getConsentConfig()`, `getSeo()`, `getForm()`);
+  events, appointment services, newsletter lists and the booking page; `cart->shippingOptions()` (`label` and `description` of every option);
+  `cart->applyCode()` (the discount validation: `locale` in the body, the `label` of the discount and of the shipping method come back in it); `products->categories()`
+  (`name` and `description` of every category, subcategories too); `chat->config()` and `chat->open()` (the bot's `name` and `greeting` and the language of the conversation).
+  The writes `events->register()`, `appointments->book()`, `newsletter->subscribe()`, `members->register()`, `tickets->create()` and the form submit store the language on
+  the record, and the Hub writes every later mail to that visitor in it. An own `locale` in the input wins, then `['locale' => ...]` in the options, then the client's language.
+  `orders->place()` does the same: an order keeps the labels of its shipping method and discount in the language of the order and its mails speak it.
+- **Option labels of a select.** A form with translated options answers `options` (the values that are submitted, never translated) and `optionLabels` (the visible
+  texts, same order). `<x-content::form>` shows `optionLabels` and submits `options`; in your own markup do the same: `value="{{ $option }}"` and the label as text. Never
+  submit a label: the Hub refuses it (`400`), and the notification mail to the owner keeps the default-language value so the owner reads one language.
+- **`?lang=` on the Hub's own visitor pages.** The pages the Hub hosts (booking page, event registration, ticket page, newsletter and member pages) speak the visitor's
+  language: `?lang=` first, then the language stored on the record of a token page, then `Accept-Language` (matched against the enabled languages), then the project
+  default. `Content::urls()->visitorLink($hubUrl, $locale)` adds `lang=` for a non-default enabled language; the page blocks do it for you. A link you build yourself to
+  such a page goes through it as well.
+- **Events and the sitemap (`pathTemplate`).** The Hub's `events` module config has a `pathTemplate` (set by FullStack Studio, not by the site) with an optional
+  `{locale}`: `/{locale}/agenda/{slug}`. With `{locale}` the Hub sitemap has one entry per language in which the event is fully translated (`availableLocales`: title, summary,
+  description and location), each with the other languages as `alternates`; without it one entry in the default language. Set `content.links.event` to the same shape,
+  so the links on your site and the sitemap agree (`PathResolver` takes the language from the path and `<x-content::head />` prints hreflang from `availableLocales`).
+  Without `{locale}` an event under a locale prefix is read in that language too.
+- **Verify.** `?locale=en` on a read gives `locale: "en"` and English texts; the page of an English visitor shows the banner, the form (labels and options) and the
+  confirmation in English; `fsc:doctor --online` shows no `LET OP` about the content language.
+
 ## Controleer je site
 
 ### `php artisan fsc:doctor`

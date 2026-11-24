@@ -123,14 +123,15 @@ final class Products
     }
 
     /**
-     * The product categories as a tree.
+     * The product categories as a tree. `name` and `description` come in the visitor's language (the call's `$options['locale']`, else the client's
+     * content language on a multilingual project); every category has `locale` and `availableLocales`.
      *
      * @param array<string, mixed> $options
      * @return list<array<string, mixed>>
      */
     public function categories(array $options = []): array
     {
-        return $this->ctx->get('/product-categories', [Tags::PRODUCT_CATEGORIES], null, $options)->data['categories'] ?? [];
+        return $this->ctx->get('/product-categories', [Tags::PRODUCT_CATEGORIES], ['locale' => $this->ctx->localeQuery($options)], $options)->data['categories'] ?? [];
     }
 
     /** Server token, `products:write`. @param array<string, mixed> $input @param array<string, mixed> $options @return array<string, mixed> the product */

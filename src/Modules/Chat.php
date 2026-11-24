@@ -31,12 +31,14 @@ final class Chat
     /**
      * What a widget may know before a conversation exists: name, greeting, retention, Turnstile site key, link policy.
      *
+     * `name` and `greeting` come in the visitor's language (the call's `$options['locale']`, else the client's content language on a multilingual project).
+     *
      * @param array<string, mixed> $options
      * @return array<string, mixed>
      */
     public function config(array $options = []): array
     {
-        return $this->ctx->execute(['path' => '/chat/config', 'options' => $options])->data['config'] ?? [];
+        return $this->ctx->execute(['path' => '/chat/config', 'query' => ['locale' => $this->ctx->localeQuery($options)], 'options' => $options])->data['config'] ?? [];
     }
 
     /**
@@ -47,8 +49,11 @@ final class Chat
      * Optional `session` (the HttpOnly account-session handle of the site's own portal, at most 128 characters `[A-Za-z0-9._-]`) lets the Hub
      * ask the site's account-data endpoint about the visitor's own data; a bad value is dropped here.
      *
-     * @param array{locale?: string, turnstileToken?: string, pid?: string|null, recognition?: string|null, session?: string|null} $input
-     * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int} $options
+     * The conversation speaks the visitor's language: an own `$input['locale']` wins, then `$options['locale']`, then the client's content language on
+     * a multilingual project (nothing is sent on a single-language one, so that request is byte-identical to before).
+     *
+     * @param array{locale?: string|null, turnstileToken?: string, pid?: string|null, recognition?: string|null, session?: string|null} $input
+     * @param array{memberSession?: string, clientIp?: string, timeoutMs?: int, locale?: string} $options
      * @return array<string, mixed> includes the `conversationToken` (shown once)
      */
     public function open(array $input = [], array $options = []): array
@@ -57,7 +62,7 @@ final class Chat
             'method' => 'POST',
             'path' => '/chat/conversations',
             'body' => Arr::defined([
-                'locale' => $input['locale'] ?? null,
+                'locale' => isset($input['locale']) && $input['locale'] !== '' ? $input['locale'] : $this->ctx->localeQuery($options),
                 '_turnstile' => $input['turnstileToken'] ?? null,
                 'pid' => isset($input['pid']) && $input['pid'] !== '' ? $input['pid'] : null,
                 'recognition' => isset($input['recognition']) && $input['recognition'] !== '' ? substr($input['recognition'], 0, 200) : null,
