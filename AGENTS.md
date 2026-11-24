@@ -1318,8 +1318,9 @@ Optional "Misschien ook interessant": `$content->products->recommendedProducts($
 `productList` links to `content.links.product` or the Hub's product path: keep that route working. Verify: a test order in a test
 project reaches the payment provider's test checkout; the thank-you page fires `purchase` once.
 
-**Choosing a payment method (optional).** `$content->payments->methods()` returns `[{id, label}]`: what the project can offer now (the union of its active
-payment connections; the provider is not named; not cached). Show them only when the owner wants the buyer to choose on the site, then pass the chosen
+**Choosing a payment method (optional).** `$content->payments->methods()` returns `[{id, label}]`: exactly what a start would accept now (the provider is
+not named; not cached). Pass the source as second argument when you know it (`methods([], 'order')`, also `invoice`, `appointment`, `form_submission`,
+`event_registration`): a project can route each source to another provider. Show them only when the owner wants the buyer to choose on the site, then pass the chosen
 `id` as the last argument: `payments->startForOrder($order, [], $method)` or `payments->start($input, [], $method)`. Without it the provider shows its
 own method page, so do nothing unless asked. An id that is not offered throws a `ContentException` with `errorCode()` `payment_method_unavailable` (HTTP 409, nothing created): reload
 `methods()` and let the buyer choose again; never hard-code ids. `payments->list([...])` lists all payments of the project over every source (filters

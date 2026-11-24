@@ -70,16 +70,22 @@ final class Payments
     }
 
     /**
-     * The payment methods the project can offer now: the union of its active payment connections, as `[{id, label}]` (the provider is not
-     * named). Show the labels to the buyer and pass the chosen `id` as `method` to `start()` or `startForOrder()`. Never cached: a connection
+     * The payment methods the project can offer now, as `[{id, label}]` (the provider is not named): exactly the methods a start would accept,
+     * so every listed `id` can be passed as `method` to `start()` or `startForOrder()`. `$source` (optional) is the kind of payment the buyer
+     * is about to make (`order`, `invoice`, `appointment`, `form_submission` or `event_registration`): a project can send each source to
+     * another provider, so pass it when you know it. Without it the answer is for the project's default provider. Never cached: a connection
      * can change any time.
      *
      * @param array<string, mixed> $options
      * @return list<array{id: string, label: string}>
      */
-    public function methods(array $options = []): array
+    public function methods(array $options = [], ?string $source = null): array
     {
-        return $this->ctx->execute(['path' => '/payments/methods', 'options' => $options])->data['methods'] ?? [];
+        return $this->ctx->execute([
+            'path' => '/payments/methods',
+            'query' => $source === null ? [] : ['source' => $source],
+            'options' => $options,
+        ])->data['methods'] ?? [];
     }
 
     /** One payment; while it runs Content first asks Mollie for the current state. @param array<string, mixed> $options @return array<string, mixed> */

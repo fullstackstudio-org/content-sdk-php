@@ -57,6 +57,7 @@ final class ShopModulesTest extends ModuleTestCase
         yield 'payments.list' => [fn (ContentClient $c) => $c->payments->list(['status' => 'paid,open', 'subject' => 'order', 'view' => 'paid', 'from' => '2026-11-01', 'to' => '2026-11-30', 'q' => '1042', 'page' => 2, 'limit' => 50, 'ignored' => 'x']), 'GET', '/payments', ['status' => 'paid,open', 'subject' => 'order', 'view' => 'paid', 'from' => '2026-11-01', 'to' => '2026-11-30', 'q' => '1042', 'page' => '2', 'limit' => '50'], null];
         yield 'payments.list (no params)' => [fn (ContentClient $c) => $c->payments->list(), 'GET', '/payments', [], null];
         yield 'payments.methods' => [fn (ContentClient $c) => $c->payments->methods(), 'GET', '/payments/methods', [], null];
+        yield 'payments.methods (source)' => [fn (ContentClient $c) => $c->payments->methods([], 'appointment'), 'GET', '/payments/methods', ['source' => 'appointment'], null];
         yield 'payments.get' => [fn (ContentClient $c) => $c->payments->get('pay1'), 'GET', '/payments/pay1', [], null];
         yield 'payments.refund' => [fn (ContentClient $c) => $c->payments->refund('pay1', ['requestId' => 'r-1', 'amountCents' => 500]), 'POST', '/payments/pay1/refunds', [], ['requestId' => 'r-1', 'amountCents' => 500]];
         yield 'payments.refund (no input)' => [fn (ContentClient $c) => $c->payments->refund('pay1'), 'POST', '/payments/pay1/refunds', [], []];
