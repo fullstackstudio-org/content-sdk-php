@@ -23,7 +23,7 @@ final class UpstreamRequest
         public readonly ?string $body = null,
         public readonly ?array $multipart = null,
         public readonly int $connectTimeoutMs = 3_000,
-        public readonly int $timeoutMs = 20_000,
+        public readonly int $timeoutMs = 8_000,
         public readonly int $maxBytes = 2 * 1024 * 1024,
     ) {
     }

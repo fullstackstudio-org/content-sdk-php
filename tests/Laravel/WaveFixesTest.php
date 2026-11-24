@@ -20,6 +20,11 @@ final class WaveFixesTest extends FakeHubTestCase
     {
         parent::defineEnvironment($app);
         $app['config']->set('app.url', 'https://klant.test');
+
+        // The cookie free preset (opt-in since the default went back to `web`).
+        if (str_contains($this->name(), 'Cookie') || str_contains($this->name(), 'Session') || str_contains($this->name(), 'Stateless')) {
+            $app['config']->set('content.auto.middleware', 'stateless');
+        }
     }
 
     protected function answer(Request $request): Response
@@ -82,16 +87,7 @@ final class WaveFixesTest extends FakeHubTestCase
         self::assertSame($m[1], $m2[1] ?? null);
     }
 
-    public function testTheFormPostStillWorks(): void
-    {
-        $this->page('contact', 'nl', ['title' => 'Contact', 'blocks' => [['id' => 'f', 'type' => 'form', 'formKey' => 'contact']]]);
-        $this->get('/contact')->assertOk();
-
-        $response = $this->post('/content/forms/contact', ['email' => 'a@b.nl']);
-
-        self::assertNotSame(404, $response->getStatusCode());
-        self::assertNotSame(419, $response->getStatusCode());
-    }
+    // The form post with a real (enforced) CSRF check lives in RcReviewFixesTest::testTheFormPostFromAStatelessPagePassesARealCsrfCheckWithTheLazilyWrittenCookie.
 
     // --- redirect lookup once ---------------------------------------------------------------------------------------------------
 
@@ -214,8 +210,10 @@ final class WaveFixesTest extends FakeHubTestCase
         $this->app['config']->set('content.auto.hosts', ['www.klant.nl']);
         \FullStackStudio\Content\Laravel\Auto\AutoRoutes::registerRoutes($this->app);
 
-        $this->get('http://www.klant.nl/api/health')->assertOk();
-        $this->get('http://admin.klant.nl/api/health')->assertNotFound();
+        $this->get('http://www.klant.nl/robots.txt')->assertOk();
+        $this->get('http://admin.klant.nl/robots.txt')->assertNotFound();
+        // The health check answers on any host (a Kubernetes probe sends the pod IP as Host).
+        $this->get('http://10.42.0.7/api/health')->assertOk();
     }
 
     public function testTheRedirectMiddlewareSkipsOtherHosts(): void

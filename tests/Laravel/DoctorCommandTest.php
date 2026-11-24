@@ -521,10 +521,16 @@ final class DoctorCommandTest extends LaravelTestCase
         $this->site(null, ['content.auto.layout' => 'layouts.missing']);
         $this->assertFailure('content.auto.layout (layouts.missing) bestaat niet');
 
-        // A layout without the section: every automatic page would render empty.
-        file_put_contents($this->views . '/layouts/app.blade.php', "<html><head><x-content::head /></head><body>{{ \$slot }}<x-content::scripts /></body></html>");
+        // A layout without the section (and no `$slot`): every automatic page would render empty.
+        file_put_contents($this->views . '/layouts/app.blade.php', "<html><head><x-content::head /></head><body>@yield('main')<x-content::scripts /></body></html>");
         $this->site();
         $this->assertFailure("heeft geen @yield('content'): de standaardpagina's van de SDK blijven leeg");
+
+        // A component layout (`{{ $slot }}`) is fine: the SDK's views hand their content over as `$slot`.
+        file_put_contents($this->views . '/layouts/app.blade.php', "<html><head><x-content::head /></head><body>{{ \$slot }}<x-content::scripts /></body></html>");
+        $this->site();
+        self::assertSame([], $this->failures($this->results()));
+        $this->assertLine($this->results(), Doctor::OK, 'is een componentlayout');
 
         // The section is configurable.
         file_put_contents($this->views . '/layouts/app.blade.php', "<html><head><x-content::head /></head><body>@yield(\"main\")<x-content::scripts /></body></html>");
@@ -541,6 +547,28 @@ final class DoctorCommandTest extends LaravelTestCase
             $router->get('/{path}', fn () => 'page')->where('path', '.*');
         });
         self::assertSame([], $this->failures($this->results()));
+    }
+
+    public function testAStatelessContentRouteWarnsAboutALayoutThatNeedsTheSession(): void
+    {
+        $this->layoutWith('<x-content::head />', "@error('email') {{ \$message }} @enderror <meta name=\"csrf-token\" content=\"{{ csrf_token() }}\"> <x-content::scripts />");
+
+        // The default (`web`): no warning.
+        $this->site();
+        foreach ($this->results() as $result) {
+            self::assertStringNotContainsString('stateless', $result['label']);
+        }
+
+        // The cookie free preset: LET OP, naming what the layout uses.
+        $this->site(null, ['content.auto.middleware' => 'stateless']);
+        $this->assertLine($this->results(), Doctor::WARN, "gebruikt @error, csrf_token( terwijl de contentpagina's stateless zijn");
+
+        // A layout without any of them: no warning.
+        $this->layoutWith('<x-content::head />', '<x-content::scripts />');
+        $this->site(null, ['content.auto.middleware' => 'stateless']);
+        foreach ($this->results() as $result) {
+            self::assertStringNotContainsString('stateless', $result['label']);
+        }
     }
 
     public function testAnEmptyWrapOnASiteLayoutIsAWarningUnlessTheLayoutOrTheCssKnowsFscWrap(): void

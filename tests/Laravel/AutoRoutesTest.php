@@ -183,7 +183,8 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertNotNull($page);
         self::assertSame('{fscPath}', $page->uri());
         self::assertSame(['GET', 'HEAD'], $page->methods());
-        self::assertSame([\FullStackStudio\Content\Laravel\Site\LazySession::class], $page->gatherMiddleware());
+        // The default is the `web` group, as for a route of the site (backward compatible); cookie free is the opt-in `stateless` preset.
+        self::assertSame(['web'], $page->gatherMiddleware());
         self::assertSame(['fscPath' => '.*'], $page->wheres);
         self::assertTrue($page->isFallback);
         self::assertSame(SiteController::class, $page->getActionName());
@@ -205,8 +206,21 @@ final class AutoRoutesTest extends LaravelTestCase
         self::assertSame([], $this->hub->requests);
     }
 
-    public function testTheContentRouteServesEveryPathWithoutACookie(): void
+    public function testTheStatelessPresetUsesTheRedirectLookupAndTheLazySession(): void
     {
+        $this->site(null, ['middleware' => 'stateless', 'redirects' => true]);
+
+        self::assertSame([\FullStackStudio\Content\Laravel\RedirectMiddleware::class, \FullStackStudio\Content\Laravel\Site\LazySession::class], $this->named(AutoRoutes::PAGE)->gatherMiddleware());
+
+        $this->site(null, ['middleware' => ['stateless'], 'redirects' => false]);
+
+        self::assertSame([\FullStackStudio\Content\Laravel\Site\LazySession::class], $this->named(AutoRoutes::PAGE)->gatherMiddleware());
+    }
+
+    public function testTheStatelessContentRouteServesEveryPathWithoutACookie(): void
+    {
+        $this->site(null, ['middleware' => 'stateless']);
+
         $this->get('/')->assertOk()->assertSeeText('auto:');
         self::assertSame('auto:', $this->get('/')->getContent());
         self::assertSame('auto:over-ons', $this->get('/over-ons')->getContent());
@@ -397,7 +411,7 @@ final class AutoRoutesTest extends LaravelTestCase
 
         $page = $this->named(AutoRoutes::PAGE);
         self::assertNotNull($page);
-        self::assertSame([\FullStackStudio\Content\Laravel\Site\LazySession::class], $page->gatherMiddleware());
+        self::assertSame(['web'], $page->gatherMiddleware());
 
         // The real (placeholder) controller answers 404 after the middleware ran.
         $this->app->forgetInstance(SiteController::class);

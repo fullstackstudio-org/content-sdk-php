@@ -47,7 +47,7 @@ final class Robots
         $headers = ['Content-Type' => 'text/plain; charset=UTF-8'];
 
         try {
-            $seo = app(ContentClient::class)->getSeo();
+            $seo = HubCooldown::read(static fn (): array => app(ContentClient::class)->getSeo(HubCooldown::options()));
             $index = ($seo['robotsIndex'] ?? true) !== false;
 
             // The sitemap lives on the site's canonical origin (the request host may be an internal or preview one).

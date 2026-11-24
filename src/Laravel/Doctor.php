@@ -895,7 +895,7 @@ final class Doctor
             return;
         }
 
-        $name = Layout::name();
+        $name = Layout::target();
 
         if ($name === Layout::PACKAGE) {
             return;
@@ -919,18 +919,47 @@ final class Doctor
 
         $contents = (string) file_get_contents($file);
         $section = Auto::section();
+        $this->checkStatelessLayout($name, $contents);
 
-        if (preg_match('/@yield\(\s*[\'"]' . preg_quote($section, '/') . '[\'"]/', $contents) !== 1) {
-            $this->add(self::FAIL, "Layout {$name} heeft geen @yield('{$section}'): de standaardpagina's van de SDK blijven leeg", "Zet @yield('{$section}') op de plek van de inhoud, of zet content.auto.section in config/content.php op de naam die de layout wel heeft, of publiceer de views (php artisan vendor:publish --tag=content-views) en pas ze aan.");
+        if (Layout::componentSource($contents)) {
+            $this->add(self::OK, "Layout {$name} is een componentlayout ({{ \$slot }}): de standaardpagina's van de SDK geven hun inhoud als \$slot door");
+        } elseif (preg_match('/@yield\(\s*[\'"]' . preg_quote($section, '/') . '[\'"]/', $contents) !== 1) {
+            $this->add(self::FAIL, "Layout {$name} heeft geen @yield('{$section}'): de standaardpagina's van de SDK blijven leeg", "Zet @yield('{$section}') op de plek van de inhoud (of {{ \$slot }} voor een componentlayout), of zet content.auto.section in config/content.php op de naam die de layout wel heeft, of publiceer de views (php artisan vendor:publish --tag=content-views) en pas ze aan.");
 
             return;
+        } else {
+            $this->add(self::OK, "Layout {$name} heeft @yield('{$section}') voor de standaardpagina's van de SDK");
         }
-
-        $this->add(self::OK, "Layout {$name} heeft @yield('{$section}') voor de standaardpagina's van de SDK");
 
         if (Auto::wrap() === null && ! str_contains($contents, 'fsc-wrap') && ! $this->siteAssetsContain('fsc-wrap')) {
             $this->add(self::WARN, 'De standaardpagina\'s van de SDK staan in de terugvalbreedte (.fsc-wrap) in plaats van in de contentbreedte van de site', 'Zet FSC_AUTO_WRAP op de klassen van de container van de site (bijvoorbeeld "wrap max-w-5xl"), of stijl .fsc-wrap zelf.');
         }
+    }
+
+    /**
+     * With the cookie free preset (`content.auto.middleware` = 'stateless') a content page has no session until something starts it. `@csrf`
+     * and a Hub form start it (the page then sends a session cookie: not cookie free), `$errors`/`@error` read an empty bag, and
+     * `csrf_token()` or `session()` read an unstarted session (an empty token: a post from that page ends in a 419).
+     */
+    private function checkStatelessLayout(string $name, string $contents): void
+    {
+        if (! Auto::stateless()) {
+            return;
+        }
+
+        $found = [];
+
+        foreach (['@csrf' => '/@csrf\b/', '@error' => '/@error\b/', '$errors' => '/\$errors\b/', 'session(' => '/\bsession\(/', 'csrf_token(' => '/\bcsrf_token\(/'] as $label => $pattern) {
+            if (preg_match($pattern, $contents) === 1) {
+                $found[] = $label;
+            }
+        }
+
+        if ($found === []) {
+            return;
+        }
+
+        $this->add(self::WARN, "Layout {$name} gebruikt " . implode(', ', $found) . " terwijl de contentpagina's stateless zijn (content.auto.middleware = 'stateless')", '@csrf start de sessie (de pagina stuurt dan een cookie), $errors/@error zijn leeg, en csrf_token() of session() lezen een sessie die niet gestart is (een formulier op die pagina eindigt in een 419). Haal ze uit de layout, zet ze alleen op pagina\'s van de site zelf, of laat content.auto.middleware op de standaard (web).');
     }
 
     /** Whether the site's own CSS or JS (resources/css, resources/js) mentions a string. */

@@ -109,7 +109,8 @@ final class SiteSettings
             return $this->site = null;
         }
 
-        if ($this->safeGet(self::PAUSE_KEY) !== null) {
+        // Its own pause, or the shared one of every SDK read after a Hub timeout or connection error.
+        if ($this->safeGet(self::PAUSE_KEY) !== null || HubCooldown::active()) {
             return $this->site = $this->lastGood();
         }
 
@@ -148,6 +149,7 @@ final class SiteSettings
     {
         $this->log('warning', 'Content site standards could not be loaded; rendering the last good answer or nothing.', $error);
         $this->safePut(self::PAUSE_KEY, 1, max(1, (int) $this->config->get('content.site.failure_cooldown_seconds', 15)));
+        HubCooldown::trip($error);
 
         return $this->lastGood();
     }

@@ -368,12 +368,63 @@ final class Sitemap
         }
 
         foreach ($middleware as $item) {
-            if ($item === 'verified' || $item === 'auth' || str_starts_with($item, 'auth:') || str_starts_with($item, 'can:')) {
+            if (in_array($item, ['verified', 'auth', 'guest', 'signed', 'password.confirm'], true) || str_starts_with($item, 'auth:') || str_starts_with($item, 'can:')
+                || str_starts_with($item, 'guest:') || str_starts_with($item, 'signed:')) {
                 return false;
             }
         }
 
+        // The same by class, also behind a group of the site's own or an alias: the framework's auth, guest, signed, verified and
+        // authorize middleware, and a custom auth class (`App\Http\Middleware\Authenticate`, `EnsureUserIsAuthenticated`, ...).
+        try {
+            $resolved = app('router')->resolveMiddleware($route->gatherMiddleware());
+        } catch (Throwable) {
+            $resolved = [];
+        }
+
+        foreach ($resolved as $item) {
+            if (is_string($item) && self::isPrivateMiddleware(explode(':', $item, 2)[0])) {
+                return false;
+            }
+        }
+
+        // A page on another host (`Route::domain()`) is not a page of this sitemap's origin.
+        if (($route->getDomain() ?? '') !== '') {
+            return false;
+        }
+
+        // A thank-you page after a form (`/bedankt`, `/contact/bedankt`) is not a landing page.
+        $last = strtolower((string) last(explode('/', $uri)));
+        $thanks = array_map(static fn ($path): string => strtolower(trim((string) $path, '/')), (array) Auto::option('sitemap', 'thank_you', ['bedankt', 'thank-you']));
+
+        if ($last !== '' && (in_array($last, $thanks, true) || in_array(strtolower($uri), $thanks, true))) {
+            return false;
+        }
+
         return true;
+    }
+
+    /** Middleware classes that mark a page as private (login, guest only, signed link, verified e-mail, authorisation). */
+    private static function isPrivateMiddleware(string $class): bool
+    {
+        foreach ([
+            'Illuminate\\Auth\\Middleware\\Authenticate',
+            'Illuminate\\Auth\\Middleware\\AuthenticateWithBasicAuth',
+            'Illuminate\\Auth\\Middleware\\RedirectIfAuthenticated',
+            'Illuminate\\Auth\\Middleware\\EnsureEmailIsVerified',
+            'Illuminate\\Auth\\Middleware\\Authorize',
+            'Illuminate\\Auth\\Middleware\\RequirePassword',
+            'Illuminate\\Routing\\Middleware\\ValidateSignature',
+        ] as $private) {
+            if ($class === $private || (class_exists($class) && is_a($class, $private, true))) {
+                return true;
+            }
+        }
+
+        // A custom auth class that does not extend the framework's: by name (`Authenticate`, `EnsureUserIsAuthenticated`, `RequireAuth`).
+        $base = substr($class, (int) strrpos('\\' . $class, '\\'));
+
+        return str_contains($base, 'Authenticat') || preg_match('/^Requires?Auth/', $base) === 1;
     }
 
     /** A Hub path (without locale prefix, may carry a query) as an absolute URL; a path that already starts with its locale is not prefixed twice. */

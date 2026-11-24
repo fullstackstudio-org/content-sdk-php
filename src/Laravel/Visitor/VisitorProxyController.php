@@ -8,6 +8,7 @@ use FullStackStudio\Content\Laravel\Auto\Auto;
 use FullStackStudio\Content\Laravel\Auto\AutoErrors;
 use FullStackStudio\Content\Laravel\ContentResponseHeaders;
 use FullStackStudio\Content\Laravel\ContentServiceProvider;
+use FullStackStudio\Content\Laravel\HubCooldown;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -31,6 +32,8 @@ use Throwable;
  *   reported. Hub unreachable, timeout, or a 401 refusal of the server token: the site's 503 page with `Retry-After`; an answer over 2 MB:
  *   502; a body over 1 MB: 413; a multipart field name that cannot be forwarded: 400. Failures are reported with the path scrubbed
  *   (`/a/l/…`), at most once per reason per {@see self::REPORT_EVERY_SECONDS} seconds, so an outage does not flood the error tracker.
+ * - A timeout or connection error starts the shared {@see HubCooldown}: while it is on, a visitor route answers the 503 page at once
+ *   without asking the Hub. The timeout is `content.auto.visitor_pages.timeout` (default 8 s, connect 3 s).
  */
 final class VisitorProxyController
 {
@@ -85,6 +88,12 @@ final class VisitorProxyController
 
         if (self::throttled($request)) {
             return self::plain(429, 'Te veel verzoeken', ['Retry-After' => '60']);
+        }
+
+        // The shared Hub cooldown: the Hub gave no answer a moment ago (here or to another SDK read), so do not tie up a PHP worker for
+        // another timeout. The site's 503 page at once, not reported again.
+        if (HubCooldown::active()) {
+            return AutoErrors::unavailable();
         }
 
         try {
@@ -254,6 +263,9 @@ final class VisitorProxyController
 
     private static function failed(VisitorProxyException $error, Request $request, string $path): Response
     {
+        // A timeout or connection error starts the shared cooldown (HubCooldown); a refusal or a too large answer does not.
+        HubCooldown::trip($error);
+
         // A body over the limit, or one that cannot be forwarded, is the visitor's doing; a site the Hub no longer trusts for this origin is
         // an expected state (old links after a domain switch). Neither is a fault of the site or the Hub.
         if (! in_array($error->reason, [VisitorProxyException::REQUEST_TOO_LARGE, VisitorProxyException::BAD_REQUEST, VisitorProxyException::NOT_VERIFIED], true)) {

@@ -63,10 +63,17 @@ final class Auto
         return $feature === 'enabled' || self::flag(self::get($feature));
     }
 
+    /** Value of `content.auto.middleware` that selects the cookie free preset ({@see self::middleware()}). */
+    public const STATELESS = 'stateless';
+
     /**
-     * Middleware of the content routes (`content.auto.middleware`): the Hub pages and the legal paths. The default is cookie free: the Hub
-     * redirect lookup (when `redirects` is on) and {@see LazySession}, which only starts a session for a page that renders a form. A site that
-     * wants the old behaviour sets `['web']`.
+     * Middleware of the content routes (`content.auto.middleware`): the Hub pages and the legal paths.
+     *
+     * - Default (null): `['web']`, as a site route in `routes/web.php` has (session, cookies, CSRF, the site's own web middleware).
+     * - `'stateless'` (or `['stateless']`): the cookie free preset. The Hub redirect lookup (when `redirects` is on) and {@see LazySession}:
+     *   no session, no cookies and no CSRF check on a plain Hub page, an empty `$errors` bag for layouts with `@error`, and a session
+     *   that starts on demand for a page that renders a form or `@csrf` (or a visitor who already has a session cookie).
+     * - Any other list: used as is.
      *
      * @return list<string>
      */
@@ -75,17 +82,29 @@ final class Auto
         $configured = self::get('middleware');
 
         if (is_string($configured) && $configured !== '') {
-            return [$configured];
+            $configured = [$configured];
         }
 
-        if (is_array($configured) && $configured !== []) {
-            return array_values(array_filter($configured, 'is_string'));
+        if (! is_array($configured) || $configured === []) {
+            return ['web'];
         }
 
-        return array_values(array_filter([
-            self::on('redirects') ? \FullStackStudio\Content\Laravel\RedirectMiddleware::class : null,
-            \FullStackStudio\Content\Laravel\Site\LazySession::class,
-        ]));
+        $list = array_values(array_filter($configured, 'is_string'));
+
+        if ($list === [self::STATELESS]) {
+            return array_values(array_filter([
+                self::on('redirects') ? \FullStackStudio\Content\Laravel\RedirectMiddleware::class : null,
+                \FullStackStudio\Content\Laravel\Site\LazySession::class,
+            ]));
+        }
+
+        return $list === [] ? ['web'] : $list;
+    }
+
+    /** Whether the content routes run the cookie free preset (`content.auto.middleware` = `'stateless'`, or a list with {@see LazySession}). */
+    public static function stateless(): bool
+    {
+        return in_array(\FullStackStudio\Content\Laravel\Site\LazySession::class, self::middleware(), true);
     }
 
     /**

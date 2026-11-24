@@ -94,7 +94,7 @@ final class Forwarder
             body: $body,
             multipart: $fields,
             connectTimeoutMs: max(1, (int) Auto::option('visitor_pages', 'connect_timeout', 3)) * 1000,
-            timeoutMs: max(1, (int) Auto::option('visitor_pages', 'timeout', 20)) * 1000,
+            timeoutMs: max(1, (int) Auto::option('visitor_pages', 'timeout', 8)) * 1000,
             maxBytes: self::MAX_RESPONSE_BYTES,
         ));
     }

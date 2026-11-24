@@ -229,14 +229,8 @@ final class NativeAnalyticsController
 
     private function visitorIp(Request $request): ?string
     {
-        $header = config('content.analytics.ip_header');
-        $candidate = is_string($header) && $header !== '' ? $request->headers->get($header) : null;
-
-        if (is_string($candidate) && filter_var(trim($candidate), FILTER_VALIDATE_IP) !== false) {
-            return trim($candidate);
-        }
-
-        return $request->ip();
+        // The proxy header only from a trusted proxy (see ContentServiceProvider::visitorIp()).
+        return ContentServiceProvider::visitorIp($request, config('content.analytics.ip_header'));
     }
 
     private function header(Request $request, string $name, int $max): string

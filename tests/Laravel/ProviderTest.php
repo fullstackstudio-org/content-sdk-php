@@ -54,13 +54,21 @@ final class ProviderTest extends LaravelTestCase
 
     public function testDefaultClientIpPrefersTheProxyVisitorHeader(): void
     {
-        $request = Request::create('/', 'GET', server: ['REMOTE_ADDR' => '10.42.0.7', 'HTTP_CF_CONNECTING_IP' => '81.204.10.7']);
+        // The header is read from a trusted proxy only (the ingress at 10.42.0.7 here, what `TrustProxies` sets per request).
+        [$proxies, $headers] = [Request::getTrustedProxies(), Request::getTrustedHeaderSet()];
+        Request::setTrustedProxies(['10.42.0.7'], Request::HEADER_X_FORWARDED_FOR);
 
-        self::assertSame('81.204.10.7', ContentServiceProvider::visitorIp($request, 'cf-connecting-ip'));
-        self::assertSame('10.42.0.7', ContentServiceProvider::visitorIp($request, null));
+        try {
+            $request = Request::create('/', 'GET', server: ['REMOTE_ADDR' => '10.42.0.7', 'HTTP_CF_CONNECTING_IP' => '81.204.10.7']);
 
-        $spoofed = Request::create('/', 'GET', server: ['REMOTE_ADDR' => '10.42.0.7', 'HTTP_CF_CONNECTING_IP' => 'not-an-ip']);
-        self::assertSame('10.42.0.7', ContentServiceProvider::visitorIp($spoofed, 'cf-connecting-ip'));
+            self::assertSame('81.204.10.7', ContentServiceProvider::visitorIp($request, 'cf-connecting-ip'));
+            self::assertSame('10.42.0.7', ContentServiceProvider::visitorIp($request, null));
+
+            $spoofed = Request::create('/', 'GET', server: ['REMOTE_ADDR' => '10.42.0.7', 'HTTP_CF_CONNECTING_IP' => 'not-an-ip']);
+            self::assertSame('10.42.0.7', ContentServiceProvider::visitorIp($spoofed, 'cf-connecting-ip'));
+        } finally {
+            Request::setTrustedProxies($proxies, $headers);
+        }
     }
 
     public function testDefaultBindingBuildsAClientFromConfig(): void

@@ -170,7 +170,11 @@ final class ExampleSiteTest extends FakeHubTestCase
     {
         $uris = [];
         foreach ($this->app['router']->getRoutes() as $route) {
-            if (! str_starts_with((string) $route->getActionName(), 'FullStackStudio') && ! str_contains($route->uri(), '_fsc')) {
+            // Routes of the framework itself are not the example's (Laravel 12+ serves the local disk at `storage/{path}`).
+            $action = ltrim((string) $route->getActionName(), '\\');
+            $framework = str_starts_with($action, 'Illuminate\\') || in_array($route->getName(), ['storage.local', 'storage.local.upload'], true);
+
+            if (! $framework && ! str_starts_with($action, 'FullStackStudio') && ! str_contains($route->uri(), '_fsc')) {
                 $uris[] = implode('|', $route->methods()) . ' ' . $route->uri();
             }
         }

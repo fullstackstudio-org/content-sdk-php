@@ -241,13 +241,7 @@ final class FormController
 
     private function visitorIp(Request $request, Repository $config): ?string
     {
-        $header = $config->get('content.forms.ip_header');
-        $candidate = is_string($header) && $header !== '' ? $request->headers->get($header) : null;
-
-        if (is_string($candidate) && filter_var(trim($candidate), FILTER_VALIDATE_IP)) {
-            return trim($candidate);
-        }
-
-        return $request->ip();
+        // The proxy header only from a trusted proxy (see ContentServiceProvider::visitorIp()).
+        return ContentServiceProvider::visitorIp($request, $config->get('content.forms.ip_header'));
     }
 }

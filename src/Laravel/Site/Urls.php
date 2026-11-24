@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\Site;
 
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Auto\Auto;
+use FullStackStudio\Content\Laravel\HubCooldown;
 
 /**
  * The one place that builds URLs of Hub content: article template, event link, legal path, locale prefix and trailing slash. Sitemap,
@@ -83,7 +84,7 @@ final class Urls
             return $this->articleTemplate;
         }
 
-        $template = Hub::call(fn (): array => $this->client->getSeo())['articlePathTemplate'] ?? null;
+        $template = Hub::call(fn (): array => $this->client->getSeo(HubCooldown::options()))['articlePathTemplate'] ?? null;
 
         return $this->articleTemplate = is_string($template) && str_starts_with($template, '/') && ! str_starts_with($template, '//')
             && substr_count($template, '{slug}') === 1 && substr_count($template, '{locale}') <= 1
@@ -236,7 +237,7 @@ final class Urls
             return $path;
         }
 
-        $this->origin ??= rtrim(is_string($origin = (Hub::call(fn (): array => $this->client->getSeo())['canonicalOrigin'] ?? null)) && $origin !== '' ? $origin : url('/'), '/');
+        $this->origin ??= rtrim(is_string($origin = (Hub::call(fn (): array => $this->client->getSeo(HubCooldown::options()))['canonicalOrigin'] ?? null)) && $origin !== '' ? $origin : url('/'), '/');
 
         return $this->origin . '/' . ltrim($path, '/');
     }
@@ -262,6 +263,6 @@ final class Urls
     /** @return array<string, mixed> */
     private function project(): array
     {
-        return $this->project ??= (array) Hub::call(fn (): array => $this->client->getProject());
+        return $this->project ??= (array) Hub::call(fn (): array => $this->client->getProject(HubCooldown::options()));
     }
 }

@@ -51,9 +51,15 @@ final class RedirectMiddleware
             return $next($request);
         }
 
+        // The shared Hub cooldown: another SDK read just got no answer from the Hub, so this lookup would only add a timeout.
+        if (HubCooldown::active()) {
+            return $next($request);
+        }
+
         $resolver = new RedirectResolver($this->container->make(ContentClient::class), [
             'timeoutMs' => (int) $this->config->get('content.redirects.timeout_ms', 1500),
             'failureCooldownSeconds' => (int) $this->config->get('content.redirects.failure_cooldown_seconds', 15),
+            'onError' => static fn (\Throwable $error) => HubCooldown::trip($error),
         ], new LaravelStore($this->cache->store()));
 
         $target = $resolver->resolve($request->getPathInfo(), (string) $request->getQueryString());

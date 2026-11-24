@@ -155,7 +155,7 @@ final class VisitorProxyTest extends LaravelTestCase
         self::assertSame('https://content.test' . $path . '?b=2&a=1', $sent->url);
         self::assertSame($body, $sent->body);
         self::assertNull($sent->multipart);
-        self::assertSame(20_000, $sent->timeoutMs);
+        self::assertSame(8_000, $sent->timeoutMs);
         self::assertSame(3_000, $sent->connectTimeoutMs);
         self::assertSame(2 * 1024 * 1024, $sent->maxBytes);
     }

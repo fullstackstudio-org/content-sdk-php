@@ -90,7 +90,7 @@ Publish `config/content.php` (`php artisan vendor:publish --tag=content-config`)
 | `APP_ENV` / `APP_DEBUG` / `APP_URL` | `production` / `false` / `https://<live host>` | `APP_URL` must be https (A4). |
 | `SESSION_DRIVER` / `CACHE_STORE` / `QUEUE_CONNECTION` | `file` / `file` / `sync` | Never `SESSION_DRIVER=cookie` (A4). |
 | `LOG_CHANNEL` | `stderr` | Container logs. |
-| `FSC_IP_HEADER` | `cf-connecting-ip` | The default. Only a header your proxy overwrites; empty = Laravel's `$request->ip()`. |
+| `FSC_IP_HEADER` | `cf-connecting-ip` | The default. Only a header your proxy overwrites; empty = Laravel's `$request->ip()`. Read only when the request comes from a trusted proxy (`TrustProxies`; the `platform` feature trusts `*`); otherwise the real client IP is used. |
 
 Optional: `FSC_UPLOAD_MAX_MB` (forms with file fields, only read by the FSS Docker image), the `FSC_AUTO_*` switches (see "Ingebouwd"), the
 `FSC_INTELLIGENCE_*` switches (module `intelligence`), `FSC_CACHE_STORE=redis` with several replicas. The full list is under "Environment" below.
@@ -385,12 +385,20 @@ The views `content::site.{page, article, articles, category, event, legal}` exte
 - **URLs**: there are no route names per type. `Content::urls()` builds every content URL (`->page($page)`, `->article($article)`, `->event($event)`, `->legal($kind)`,
   `->path($path, $locale)`) with the Hub's template, the language prefix and the trailing-slash setting; sitemap, canonical, hreflang and the default views use it too.
 - **Sitemap** (`GET /sitemap.xml`, `public, max-age=900`): the Hub's sitemap entries (pages and articles) and the site's **own static pages**: every GET route without
-  parameters in the `web` group, minus the package's own routes, redirects, routes behind `auth`/`can`/`verified`, `api/*`, file extensions, `content.auto.sitemap.exclude`
+  parameters in the `web` group, minus the package's own routes, redirects, routes behind `auth`/`can`/`verified`/`guest`/`signed` (also custom auth classes), routes with `Route::domain()`, thank-you pages (`sitemap.thank_you`, default `bedankt`, `thank-you`), `api/*`, file extensions, `content.auto.sitemap.exclude`
   patterns and routes marked `->noSitemap()`. Mark thank-you and account pages `Route::get(...)->noSitemap()`. It is empty (with an XML comment) while the project's
   `robotsIndex` is off (a test site); during a Hub failure it answers 503 with `Retry-After`. The origin is `canonicalOrigin` of the SEO settings: it must be the live https origin.
 - **robots.txt** (`public, max-age=900`): `Disallow: /` while `robotsIndex` is off, else Allow plus the `Sitemap:` line; extra lines through `content.auto.robots.extra`
   (for example `Disallow: /account`). Delete a static `public/robots.txt`: the web server serves a file before Laravel sees the route (`content:install` removes the skeleton one).
 - **`GET /api/health`**: `{"ok":true}`, `no-store`, no session, no cache, no Hub call (the container `HEALTHCHECK`). A site that is up must stay up when the Hub is down.
+  It answers on every host, also with `content.auto.hosts` set (a Kubernetes probe sends the pod IP as Host).
+- **Hub down** (`content.hub`): every read the SDK does while rendering (content route and resolver, head and meta, robots.txt, site standards, redirect lookup,
+  visitor pages) shares one cooldown: after a timeout or connection error none of them asks the Hub for `cooldown_seconds` (15), so a hanging Hub costs one timeout per
+  window, not one per request. The resolver and meta reads use `timeout_ms` (2500). A 4xx/5xx answer does not start it. A path that is nothing in the Hub is remembered
+  `not_found_ttl` (30) seconds; a page, article, event or legal webhook clears that at once. The site's own client calls keep `content.timeout_ms`.
+- **Middleware of the content route** (`content.auto.middleware`): `['web']` by default. `'stateless'` = cookie free Hub pages (no session, cookies or CSRF; `$errors` is
+  an empty bag; `@csrf` and Hub forms start the session on demand and the post passes the CSRF check). `csrf_token()` or `session()` in the layout read an unstarted
+  session there: `fsc:doctor` warns. Component layouts (`{{ $slot }}`) work with every default view, as do classic ones (`@yield`).
 - The home page is the Hub page with path `/`. A site with a designed home page of its own registers `Route::get('/', ...)` and it wins.
 - **Trailing slash** (`FSC_AUTO_TRAILING_SLASH=true`, for rebuilt WordPress sites): canonical, sitemap, hreflang and `Content::urls()` end in `/`, and a GET page path without one gets
   a 301 that keeps the query string. `/`, files, `api`, `_fsc`, `content`, `build`, `storage` and `content.auto.trailing_slash_skip` are left alone.
@@ -489,8 +497,8 @@ itself and forwards each request to the Hub with the server token; **no site cod
   The visitor's IP (`FSC_IP_HEADER`, default `cf-connecting-ip`), the `Origin` and the browser string travel along, so keep the IP header
   right behind Cloudflare. A body over 1 MB (not a file upload) is refused with 413, an answer over 2 MB with 502; files (invoice PDF, ticket
   attachment, download) are not streamed through the pod: the Hub answers with a short-lived redirect to its own file URL. Each proxied
-  request holds one of the pod's PHP workers for at most 20 s (`content.auto.visitor_pages.timeout`) and a visitor IP is limited to 120 per
-  minute (`per_minute`).
+  request holds one of the pod's PHP workers for at most 8 s (`content.auto.visitor_pages.timeout`) and a visitor IP is limited to 120 per
+  minute (`per_minute`). After a Hub timeout or connection error the proxy answers the 503 page at once for `content.hub.cooldown_seconds` (shared cooldown, below).
 - **CSP.** The page comes with its own `Content-Security-Policy` (and `Referrer-Policy`, `X-Robots-Tag`), which the SDK applies after the
   whole middleware stack, so a global header middleware cannot replace it and a site `Content-Security-Policy-Report-Only` is removed. Keep
   the site's CSP middleware in the `web` group (A13) and never set a CSP in nginx or Apache for these paths: a second header would be applied
@@ -713,7 +721,29 @@ Everything else is a switch: `FSC_AUTO=false` turns the whole layer off, `FSC_AU
 
 ## Bestaande site omzetten
 
-A site that was hand-built before 0.30 does not have to change anything to run on a newer package: three stages, each reversible. Stage 1 first.
+A site that was hand-built before 0.30 keeps its pages, views and routes on a newer package, but the update is **not a drop-in**: the out of the box
+site adds routes and middleware without any config (list below). Three stages, each reversible. Stage 1 first.
+
+**What changes without config (0.28 → 0.32)**, check each against the site in the Stage 1 inventory:
+
+- **Routes.** The content route (fallback `GET {fscPath}`: Hub pages, articles, events, legal documents for any path the site does not answer;
+  the site's own `Route::fallback()` wins). Early, before the site's route files (a root catch-all no longer swallows them): `api/health`,
+  `sitemap.xml`, `robots.txt` and the legal paths `privacyverklaring`, `algemene-voorwaarden`, `cookieverklaring`; a legal path without a published
+  Hub document behaves as before (the site's own route for it, else the Hub page at that path, else 404). The visitor pages `/a`, `/e`, `/n`, `/t`,
+  `/r` (plus `api/invoices/download`, `api/privacy/exports`, `api/v1/downloads` and `_fsc/x/verify`), registered before the site's routes.
+  `POST content/forms/{key}`, `POST content/webhook`, consent under `_fsc/c`. A site route with the same method and URI replaces the package's
+  (not for the visitor pages).
+- **Middleware** (only where the app has none of its own): `TrustProxies` at `*` (headers `for`, `proto`, `port`), `ForceHttps` in production,
+  `RedirectMiddleware` first in `web`. The content route runs in the `web` group, like a route in `routes/web.php`.
+- **Behaviour.** A double slash on the content route is a 308 to the local single-slash path. Form texts follow `FormLocale` (config, page
+  language, app locale, `nl`). `sitemap.xml` includes the site's own `web` GET routes (not behind login/guest/signed/verified, not with
+  `Route::domain()`, not thank-you pages; `->noSitemap()` and `sitemap.exclude` for the rest). Hub 404s and outages escaping site code render
+  `errors/404` / `errors/503` instead of a 500. `cf-connecting-ip` only counts from a trusted proxy.
+- **Opt-outs.** `FSC_AUTO=false` (all of the out of the box site), `FSC_AUTO_<FEATURE>=false` per feature, `content.auto.middleware` (e.g.
+  `'stateless'` for cookie free Hub pages: no session or CSRF until a form or `@csrf` needs it; doctor warns when the layout uses `csrf_token()`,
+  `session()`, `@error` or `$errors`), `content.auto.legal_paths = []`, `content.auto.hosts`.
+- **After the update.** `php artisan route:clear` once (sites with `route:cache`), then `php artisan fsc:doctor` with 0 `FOUT`.
+
 Proven on the pilot `hanami4you.nl` (root catch-all, events and articles at `/{slug}/`, trailing slashes, own block views); the notes under the tables
 are what the pilot needed beyond the bare steps.
 
@@ -1651,7 +1681,7 @@ php artisan fsc:doctor                            # checks the "Altijd verplicht
 | `FSC_AUTO_LAYOUT` / `FSC_AUTO_WRAP` | none | Layout view of the default site views (else the package's own) / classes of the content container (A5, Ontwerp). |
 | `FSC_FORMS_ENABLED` | `true` | Registers `POST content/forms/{key}` (route name `content.form`), needed by `<x-content::form>`. |
 | `FSC_FORMS_PATH` / `FSC_FORMS_LOCALE` | `content/forms` / app locale | Form route path / `nl` or `en` labels. |
-| `FSC_IP_HEADER` | `cf-connecting-ip` | Header holding the visitor's IP behind your proxy (`content.forms.ip_header`). Only a header your proxy overwrites. |
+| `FSC_IP_HEADER` | `cf-connecting-ip` | Header holding the visitor's IP behind your proxy (`content.forms.ip_header`). Only a header your proxy overwrites; only read from a trusted proxy (`TrustProxies`). |
 | `FSC_PRECONNECT` | `true` | Adds `Link: <Hub origin>; rel=preconnect` to successful HTML pages (images and files load directly from the Hub). |
 | `FSC_VERSION_HEADER` | `true` | Adds `X-FSC-SDK: <version>` to successful HTML pages (the SDK version only). |
 | `FSC_CACHE_ENABLED` / `FSC_CACHE_STORE` / `FSC_CACHE_TTL` | `true` / default store / `3600` | Read cache on/off, Laravel cache store, safety-net TTL in seconds. |

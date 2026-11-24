@@ -175,7 +175,7 @@ final class Head extends Component
     private static function publisher(?string $locale): array
     {
         try {
-            $seo = app(\FullStackStudio\Content\ContentClient::class)->getSeo();
+            $seo = \FullStackStudio\Content\Laravel\HubCooldown::read(static fn (): array => app(\FullStackStudio\Content\ContentClient::class)->getSeo(\FullStackStudio\Content\Laravel\HubCooldown::options()));
         } catch (Throwable) {
             $seo = [];
         }

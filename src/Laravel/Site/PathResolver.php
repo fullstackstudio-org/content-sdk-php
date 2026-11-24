@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\Site;
 
 use FullStackStudio\Content\ContentClient;
 use FullStackStudio\Content\Laravel\Auto\Auto;
+use FullStackStudio\Content\Laravel\HubCooldown;
 use FullStackStudio\Content\Laravel\Preview\Preview;
 
 /**
@@ -70,7 +71,7 @@ final class PathResolver
 
         // Step 2 (not in a preview: the previewed page is what the editor wants to see)
         if ($preview === null && Auto::on('legal') && ($kind = $this->legalKind($rest)) !== null) {
-            $document = Hub::call(fn (): array => $this->client->legal->get($kind, ['locale' => $locale]));
+            $document = Hub::call(fn (): array => $this->client->legal->get($kind, ['locale' => $locale], HubCooldown::options()));
 
             if (is_array($document) && $document !== []) {
                 return new Resolved('legal', $document, $rest, $locale, ['kind' => $kind]);
@@ -117,7 +118,7 @@ final class PathResolver
 
         // Step 5
         if (Auto::on('pages')) {
-            $page = Hub::call(fn (): array => $this->client->getPage($rest, ['locale' => $locale]));
+            $page = Hub::call(fn (): array => $this->client->getPage($rest, ['locale' => $locale], HubCooldown::options()));
 
             if (is_array($page) && $page !== [] && $preview !== null && self::isPreviewPage($page, $preview)) {
                 $own = $page['locale'] ?? null;
@@ -157,7 +158,7 @@ final class PathResolver
     {
         // A `{locale}` template names the language of the event link: read the event in it.
         $client = $locale === $this->client->locale() ? $this->client : $this->client->withLocale($locale);
-        $event = Hub::call(fn (): array => $client->events->get($ref, ['cache' => true]));
+        $event = Hub::call(fn (): array => $client->events->get($ref, HubCooldown::options(['cache' => true])));
 
         if (! is_array($event) || $event === [] || ($event['status'] ?? 'published') === 'draft') {
             return null;
@@ -197,7 +198,7 @@ final class PathResolver
 
     private function article(string $slug, string $path, string $locale): ?Resolved
     {
-        $article = Hub::call(fn (): array => $this->client->getArticle($slug, ['locale' => $locale]));
+        $article = Hub::call(fn (): array => $this->client->getArticle($slug, ['locale' => $locale], HubCooldown::options()));
 
         if (! is_array($article) || $article === [] || ($article['status'] ?? 'published') !== 'published') {
             return null;
@@ -208,7 +209,7 @@ final class PathResolver
 
     private function category(string $slug, string $path, string $locale): ?Resolved
     {
-        $tree = Hub::call(fn (): array => $this->client->listCategories(['locale' => $locale]));
+        $tree = Hub::call(fn (): array => $this->client->listCategories(['locale' => $locale], HubCooldown::options()));
         $category = is_array($tree) ? self::findCategory($tree, $slug) : null;
 
         return $category === null ? null : $this->articleList($path, $locale, $category);
@@ -230,7 +231,7 @@ final class PathResolver
             'locale' => $locale,
             'page' => $page,
             'limit' => $perPage,
-        ]));
+        ], HubCooldown::options()));
 
         if (! is_array($list)) {
             return null;

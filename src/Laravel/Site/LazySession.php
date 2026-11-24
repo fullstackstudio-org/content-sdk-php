@@ -8,18 +8,25 @@ use Carbon\Carbon;
 use Closure;
 use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Http\Request;
+use Illuminate\Support\ViewErrorBag;
 use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 /**
- * The cookie free middleware of the SDK's content routes (the default of `content.auto.middleware`). A plain Hub page has no session, no
- * cookies and no CSRF check, so it sends no `Set-Cookie` and can be cached.
+ * The cookie free middleware of the SDK's content routes (the `'stateless'` preset of `content.auto.middleware`). A plain Hub page has no
+ * session, no cookies and no CSRF check, so it sends no `Set-Cookie` and can be cached.
  *
- * A page that renders a Hub form or a newsletter signup needs the session (the CSRF token and the message after a post): that component
- * calls {@see self::start()}, which starts the session on the spot (reading the encrypted session cookie of the request like `web` does).
- * This middleware then saves the session and adds the session cookie, encrypted exactly as `EncryptCookies` does, so the form post
- * (which runs in the `web` group) finds the same session. Without a started session nothing happens.
+ * - `$errors` is shared as an empty `ViewErrorBag`, so a layout with `@error` or `$errors->any()` renders as it does under `web`.
+ * - A page that needs the session starts it on demand through {@see self::start()}: a Hub form or a newsletter signup (the component calls
+ *   it) and `@csrf` (the SDK compiles the directive with that call first), so the token in the page belongs to a session that is saved.
+ * - A visitor who already has a session cookie (back from a form post with errors or a flash message) gets the session started up front,
+ *   so `$errors`, `old()` and the flash message are there wherever the layout reads them.
+ *
+ * A started session is saved after the page rendered and its cookie is added, encrypted exactly as `EncryptCookies` does, so the form post
+ * (which runs in the `web` group) finds the same session and token. Without a started session nothing is written.
+ * `csrf_token()` and `session()` called directly in a layout are not intercepted: they read an unstarted session (no token). `fsc:doctor`
+ * warns about such layouts when the preset is on.
  */
 final class LazySession
 {
@@ -62,6 +69,13 @@ final class LazySession
     public function handle(Request $request, Closure $next): Response
     {
         $request->attributes->set(self::ARMED, true);
+
+        // A returning visitor's session (errors and old input after a failed post, a flash message): start it before anything renders.
+        if (self::cookieId($request, self::cookieName()) !== null) {
+            self::start();
+        }
+
+        self::shareErrors($request);
         $response = $next($request);
 
         if ($request->attributes->get(self::STARTED) === true) {
@@ -73,6 +87,31 @@ final class LazySession
         }
 
         return $response;
+    }
+
+    /** `$errors` for the views: the bag of a started session, else an empty one (what `ShareErrorsFromSession` does under `web`). */
+    private static function shareErrors(Request $request): void
+    {
+        try {
+            $errors = null;
+
+            if ($request->attributes->get(self::STARTED) === true) {
+                $errors = app('session.store')->get('errors');
+            }
+
+            app('view')->share('errors', $errors instanceof ViewErrorBag ? $errors : new ViewErrorBag());
+        } catch (Throwable) {
+            // No view factory: nothing renders a view.
+        }
+    }
+
+    private static function cookieName(): string
+    {
+        try {
+            return (string) app('config')->get('session.cookie', '');
+        } catch (Throwable) {
+            return '';
+        }
     }
 
     private function persist(Request $request, Response $response): void
@@ -101,10 +140,13 @@ final class LazySession
         ));
     }
 
-    /** The session id of the request's (encrypted) session cookie, or null for a visitor without one. */
+    /**
+     * The session id of the request's (encrypted) session cookie, or null for a visitor without one. Decrypted and checked like
+     * `EncryptCookies` does: the value must carry the cookie's prefix for the current key or one of the previous keys (`APP_PREVIOUS_KEYS`).
+     */
     private static function cookieId(Request $request, string $name): ?string
     {
-        $raw = $request->cookies->get($name);
+        $raw = $name === '' ? null : $request->cookies->get($name);
 
         if (! is_string($raw) || $raw === '') {
             return null;
@@ -114,7 +156,14 @@ final class LazySession
             $encrypter = app('encrypter');
             $plain = $encrypter->decrypt($raw, false);
 
-            return is_string($plain) ? CookieValuePrefix::remove($plain) : null;
+            if (! is_string($plain)) {
+                return null;
+            }
+
+            $keys = method_exists($encrypter, 'getAllKeys') ? $encrypter->getAllKeys() : [$encrypter->getKey()];
+            $id = CookieValuePrefix::validate($name, $plain, $keys);
+
+            return is_string($id) && $id !== '' ? $id : null;
         } catch (Throwable) {
             return null;
         }

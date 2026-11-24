@@ -80,13 +80,15 @@ final class ContentServiceProvider extends ServiceProvider
     }
 
     /**
-     * The visitor's IP for `X-FSC-Client-Ip`: the header the site's proxy sets (`content.forms.ip_header`, default `cf-connecting-ip`) when it
-     * holds a valid IP, else the IP Laravel sees. Behind Cloudflare and a reverse proxy, `request()->ip()` alone can be a proxy hop, which would
-     * make every visitor of the site share one limit at the Hub.
+     * The visitor's IP for `X-FSC-Client-Ip` and the per-visitor limits: the header the site's proxy sets (`content.forms.ip_header`, default
+     * `cf-connecting-ip`) when it holds a valid IP AND the request came from a trusted proxy (`REMOTE_ADDR` is one of the trusted proxies:
+     * the `platform` feature trusts `*`, or the app's own `trustProxies`); else the IP Laravel sees. Behind Cloudflare and a reverse proxy,
+     * `request()->ip()` alone can be a proxy hop, which would make every visitor of the site share one limit at the Hub; from an untrusted
+     * client the header is just text anyone can send, so it is ignored there.
      */
     public static function visitorIp(Request $request, mixed $header): ?string
     {
-        $candidate = is_string($header) && $header !== '' ? $request->headers->get($header) : null;
+        $candidate = is_string($header) && $header !== '' && $request->isFromTrustedProxy() ? $request->headers->get($header) : null;
 
         if (is_string($candidate) && filter_var(trim($candidate), FILTER_VALIDATE_IP) !== false) {
             return trim($candidate);
@@ -99,6 +101,9 @@ final class ContentServiceProvider extends ServiceProvider
     {
         $this->loadViewsFrom(__DIR__ . '/../../resources/views', 'content');
         Blade::componentNamespace('FullStackStudio\\Content\\Laravel\\View\\Components', 'content');
+        // `@csrf` starts the session first on a cookie free content page (`content.auto.middleware` = 'stateless'), so the token it prints
+        // belongs to a session that is saved and the post does not end in a 419. Everywhere else `LazySession::start()` does nothing.
+        Blade::directive('csrf', static fn (): string => '<?php \\FullStackStudio\\Content\\Laravel\\Site\\LazySession::start(); echo csrf_field(); ?>');
         // SDK-owned texts of the default views: `__('content::content.<key>')`, Dutch and English; override per site with `--tag=content-lang`.
         $this->loadTranslationsFrom(__DIR__ . '/../../resources/lang', 'content');
         $this->publishes([__DIR__ . '/../../resources/lang' => $this->app->langPath('vendor/content')], 'content-lang');

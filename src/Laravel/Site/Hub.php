@@ -6,6 +6,7 @@ namespace FullStackStudio\Content\Laravel\Site;
 
 use FullStackStudio\Content\ContentException;
 use FullStackStudio\Content\Laravel\Auto\AutoErrors;
+use FullStackStudio\Content\Laravel\HubCooldown;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
@@ -15,11 +16,15 @@ use Throwable;
  */
 final class Hub
 {
-    /** Runs a Hub read. A {@see ContentException} with status 404 (not found, module off, not published) gives null; anything else is rethrown as is. */
+    /**
+     * Runs a Hub read under the shared {@see HubCooldown} (refused at once while the Hub was unreachable a moment ago; a timeout or connection
+     * error starts it). A {@see ContentException} with status 404 (not found, module off, not published) gives null; anything else is
+     * rethrown as is. Pass {@see HubCooldown::options()} to the client call for the short timeout.
+     */
     public static function call(callable $read): mixed
     {
         try {
-            return $read();
+            return HubCooldown::read($read);
         } catch (ContentException $e) {
             if ($e->status() === 404) {
                 return null;
@@ -41,7 +46,11 @@ final class Hub
         } catch (HttpExceptionInterface $e) {
             throw $e;
         } catch (Throwable $e) {
-            report($e);
+            // The cooldown's own refusal made no Hub call: the failure that started it was reported already.
+            if (! HubCooldown::isRefusal($e)) {
+                report($e);
+            }
+
             abort(503, '', ['Retry-After' => (string) AutoErrors::RETRY_AFTER, 'Cache-Control' => 'no-store']);
         }
 

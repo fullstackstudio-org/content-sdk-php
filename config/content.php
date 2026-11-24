@@ -13,6 +13,23 @@ return [
     'timeout_ms' => (int) env('FSC_TIMEOUT_MS', 10_000),
 
     /*
+     * Hub-down resilience of the reads the SDK does while it renders a page (the fallback route and its path resolver, the head and meta,
+     * robots.txt, the site standards, the redirect lookup and the visitor page proxy).
+     * - `timeout_ms` (env FSC_HUB_TIMEOUT_MS): timeout of one such read (the client's own `timeout_ms` stays for the site's own calls).
+     * - `cooldown_seconds` (env FSC_HUB_COOLDOWN): after a timeout or connection error these reads stop asking the Hub for this long, shared
+     *   by all of them and across requests (in the `content.cache.store`); they answer from cache, without the Hub part, or with a 503.
+     *   A 4xx/5xx answer of the Hub does not start the cooldown (the Hub is up). 0 = off.
+     * - `not_found_ttl` (env FSC_HUB_NOT_FOUND_TTL): seconds a path that is nothing in the Hub (a 404 of the fallback route) is remembered,
+     *   so a crawler hitting unknown paths does not reach the Hub each time. A webhook for pages, articles, events or legal documents clears
+     *   it at once. 0 = off.
+     */
+    'hub' => [
+        'timeout_ms' => (int) env('FSC_HUB_TIMEOUT_MS', 2500),
+        'cooldown_seconds' => (int) env('FSC_HUB_COOLDOWN', 15),
+        'not_found_ttl' => (int) env('FSC_HUB_NOT_FOUND_TTL', 30),
+    ],
+
+    /*
      * Read calls are cached under tags and cleared by the webhook. `store` = a Laravel cache store name (null = the default store).
      * `ttl` is the safety net in seconds: even without a webhook the data is at most this old.
      */
@@ -133,7 +150,8 @@ return [
 
     /*
      * The form route behind `<x-content::form>` and the `form` page block. On by default; set `enabled` to false (`FSC_FORMS_ENABLED=false`) to register it yourself with `Content::formRoutes()`. The `web` group is
-     * needed for session and CSRF. `ip_header`: the header with the visitor's IP behind your proxy (Cloudflare sets `cf-connecting-ip`); only set
+     * needed for session and CSRF. `ip_header` (read only when the request comes from a trusted proxy, `TrustProxies`; the `platform` feature
+     * trusts `*`): the header with the visitor's IP behind your proxy (Cloudflare sets `cf-connecting-ip`); only set
      * a header your proxy overwrites, otherwise a visitor can spoof it. null = use the IP Laravel sees. `locale` null = the page locale, then the app locale, then `nl` (Laravel's default `en` counts as not set: English sites set `FSC_FORMS_LOCALE=en`).
      */
     'forms' => [
@@ -326,8 +344,10 @@ return [
      *   `build`, `storage` and the visitor proxy paths (`a`, `e`, `n`, `t`, `r`). `trailing_slash_skip`: extra first path segments to skip.
      * - `articles.category_segment`: path segment of a category list under the article parent (`/blog/categorie/<slug>`).
      *   `articles.per_page`: page size of the article list.
-     * - `middleware`: middleware of the content route and the legal paths. Default (null) is cookie free: no session, cookies or CSRF check
-     *   on a plain Hub page (a page that renders a Hub form or a newsletter signup starts the session itself). `['web']` restores the old behaviour.
+     * - `middleware`: middleware of the content route and the legal paths. Default (null) = `['web']`, like a route in `routes/web.php`.
+     *   `'stateless'` = the cookie free preset: no session, cookies or CSRF check on a plain Hub page (cacheable, no `Set-Cookie`); `$errors`
+     *   is an empty bag, and a page that renders a Hub form, a newsletter signup or `@csrf` starts the session itself (as does a visitor with
+     *   a session cookie). `csrf_token()` or `session()` in the layout read an unstarted session there: `fsc:doctor` warns (LET OP).
      * - `hosts`: host patterns (`*` wildcard) the SDK's routes and the redirect middleware answer on; default `[]` = every host. For a site
      *   that also serves an admin subdomain of its own: `['www.example.nl', 'example.nl']`.
      * - `proxy_headers`: forwarded headers the `platform` feature trusts from the proxies (default `['for', 'proto', 'port']`; add `host` only for
@@ -340,6 +360,8 @@ return [
      *   `sitemap.extra`: invokable class (works with config:cache) that returns extra URLs (`['/product/a', ['path' => '/product/b', 'lastmod' => '...']]`);
      *   `Sitemap::extra(fn () => [...])` does the same from a provider.
      *   `sitemap.routes`: route names that are included whatever their middleware (for pages outside the `web` group).
+     *   Never listed: routes behind login, `guest`, `signed`, `verified` or `can:` (also custom auth classes and groups that contain them),
+     *   routes with `Route::domain()`, and thank-you pages: a last path segment in `sitemap.thank_you` (default `['bedankt', 'thank-you']`).
      * - `layout` (env FSC_AUTO_LAYOUT): Blade layout the default views extend, `section`: its content section, `wrap` (env FSC_AUTO_WRAP):
      *   classes of the content container. Without `layout` the package layout is used.
      * - `views`: type => view name, replaces the default view of `page`, `article`, `articles`, `category`, `event`, `legal`.
@@ -369,6 +391,7 @@ return [
             'routes' => [],
             'extra' => null,
             'category_paths' => [],
+            'thank_you' => ['bedankt', 'thank-you'],
         ],
         'robots' => [
             'enabled' => (bool) env('FSC_AUTO_ROBOTS', true),
@@ -382,7 +405,7 @@ return [
         'consent' => (bool) env('FSC_AUTO_CONSENT', true),
         'visitor_pages' => [
             'enabled' => (bool) env('FSC_AUTO_VISITOR_PAGES', true),
-            'timeout' => 20,
+            'timeout' => 8,
             'connect_timeout' => 3,
             'per_minute' => 120,
         ],

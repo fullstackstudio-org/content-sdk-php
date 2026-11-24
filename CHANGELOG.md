@@ -2,6 +2,69 @@
 
 ## 0.32.0 (not yet tagged)
 
+### Upgrading from 0.28 to 0.32
+
+0.29, 0.30 and 0.31 were never tagged: a site on 0.28 gets all of it at once. Pages, views and the site's own routes keep working, but the
+out of the box site (`FSC_AUTO`, on by default) adds routes and middleware **without any config**. Check this list against the site:
+
+- **Routes the package registers** (a route of the site with the same method and URI replaces the package's, except where noted):
+  - the content route: a fallback `GET {fscPath}` that serves Hub pages, articles, events and legal documents for every path no route of
+    the site answers (a site's own `Route::fallback()` wins), plus a fallback for `POST/PUT/PATCH/DELETE` that keeps Laravel's 404/405;
+  - early, before the site's route files (a root catch-all `Route::get('{path}')` of the site no longer swallows them): `api/health`,
+    `sitemap.xml`, `robots.txt` and the legal paths `privacyverklaring`, `algemene-voorwaarden`, `cookieverklaring`. A legal path without
+    a published Hub document behaves as before: the site's own route for that path answers (its catch-all or fallback), else the Hub page
+    at that path, else a 404;
+  - the Hub's visitor pages, before the site's routes (a site route on these paths is never reached): `/a/...` (appointments), `/e/...`
+    (events), `/n/...` (newsletter and member links), `/t/...` and `/r/...` (tickets, returns), `api/invoices/download/...`,
+    `api/privacy/exports/...`, `api/v1/downloads/...`, and the verification probe `_fsc/x/verify`;
+  - `POST content/forms/{key}` (`content.form`, `web` group) and `POST content/webhook` (`content.webhook`, `api` group), as in 0.28,
+    plus the consent routes under `_fsc/c`.
+- **Middleware** (only where the app did not set its own): `TrustProxies` at `*` with the `for`, `proto` and `port` headers (not `host`),
+  `ForceHttps` in production (`URL::forceScheme('https')` per request), and `RedirectMiddleware` first in the `web` group (Hub redirects).
+  The trailing slash middleware is only added with `FSC_AUTO_TRAILING_SLASH=true`.
+- **Behaviour**:
+  - the content route runs in the `web` group, as a route in `routes/web.php` does (the cookie free `'stateless'` preset is opt-in, see below);
+  - a path with a double slash (`//x`, `/x//y`) on the content route is a 308 to the same path with single slashes, always a local path;
+  - form texts follow `FormLocale`: `content.forms.locale`, else the content language of the page, else the app locale (Laravel's default
+    `en` counts as unset), else `nl`;
+  - `sitemap.xml` lists the site's own `GET` routes of the `web` group as well as the Hub's entries (not behind login, `guest`, `signed`,
+    `verified`, not with `Route::domain()`, not a thank-you page; `sitemap.exclude` filters both);
+  - Hub 404s and outages escaping site code render as the site's `errors/404` and `errors/503` instead of a 500 (`FSC_AUTO_ERRORS`).
+- **Opt-outs**: `FSC_AUTO=false` (none of the above except the visitor pages, forms, webhook and consent routes, which have their own
+  switches), one feature at a time with `FSC_AUTO_<FEATURE>=false`, `content.auto.middleware` for the middleware of the content route,
+  `content.auto.legal_paths = []` for no early legal routes, `content.auto.hosts` to keep the package's routes off other hosts.
+- **After updating**: run `php artisan route:clear` once on a site that uses `route:cache`, then `php artisan fsc:doctor` (0 `FOUT`).
+
+### Release candidate review fixes
+
+- **The content route runs in `web` again by default.** 0.32 RC made it cookie free by default; that broke layouts with `@error` or `@csrf`
+  (no `$errors`, a token of a session that was never saved, so a post ended in a 419) and site middleware in the `web` group (a site's own
+  slash normalisation). The default of `content.auto.middleware` is `['web']` again. Cookie free is the opt-in preset `'stateless'`: the
+  Hub redirect lookup and `LazySession`, which shares an empty `$errors` bag, starts the session for `@csrf` and Hub forms (and up front
+  for a visitor who already has a session cookie, so errors and flash messages after a post show), and writes the session cookie exactly as
+  `EncryptCookies` would, so the post passes the CSRF check. `fsc:doctor` gives `LET OP` when the preset is on and the layout uses
+  `@csrf`, `@error`, `$errors`, `session(` or `csrf_token(` (the last two read an unstarted session there).
+- **Legal paths without a document** behave as before (see the upgrade notes). **Component layouts** (`{{ $slot }}`, Breeze and the
+  starter kits) work for every default view: the views render through a small bridge that passes their content as `$slot`; `fsc:doctor`
+  accepts such a layout instead of asking for `@yield`.
+- **Hub-down resilience** (`content.hub`): one shared cooldown (`cooldown_seconds`, 15) after a timeout or connection error for every read
+  the SDK does while rendering (content route and resolver, head and meta, robots.txt, site standards, redirect lookup, visitor page proxy);
+  during it those reads answer without the Hub (last good data, no Hub part, or a 503) instead of waiting for a timeout per request. A 4xx
+  or 5xx answer does not start it. Resolver and meta reads use a short timeout (`timeout_ms`, 2500). A path that is nothing in the Hub is
+  remembered for `not_found_ttl` (30) seconds, cleared at once by a page, article, event or legal webhook. The visitor page proxy timeout
+  is 8 seconds (was 20).
+- **Double slash.** `//evil.example//` on the content route is a 308 to `/evil.example` (relative, never another host); before it was a 404.
+- **Sitemap** also leaves out routes behind `Authenticate` (or a custom auth class), `guest`, `signed`, `password.confirm`, routes with
+  `Route::domain()`, and thank-you pages (`sitemap.thank_you`, default `['bedankt', 'thank-you']`).
+- **Session cookie** of `LazySession` is validated like `EncryptCookies` does, with the previous keys (`APP_PREVIOUS_KEYS`) too.
+- **Visitor IP.** `cf-connecting-ip` (`content.*.ip_header`) is only used when the request comes from a trusted proxy (`TrustProxies`; the
+  `platform` feature trusts `*`); from anyone else the header is ignored and the real client IP is used. A site with `FSC_AUTO_PLATFORM=false`
+  must configure `trustProxies` itself, else every visitor shares the ingress IP at the Hub.
+- **`content.auto.hosts`** now also applies to the visitor, verification, form, newsletter, consent and webhook routes with `FSC_AUTO=false`;
+  `api/health` answers on every host (a Kubernetes probe sends the pod IP as Host).
+
+### Changes in this release
+
 - Fixes from the pilot migration of hanami4you.nl (task 14 findings, no behaviour change for a site that does not hit them):
   - **Event head.** `<x-content::head />` on an event page uses the event `summary` as description (else the first 160 characters of the plain text of `descriptionHtml`, else the project default) in `description`, `og:description` and `twitter:description`; before, every event got the project default. The title goes through the project's title template like a page's (`"<title> | <site>"` with the usual template; a project without a template shows the bare title for pages too). A `seoDescription` on the event still wins, as does `Content::seo()`.
   - **Event view data.** `capacity` (the event's total seats, `null` for no limit) is now among the public event fields in `$event`; the sold and registration counters stay out.
@@ -14,7 +77,7 @@
   - **PageContext per request.** The print-once state (and `Urls`) is dropped when a request terminates, so several requests in one Laravel HTTP test no longer share it.
   - **Redirect middleware without a token** passes through (no Hub call, no 503), and runs once per request when it is in the global stack and in the `web` group (a global one is also recognised by the platform setup).
   - **Case insensitive paths.** `/Diensten` (Hub page `/diensten`) is a 301 to the stored path, query kept; before it answered 200 with a self-canonical.
-  - **Cookie free content route.** `content.auto.middleware` (default null) is now cookie free: the Hub redirect lookup and `LazySession`, which starts the session only when the page renders a Hub form or a newsletter signup (encrypted session cookie, CSRF token, flash message; the post still runs in `web`). A plain Hub page sends no `Set-Cookie`. Behaviour change: set `['web']` for the old behaviour.
+  - **Cookie free content route** (opt-in since the review fixes above): `content.auto.middleware = 'stateless'` runs the Hub redirect lookup and `LazySession` instead of `web`; a plain Hub page sends no `Set-Cookie`.
   - **Sitemap.** `sitemap.exclude` also filters the Hub's entries; `sitemap.groups` and `sitemap.routes` include page routes outside `web`; `Sitemap::extra(fn)` or an invokable class in `sitemap.extra` adds URLs (own lastmod, parameterised routes). robots.txt `Sitemap:` uses the Hub `canonicalOrigin` when set.
   - **Platform.** `https` is decided per request (`ForceHttps` global middleware), so an environment that changes after boot is honoured. Trusted proxies no longer trust `X-Forwarded-Host` by default (`content.auto.proxy_headers`, default `for`, `proto`, `port`; add `host` if needed). Behaviour change for sites that relied on a forwarded host.
   - **Head.** Tags the layout printed before `<x-content::head />` (a handwritten `<title>`, `robots`, `og:*`, canonical) are not printed again; every 4xx/5xx status is an error page (no canonical, noindex). `Content::seo()` takes `noindex` as a robots string (`'noindex, follow'`) and `ogType`.
@@ -45,7 +108,7 @@ Page builder v2 and the out of the box site (0.29 and 0.30 were never tagged on 
 - **F6 in the page builder.** `preview.js` forwards F6 and Shift+F6 pressed in the site frame to the portal as `shortcut {name: 'pane-next'}` and `'pane-prev'` (plain F6 only, not with Ctrl, Alt or Meta, not during IME composition; the browser's own F6 is prevented), so the focus can move on from the canvas to the next pane of the builder.
 - **Layouts and tones.** Every block can carry `layout` and `tone`. Default views implement all of them; a site view opts in with `content.block_layouts.<type>` and `$look`. See AGENTS.md, A19 ("Eigen blokview in de bouwer"), and `examples/laravel` (`resources/views/blocks/cta.blade.php`).
 - **Doctor.** New section lines for the canvas (`FOUT` when the preview script route, the preview middleware or `preview.js` is missing; `LET OP` for a changed `FSC_PREVIEW_PATH`) and for layouts (`LET OP` when a site view exists for a type with layouts and `content.block_layouts` has no entry for it, or names a type or layout the SDK does not know; `INFO` for a site view without `$edit` markers).
-- **Upgrading from 0.28 to 0.31.** Replace nothing: pages, views and config keep working. To make a site view part of the builder add `'<type>' => [...]` to `content.block_layouts`, print `$look` on the root of the block and mark typeable fields with `{!! $edit('field') !!}`; a site view that does none of this is still selectable and editable in the settings pane, just without layouts and typing on the page. Run `php artisan route:clear` once after updating a site that uses `route:cache` (the preview script route `content.preview.script` must exist; `fsc:doctor` says so when it does not).
+- **Upgrading from 0.28.** See "Upgrading from 0.28 to 0.32" at the top: the out of the box site adds routes and middleware without config, so this is not a drop-in. For the page builder: add `'<type>' => [...]` to `content.block_layouts`, print `$look` on the root of the block and mark typeable fields with `{!! $edit('field') !!}`; a site view that does none of this is still selectable and editable in the settings pane, just without layouts and typing on the page. Run `php artisan route:clear` once after updating a site that uses `route:cache`.
 - **Below 0.31 the builder has less to work with.** Sites on 0.27 to 0.30 get the real site as canvas with click selection only (protocol 1; no layouts, no typing on the page). Sites below 0.27, or whose preview does not answer within 5 seconds, get the Hub's fallback renderer (neutral style, the SDK's own blocks, no layouts offered). The placeholders for incomplete blocks (a labelled box for a block whose required choice is not made yet, the `fscPlaceholder` view) are drawn from 0.31 on and by the Hub's fallback: on a site below 0.31 an incomplete block is left out of the page itself (the site has no view for a placeholder and skips it), so it cannot be selected there (use the block list); once the portal switched such a site to the fallback, the placeholder shows. Upgrade the site to 0.31 to get them on the real site.
 - **Not changed for visitors.** A live page renders byte for byte as before for a block without `layout` or `tone`; every builder marker (`data-fsc-edit`, wrapper data attributes, placeholders) is printed in a portal preview only.
 

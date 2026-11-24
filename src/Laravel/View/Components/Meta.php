@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FullStackStudio\Content\Laravel\View\Components;
 
 use FullStackStudio\Content\ContentClient;
+use FullStackStudio\Content\Laravel\HubCooldown;
 use FullStackStudio\Content\Laravel\Site\Parts;
 use FullStackStudio\Content\Laravel\SiteSettings;
 use FullStackStudio\Content\Seo;
@@ -58,7 +59,7 @@ final class Meta extends Component
         $client = app(ContentClient::class);
 
         try {
-            $seo = $client->getSeo();
+            $seo = HubCooldown::read(static fn (): array => $client->getSeo(HubCooldown::options()));
         } catch (Throwable) {
             // An outage at Content must not break the page: the page's own fields still make useful meta.
             $seo = null;

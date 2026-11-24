@@ -61,6 +61,7 @@ final class AutoRoutes
 
         $app->booted(static function (Application $app): void {
             self::registerRoutes($app);
+            self::applyHosts($app);
         });
     }
 
@@ -176,6 +177,22 @@ final class AutoRoutes
     }
 
     /**
+     * `content.auto.hosts` for every route of this package, also with the out of the box site off (`FSC_AUTO=false`): the visitor pages,
+     * the verification probe, the form, newsletter, consent and webhook routes still exist then. Nothing with cached routes (the cache holds
+     * the middleware).
+     */
+    public static function applyHosts(Application $app): void
+    {
+        if (method_exists($app, 'routesAreCached') && $app->routesAreCached()) {
+            return;
+        }
+
+        /** @var Router $router */
+        $router = $app->make('router');
+        self::restrictToHosts($router);
+    }
+
+    /**
      * With `content.auto.hosts` set, every route of this package (names `content.*`, controllers of the package) answers on those hosts only
      * ({@see HostOnly}). Without it nothing changes. Runs before `route:cache`, so the middleware is part of the cache.
      */
@@ -186,6 +203,11 @@ final class AutoRoutes
         }
 
         foreach ($router->getRoutes()->getRoutes() as $route) {
+            // `api/health` answers on every host: a Kubernetes probe sends the pod IP as Host, and a 404 there restarts the pod.
+            if ($route->getName() === self::HEALTH) {
+                continue;
+            }
+
             if (self::isPackageRoute($route) && ! in_array(HostOnly::class, (array) ($route->getAction('middleware') ?? []), true)) {
                 $route->middleware(HostOnly::class);
             }
