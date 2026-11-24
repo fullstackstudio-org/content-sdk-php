@@ -26,6 +26,14 @@ final class Auto
         // One per request: the project and SEO settings Urls reads are remembered, so a page builds many links with one lookup (Octane safe).
         $app->scoped(\FullStackStudio\Content\Laravel\Site\Urls::class);
 
+        // A scoped binding is only reset by Octane or a queue worker. In a Laravel HTTP test (several requests in one application) the state
+        // would leak from one request into the next (the "print once" parts of the first page missing from the second), so every request
+        // ends by dropping both. Terminating callbacks run after the response is sent, so nothing of the request still reads them.
+        $app->terminating(static function () use ($app): void {
+            $app->forgetInstance(PageContext::class);
+            $app->forgetInstance(\FullStackStudio\Content\Laravel\Site\Urls::class);
+        });
+
         $config = $app['config'];
         $package = (require self::PACKAGE_CONFIG)['auto'];
         $site = $config->get('content.auto');

@@ -18,8 +18,15 @@ use Illuminate\Http\Request;
  */
 final class SiteController
 {
-    public function __invoke(Request $request, PathResolver $resolver, PageContext $context): mixed
+    public function __invoke(Request $request, PageContext $context): mixed
     {
+        // Nothing here is served when pages, articles and legal are all off: answer 404 without building the resolver, which needs a
+        // Hub client (and so a token that a site without Hub content does not have).
+        if (! Auto::on('pages') && ! Auto::on('articles') && ! Auto::on('legal')) {
+            abort(404);
+        }
+
+        $resolver = app(PathResolver::class);
         $resolved = Hub::orAbort(fn (): ?Resolved => $resolver->resolve($request->getPathInfo()));
 
         if (! self::allowed($resolved)) {

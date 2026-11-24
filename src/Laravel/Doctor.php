@@ -923,12 +923,48 @@ final class Doctor
     }
 
     /**
-     * The site's own banner: a view of the site that sends `fsc:consent`. The published copy of the SDK banner lives under `vendor/` and is
-     * not listed by {@see views()}, so a customised SDK banner counts as the SDK's.
+     * The event the site's own banner sends: `content.analytics.consent_event` (a site may use its own name, e.g. `fss:consent`), else `fsc:consent`.
+     */
+    private function consentEvent(): string
+    {
+        $event = $this->config('content.analytics.consent_event', 'fsc:consent');
+
+        return is_string($event) && trim($event) !== '' ? trim($event) : 'fsc:consent';
+    }
+
+    /**
+     * The site's own banner: a view or a script of the site (resources/js) that sends the consent event. The published copy of the SDK banner
+     * lives under `vendor/` and is not listed by {@see views()}, so a customised SDK banner counts as the SDK's.
      */
     private function ownBanner(): bool
     {
-        return $this->viewsContain('fsc:consent');
+        $needles = array_values(array_unique([$this->consentEvent(), 'fsc:consent']));
+
+        foreach ($needles as $needle) {
+            if ($this->viewsContain($needle) || $this->siteScriptsContain($needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether the site's own scripts (resources/js) mention a string. */
+    private function siteScriptsContain(string $needle): bool
+    {
+        $dir = $this->app->resourcePath('js');
+
+        if (! is_dir($dir)) {
+            return false;
+        }
+
+        foreach (Finder::create()->files()->in($dir)->size('< 2M')->notPath(['build', 'vendor', 'node_modules']) as $file) {
+            if (str_contains((string) file_get_contents($file->getRealPath()), $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -965,11 +1001,11 @@ final class Doctor
         $own = $this->ownBanner();
 
         if ($own && $this->packageBanner()) {
-            $this->add(self::WARN, 'Twee cookiebanners: een eigen banner (stuurt fsc:consent) en die van de SDK (<x-content::scripts />)', 'Houd er één over. Blijft de eigen banner, zet dan FSC_AUTO_CONSENT=false (of <x-content::scripts :consent="false" />); blijft die van de SDK, haal dan de eigen weg.');
+            $this->add(self::WARN, 'Twee cookiebanners: een eigen banner (stuurt ' . $this->consentEvent() . ') en die van de SDK (<x-content::scripts />)', 'Houd er één over. Blijft de eigen banner, zet dan FSC_AUTO_CONSENT=false (of <x-content::scripts :consent="false" />); blijft die van de SDK, haal dan de eigen weg.');
         } elseif ($own) {
-            $this->add(self::OK, 'Cookiebanner gevonden (stuurt fsc:consent)');
+            $this->add(self::OK, 'Cookiebanner gevonden (stuurt ' . $this->consentEvent() . ')');
         } elseif (! $this->packageBanner()) {
-            $this->add(self::WARN, 'Geen cookiebanner gevonden (geen view stuurt fsc:consent)', 'Zonder banner draait geen code met toestemming (eigen code, heatmaps). Zet <x-content::scripts /> voor </body> (de SDK toont dan zijn banner), of bouw een eigen volgens AGENTS.md, "Cookiebanner".');
+            $this->add(self::WARN, 'Geen cookiebanner gevonden (geen view stuurt ' . $this->consentEvent() . ')', 'Zonder banner draait geen code met toestemming (eigen code, heatmaps). Zet <x-content::scripts /> voor </body> (de SDK toont dan zijn banner), of bouw een eigen volgens AGENTS.md, "Cookiebanner".');
         }
     }
 

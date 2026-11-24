@@ -429,6 +429,44 @@ final class DoctorCommandTest extends LaravelTestCase
         $this->assertLine($results, Doctor::INFO, 'De banner van de SDK staat uit (FSC_AUTO_CONSENT=false)');
     }
 
+    public function testAnOwnBannerWithACustomConsentEventCounts(): void
+    {
+        $this->layoutWith('<x-content::head />', "@include('partials.consent')");
+        file_put_contents($this->views . '/partials/consent.blade.php', "<script>window.dispatchEvent(new CustomEvent('fss:consent', {detail: c}));</script>");
+        $this->site(null, ['content.analytics.consent_event' => 'fss:consent']);
+
+        $results = $this->results();
+        $this->assertLine($results, Doctor::OK, 'Cookiebanner gevonden (stuurt fss:consent)');
+        self::assertNull($this->statusOf($results, 'Geen cookiebanner gevonden'));
+
+        // Without the config the custom name is not a banner of ours.
+        $this->site();
+        $this->assertLine($this->results(), Doctor::WARN, 'Geen cookiebanner gevonden');
+    }
+
+    public function testAnOwnBannerInResourcesJsCounts(): void
+    {
+        $js = $this->app->resourcePath('js');
+        $existed = is_dir($js);
+        @mkdir($js, 0777, true);
+        $file = $js . '/consent-banner-test.js';
+
+        try {
+            $this->layoutWith('<x-content::head />', '');
+            file_put_contents($file, "window.dispatchEvent(new CustomEvent('fss:consent', { detail: choice }));");
+            $this->site(null, ['content.analytics.consent_event' => 'fss:consent']);
+
+            $results = $this->results();
+            $this->assertLine($results, Doctor::OK, 'Cookiebanner gevonden (stuurt fss:consent)');
+            self::assertNull($this->statusOf($results, 'Geen cookiebanner gevonden'));
+        } finally {
+            @unlink($file);
+            if (! $existed) {
+                @rmdir($js);
+            }
+        }
+    }
+
     public function testNoBannerAtAllIsStillAWarningAndTheHintNamesTheScriptsComponent(): void
     {
         $this->layoutWith('<x-content::head />', '');
