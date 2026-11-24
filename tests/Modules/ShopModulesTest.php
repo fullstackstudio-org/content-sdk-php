@@ -51,6 +51,12 @@ final class ShopModulesTest extends ModuleTestCase
         yield 'payments.startForOrder' => [fn (ContentClient $c) => $c->payments->startForOrder('o1'), 'POST', '/orders/o1/payments', [], null];
         yield 'payments.listForOrder' => [fn (ContentClient $c) => $c->payments->listForOrder('o1'), 'GET', '/orders/o1/payments', [], null];
         yield 'payments.start' => [fn (ContentClient $c) => $c->payments->start(['kind' => 'appointment', 'appointmentId' => 'a1']), 'POST', '/payments', [], ['kind' => 'appointment', 'appointmentId' => 'a1']];
+        yield 'payments.startForOrder (method)' => [fn (ContentClient $c) => $c->payments->startForOrder('o1', [], 'ideal'), 'POST', '/orders/o1/payments', [], ['method' => 'ideal']];
+        yield 'payments.start (method)' => [fn (ContentClient $c) => $c->payments->start(['subject' => ['kind' => 'order', 'id' => '1042']], [], 'ideal'), 'POST', '/payments', [], ['subject' => ['kind' => 'order', 'id' => '1042'], 'method' => 'ideal']];
+        yield 'payments.start (method argument wins)' => [fn (ContentClient $c) => $c->payments->start(['subject' => ['kind' => 'order', 'id' => '1042'], 'method' => 'card'], [], 'ideal'), 'POST', '/payments', [], ['subject' => ['kind' => 'order', 'id' => '1042'], 'method' => 'ideal']];
+        yield 'payments.list' => [fn (ContentClient $c) => $c->payments->list(['status' => 'paid,open', 'subject' => 'order', 'view' => 'paid', 'from' => '2026-11-01', 'to' => '2026-11-30', 'q' => '1042', 'page' => 2, 'limit' => 50, 'ignored' => 'x']), 'GET', '/payments', ['status' => 'paid,open', 'subject' => 'order', 'view' => 'paid', 'from' => '2026-11-01', 'to' => '2026-11-30', 'q' => '1042', 'page' => '2', 'limit' => '50'], null];
+        yield 'payments.list (no params)' => [fn (ContentClient $c) => $c->payments->list(), 'GET', '/payments', [], null];
+        yield 'payments.methods' => [fn (ContentClient $c) => $c->payments->methods(), 'GET', '/payments/methods', [], null];
         yield 'payments.get' => [fn (ContentClient $c) => $c->payments->get('pay1'), 'GET', '/payments/pay1', [], null];
         yield 'payments.refund' => [fn (ContentClient $c) => $c->payments->refund('pay1', ['requestId' => 'r-1', 'amountCents' => 500]), 'POST', '/payments/pay1/refunds', [], ['requestId' => 'r-1', 'amountCents' => 500]];
         yield 'payments.refund (no input)' => [fn (ContentClient $c) => $c->payments->refund('pay1'), 'POST', '/payments/pay1/refunds', [], []];
@@ -101,6 +107,12 @@ final class ShopModulesTest extends ModuleTestCase
         $this->http->always(FakeTransport::json(['payment' => ['id' => 'pay1']]));
         self::assertSame(['id' => 'pay1'], $this->client()->payments->get('pay1'));
 
+        $this->http->always(FakeTransport::json(['methods' => [['id' => 'ideal', 'label' => 'iDEAL']]]));
+        self::assertSame([['id' => 'ideal', 'label' => 'iDEAL']], $this->client()->payments->methods());
+
+        $this->http->always(FakeTransport::json(['methods' => []]));
+        self::assertSame([], $this->client()->payments->methods());
+
         $this->http->always(FakeTransport::json(['discount' => ['id' => 'd1']]));
         self::assertSame(['id' => 'd1'], $this->client()->discounts->get('d1'));
 
@@ -119,6 +131,10 @@ final class ShopModulesTest extends ModuleTestCase
 
         $this->http->always(FakeTransport::json(['orders' => []], 200, ['X-Total-Count' => '7']));
         self::assertSame(7, $this->client()->orders->list()['total']);
+
+        $this->http->always(FakeTransport::json(['payments' => [['id' => 'pay1']], 'page' => 1, 'limit' => 20, 'total' => 1], 200, ['X-Total-Count' => '1']));
+        self::assertSame([['id' => 'pay1']], $this->client()->payments->list()['payments']);
+        self::assertSame(1, $this->client()->payments->list()['total']);
     }
 
     public function testProductReadsAreCachedUnderTheirTagsAndWritesAreNot(): void

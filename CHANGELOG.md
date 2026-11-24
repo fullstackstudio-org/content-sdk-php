@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.0 (not yet tagged)
+
+Payments as a global module, step 3.2 (plan payments-global). A minor bump: only new methods and new optional arguments; every existing signature and behaviour is unchanged. `ContentClient::VERSION` moves to `0.32.0` when this is tagged; it is not published or tagged before the Hub batch that serves the routes is released. Needs a Hub with `GET /api/v1/payments/methods` and the `method` parameter on the start routes; an older Hub answers 404 on `methods()` and rejects `method` with 400, so only use them after the Hub is updated.
+
+- **`payments->methods()`**: `[{id, label}]`, the payment methods the project can offer now (the union of its active payment connections; the provider is not named). Never cached. Show the labels to the buyer, send the chosen `id` back as `method`.
+- **`payments->list(array $params = [])`**: all payments of the project over every source, newest first (`payments`, `page`, `limit`, `total`); filters `status`, `subject`, `view`, `from`, `to`, `q`, `page`, `limit`. Never names the payer.
+- **`payments->start($input, $options, ?string $method = null)`** and **`payments->startForOrder($order, $options, ?string $method = null)`**: the new optional last argument is the chosen method id. An id the connection that would take the payment does not offer is a `ContentException` with `errorCode()` `payment_method_unavailable` (HTTP 409), before anything is created; call `methods()` again and let the buyer choose again. Without `$method` the request is byte for byte what it was.
+
 ## 0.31.0 (not yet tagged)
 
 Page builder v2 and the out of the box site (0.29 and 0.30 were never tagged on their own; their entries follow). What a site owner or builder needs to know:

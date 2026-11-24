@@ -1318,6 +1318,13 @@ Optional "Misschien ook interessant": `$content->products->recommendedProducts($
 `productList` links to `content.links.product` or the Hub's product path: keep that route working. Verify: a test order in a test
 project reaches the payment provider's test checkout; the thank-you page fires `purchase` once.
 
+**Choosing a payment method (optional).** `$content->payments->methods()` returns `[{id, label}]`: what the project can offer now (the union of its active
+payment connections; the provider is not named; not cached). Show them only when the owner wants the buyer to choose on the site, then pass the chosen
+`id` as the last argument: `payments->startForOrder($order, [], $method)` or `payments->start($input, [], $method)`. Without it the provider shows its
+own method page, so do nothing unless asked. An id that is not offered throws a `ContentException` with `errorCode()` `payment_method_unavailable` (HTTP 409, nothing created): reload
+`methods()` and let the buyer choose again; never hard-code ids. `payments->list([...])` lists all payments of the project over every source (filters
+`status`, `subject`, `view`, `from`, `to`, `q`, `page`, `limit`; never names the payer), for server-side overviews only. Needs a Hub that serves these routes.
+
 ### `appointments`
 
 A booking page (`appointments->services`, `availability`, `book`) and a confirmation; with `analytics` on `<x-content::appointment-booked
@@ -2112,7 +2119,7 @@ reaches: use a shared store (`FSC_CACHE_STORE=redis`) or accept the TTL.
 ### Other modules (brief; what to build per module: "Als de module X aanstaat")
 
 Properties on the client, inputs/outputs plain arrays, call options last: `products`, `cart`, `orders`, `payments`, `discounts`, `shipping`
-(webshop: price with `cart->applyCode`, then `orders->place`, then `payments->startForOrder` and redirect to `payment.checkoutUrl`; pass `expectedTotalCents`; keep `accessToken` out of URLs),
+(webshop: price with `cart->applyCode`, then `orders->place`, then `payments->startForOrder` and redirect to `payment.checkoutUrl`; pass `expectedTotalCents`; keep `accessToken` out of URLs; optional method choice via `payments->methods()` and the `$method` argument),
 `members` (login incl. two-factor; keep the session token in an httpOnly cookie), `appointments`, `tickets` (uploads via `Http\UploadFile`), `customers`, `invoices`, `newsletter`
 (`subscribe`/`confirm`/`unsubscribe`), `returns`, `reviews`, `downloads`, `events`, `faq`, `legal`, `chat` (store the conversation token), `admin` (write routes; server token + scopes).
 Details and examples: README sections "Modules", "Webshop", "Members", "Chat", "Files and uploads".

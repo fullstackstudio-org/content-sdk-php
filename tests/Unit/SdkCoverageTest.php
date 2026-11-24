@@ -42,6 +42,7 @@ final class SdkCoverageTest extends TestCase
         '/members/me/marketing' => '`getMarketingConsent()`/`setMarketingConsent()`: marketing consent of a member (plan ootb-integrations D11) is Laravel/PHP only; the JS SDK is frozen and gets no new routes.',
         '/site-proxy/confirm' => '`confirmSiteProxy()`: the callback of the visitor page verification (plan sdk-out-of-the-box, section 8); the visitor proxy is Laravel/PHP only, the JS SDK is frozen and gets no new routes.',
         '/pages/_preview' => '`getPagePreview()`: the portal preview (plan page-builder B) is rendered by the Laravel site only; the JS SDK is frozen and gets no new routes.',
+        '/payments/methods' => '`payments->methods()`: the payment methods a site can offer (plan payments-global 3.2); Laravel/PHP only, the JS SDK is frozen and gets no new routes.',
         '/api/media/*' => '`mediaUrl()`: the JS version builds it from a template string that does not start with a slash, so the scan does not see it.',
     ];
 
